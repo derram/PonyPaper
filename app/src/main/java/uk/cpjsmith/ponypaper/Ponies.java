@@ -5,7 +5,10 @@ import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.MotionEvent;
+import android.view.ViewConfiguration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -15,6 +18,12 @@ import java.util.Random;
  * Class to hold the collection of ponies and coordinate their overall motion.
  */
 public class Ponies {
+    
+    /**
+     * Hold duration before a touch on a pony becomes a drag. Prevents
+     * accidental grabs from home-screen swipes and casual taps.
+     */
+    private static final int LONG_PRESS_MS = 300;
     
     private static final Comparator<Pony> compareY = new Comparator<Pony>() {
         @Override
@@ -32,8 +41,27 @@ public class Ponies {
     private ArrayList<Pony> inactivePonies;
     private Pony[] activePonies;
     
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final int touchSlop;
+    private final Runnable longPressRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (pendingPony == null) return;
+            draggedPony = pendingPony;
+            pendingPony = null;
+            draggedPony.startDrag();
+            draggedPony.moveTo(new Point(Math.round(lastX), Math.round(lastY)));
+        }
+    };
+    
     private int initialPointerId = -1;
     private Pony draggedPony = null;
+    /** Pony under the finger waiting for the long-press timeout. */
+    private Pony pendingPony = null;
+    private float downX;
+    private float downY;
+    private float lastX;
+    private float lastY;
     
     /**
      * Creates a new {@code Ponies} instance.
@@ -43,6 +71,7 @@ public class Ponies {
      */
     public Ponies(Context context, SharedPreferences prefs) {
         inactivePonies = AllPonies.getPonies(context, prefs);
+        touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         
         activeCount = prefs.getInt("pref_num_ponies", 4);
         activeCount = Math.min(inactivePonies.size(), activeCount);
@@ -93,47 +122,73 @@ public class Ponies {
     
     /**
      * Handles a touch event on the screen. This allows the user a means of
-     * dragging ponies around the screen.
+     * dragging ponies around the screen. A short hold is required before a
+     * drag starts so home-screen swipes and taps do not grab a pony by
+     * accident.
      * 
      * @param event the touch event that was performed by the user
      */
     public void onTouchEvent(MotionEvent event) {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                if (draggedPony != null) draggedPony.stopDrag();
+                endDrag();
+                cancelPendingDrag();
                 
                 initialPointerId = event.getPointerId(0);
-                draggedPony = null;
+                downX = lastX = event.getX();
+                downY = lastY = event.getY();
+                
                 for (Pony pony : activePonies) {
-                    if (pony.testHitPoint(event.getX(), event.getY())) draggedPony = pony;
+                    if (pony.testHitPoint(downX, downY)) pendingPony = pony;
                 }
-                if (draggedPony != null) {
-                    draggedPony.startDrag();
+                if (pendingPony != null) {
+                    handler.postDelayed(longPressRunnable, LONG_PRESS_MS);
                 }
                 break;
                 
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
-                if (draggedPony != null) draggedPony.stopDrag();
-                
+                endDrag();
+                cancelPendingDrag();
                 initialPointerId = -1;
-                draggedPony = null;
                 break;
                 
             case MotionEvent.ACTION_MOVE:
+                lastX = event.getX();
+                lastY = event.getY();
+                if (pendingPony != null) {
+                    float dx = lastX - downX;
+                    float dy = lastY - downY;
+                    if (dx * dx + dy * dy > touchSlop * touchSlop) {
+                        // Finger moved before the hold completed — treat as a
+                        // home-screen gesture, not a grab.
+                        cancelPendingDrag();
+                    }
+                }
                 if (draggedPony != null) {
-                    draggedPony.moveTo(new Point(Math.round(event.getX()), Math.round(event.getY())));
+                    draggedPony.moveTo(new Point(Math.round(lastX), Math.round(lastY)));
                 }
                 break;
                 
             case MotionEvent.ACTION_POINTER_UP:
                 if (event.getPointerId(event.getActionIndex()) == initialPointerId) {
-                    if (draggedPony != null) draggedPony.stopDrag();
-                    
+                    endDrag();
+                    cancelPendingDrag();
                     initialPointerId = -1;
-                    draggedPony = null;
                 }
                 break;
+        }
+    }
+    
+    private void cancelPendingDrag() {
+        handler.removeCallbacks(longPressRunnable);
+        pendingPony = null;
+    }
+    
+    private void endDrag() {
+        if (draggedPony != null) {
+            draggedPony.stopDrag();
+            draggedPony = null;
         }
     }
     
