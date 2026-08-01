@@ -4,7 +4,7 @@ A live wallpaper for Android using pixel-art sprites of characters from *My Litt
 
 This repository is a **grok build modernization fork** of the [Smithers888/PonyPaper](https://github.com/Smithers888/PonyPaper) project. Upstream Ant tooling and an ancient `targetSdk` no longer build or install cleanly on current Android. This fork targets a Gradle-based build and modern SDK levels so you can produce **debug/sideload APKs** without upstream signing keys.
 
-<img src='screenshots/screen1.png' width='180'> <img src='screenshots/screen2.png' width='180'> <img src='screenshots/drag.png' width='180'> <img src='screenshots/screen3.png' width='180'> <img src='screenshots/preferences.png' width='180'>
+<img src='screenshots/screen1.png' width='180'> <img src='screenshots/screen2.png' width='180'> <img src='screenshots/screen3.png' width='180'> <img src='screenshots/preview.png' width='180'>  <img src='screenshots/preferences.png' width='180'>
 
 ## Status
 
