@@ -22,20 +22,40 @@ public class Pony {
     private static final int LM_GOING = 1;
     private static final int LM_GONE = 2;
     
+    /**
+     * Sprite timings are stored in centiseconds (1/100 s). Animation time is
+     * advanced from real elapsed milliseconds so it is independent of the
+     * wallpaper redraw rate.
+     */
+    private static final float CS_PER_MS = 0.1f;
+    
+    /**
+     * Movement speed in unscaled pixels per second. Matches the historical
+     * behaviour of 3 pixels per frame at 25 FPS.
+     */
+    private static final float MOVE_SPEED_PER_SECOND = 75f;
+    
+    /** Idle wait range in milliseconds (was 25–274 frames at 25 FPS). */
+    private static final int WAIT_MIN_MS = 1000;
+    private static final int WAIT_EXTRA_MS = 10000;
+    
     private final PonyAction[] allActions;
     private final PonyAction[] startActions;
     
     private Random random;
     private Point targetPos;
-    private int waitTimer;
+    /** Remaining idle time in milliseconds. */
+    private float waitTimerMs;
     
     private int motion;
     private int leavingMode;
     
     private PonyAction currentAction;
-    private Point currentPos;
+    private float posX;
+    private float posY;
     private int direction;
-    private int frameTime = 0;
+    /** Animation clock in centiseconds (same unit as sprite frame timings). */
+    private float frameTime = 0;
     
     private Rect screenBounds;
     
@@ -56,11 +76,12 @@ public class Pony {
      * Clears the current state of the pony.
      */
     public void reset() {
-        waitTimer = 0;
+        waitTimerMs = 0;
         motion = MOTION_INIT;
         leavingMode = LM_NORMAL;
         currentAction = null;
-        currentPos = null;
+        posX = 0;
+        posY = 0;
         frameTime = 0;
         for (int i = 0; i < allActions.length; i++) {
             allActions[i].unload();
@@ -68,12 +89,14 @@ public class Pony {
     }
     
     /**
-     * Causes the state of the pony to be updated for the next frame.
+     * Causes the state of the pony to be updated for the elapsed time.
      * 
      * @param clipBounds the bounds of the screen that the pony will be
      *                   positioned on
+     * @param deltaMs    milliseconds since the previous update (may be 0 for a
+     *                   pure spawn/layout pass)
      */
-    public void doUpdate(Rect clipBounds) {
+    public void doUpdate(Rect clipBounds, long deltaMs) {
         screenBounds = clipBounds;
         
         float scale = getScale();
@@ -82,32 +105,41 @@ public class Pony {
             for (int i = 0; i < allActions.length; i++) {
                 allActions[i].load();
             }
-            currentPos = randomOffScreen();
+            Point start = randomOffScreen();
+            posX = start.x;
+            posY = start.y;
             changeAction(startActions[random.nextInt(startActions.length)]);
             motion = currentAction.type == PonyAction.NORMAL ? MOTION_MOVING : MOTION_SPECIAL;
             setRandomTarget();
-        } else {
-            frameTime += 4;
-            if (frameTime >= currentAction.getAnimationTime(direction)) {
-                frameTime -= currentAction.getAnimationTime(direction);
+        } else if (deltaMs > 0) {
+            frameTime += deltaMs * CS_PER_MS;
+            int animTime = currentAction.getAnimationTime(direction);
+            while (animTime > 0 && frameTime >= animTime) {
+                frameTime -= animTime;
                 switch (currentAction.type) {
                     case PonyAction.PORT_O:
                         moveTo(targetPos);
                         setMoving();
+                        animTime = currentAction.getAnimationTime(direction);
                         break;
                         
                     case PonyAction.PORT_I:
                         arriveTarget();
                         setWaiting();
+                        animTime = currentAction.getAnimationTime(direction);
+                        break;
+                        
+                    default:
+                        // Looping walk/stand cycles: wrap only.
                         break;
                 }
             }
             
             switch (motion) {
                 case MOTION_WAITING:
-                    if (waitTimer > 0) {
-                        waitTimer--;
-                    } else {
+                    waitTimerMs -= deltaMs;
+                    if (waitTimerMs <= 0) {
+                        waitTimerMs = 0;
                         setMoving();
                         motion = currentAction.type == PonyAction.NORMAL ? MOTION_MOVING : MOTION_SPECIAL;
                         setRandomTarget();
@@ -115,14 +147,20 @@ public class Pony {
                     break;
                     
                 case MOTION_MOVING:
-                    moveTowardsTarget(3 * scale);
+                    float step = MOVE_SPEED_PER_SECOND * scale * (deltaMs / 1000f);
+                    moveTowardsTarget(step);
                     break;
             }
         }
     }
     
     public void drawOn(Canvas c) {
-        currentAction.drawOn(c, direction, frameTime, currentPos, getScale(), motion == MOTION_DRAGGED);
+        int animTime = currentAction.getAnimationTime(direction);
+        int time = Math.round(frameTime);
+        // SpriteSheet.getRect requires 0 <= time < totalTime.
+        if (animTime > 0 && time >= animTime) time = animTime - 1;
+        if (time < 0) time = 0;
+        currentAction.drawOn(c, direction, time, currentPoint(), getScale(), motion == MOTION_DRAGGED);
     }
     
     /**
@@ -142,7 +180,7 @@ public class Pony {
      * @return the screen y-coordinate
      */
     public int getY() {
-        return currentPos.y;
+        return Math.round(posY);
     }
     
     /**
@@ -156,8 +194,8 @@ public class Pony {
     public boolean testHitPoint(float x, float y) {
         float ponySize = 30 * getScale();
         
-        float dX = x - currentPos.x;
-        float dY = y - currentPos.y;
+        float dX = x - posX;
+        float dY = y - posY;
         float d2 = dX * dX + dY * dY;
         
         return d2 < ponySize * ponySize;
@@ -182,20 +220,22 @@ public class Pony {
      */
     public void stopDrag() {
         int s = (int)(30 * getScale());
+        int x = Math.round(posX);
+        int y = Math.round(posY);
         
-        if (currentPos.x < screenBounds.left + s) {
+        if (x < screenBounds.left + s) {
             motion = MOTION_MOVING;
             leavingMode = LM_GOING;
-            targetPos = new Point(screenBounds.left - s, currentPos.y);
+            targetPos = new Point(screenBounds.left - s, y);
             setMoving();
-        } else if (currentPos.x >= screenBounds.right - s) {
+        } else if (x >= screenBounds.right - s) {
             motion = MOTION_MOVING;
             leavingMode = LM_GOING;
-            targetPos = new Point(screenBounds.right + s, currentPos.y);
+            targetPos = new Point(screenBounds.right + s, y);
             setMoving();
         } else {
             motion = MOTION_WAITING;
-            waitTimer = 25 + random.nextInt(250);
+            waitTimerMs = WAIT_MIN_MS + random.nextInt(WAIT_EXTRA_MS);
             setWaiting();
         }
     }
@@ -207,7 +247,12 @@ public class Pony {
      */
     public void moveTo(Point pos) {
         setDirection(pos);
-        currentPos = pos;
+        posX = pos.x;
+        posY = pos.y;
+    }
+    
+    private Point currentPoint() {
+        return new Point(Math.round(posX), Math.round(posY));
     }
     
     private void setWaiting() {
@@ -232,7 +277,7 @@ public class Pony {
     private void arriveTarget() {
         motion = MOTION_WAITING;
         targetPos = null;
-        waitTimer = 25 + random.nextInt(250);
+        waitTimerMs = WAIT_MIN_MS + random.nextInt(WAIT_EXTRA_MS);
         if (leavingMode == LM_GOING) leavingMode = LM_GONE;
     }
     
@@ -256,21 +301,22 @@ public class Pony {
     /**
      * Moves the pony towards its target by a given number of pixels.
      * 
-     * @param speed the number of pixels to move (i.e. the speed in
-     *              pixels/call)
+     * @param speed the distance to move this frame (pixels)
      */
     private void moveTowardsTarget(float speed) {
         setDirection(targetPos);
-        int dX = targetPos.x - currentPos.x;
-        int dY = targetPos.y - currentPos.y;
-        float f = speed / (float)Math.sqrt(dX * dX + dY * dY);
-        if (f >= 1) {
-            currentPos = targetPos;
+        float dX = targetPos.x - posX;
+        float dY = targetPos.y - posY;
+        float dist = (float)Math.sqrt(dX * dX + dY * dY);
+        if (dist == 0 || speed >= dist) {
+            posX = targetPos.x;
+            posY = targetPos.y;
             arriveTarget();
             setWaiting();
         } else {
-            currentPos.x += (int)(dX * f);
-            currentPos.y += (int)(dY * f);
+            float f = speed / dist;
+            posX += dX * f;
+            posY += dY * f;
         }
     }
     
@@ -297,9 +343,11 @@ public class Pony {
      */
     private Point randomOnScreenHoriz() {
         Point newPoint = null;
+        int curY = Math.round(posY);
+        int curX = Math.round(posX);
         for (int i = 0; i < 100; i++) {
             newPoint = randomOnScreen();
-            if (Math.abs(newPoint.y - currentPos.y) < Math.abs(newPoint.x - currentPos.x)) {
+            if (Math.abs(newPoint.y - curY) < Math.abs(newPoint.x - curX)) {
                 break;
             }
         }
@@ -325,9 +373,11 @@ public class Pony {
      */
     private Point randomOffScreenHoriz() {
         Point newPoint = null;
+        int curY = Math.round(posY);
+        int curX = Math.round(posX);
         for (int i = 0; i < 100; i++) {
             newPoint = randomOffScreen();
-            if (Math.abs(newPoint.y - currentPos.y) < Math.abs(newPoint.x - currentPos.x)) {
+            if (Math.abs(newPoint.y - curY) < Math.abs(newPoint.x - curX)) {
                 break;
             }
         }
@@ -335,7 +385,7 @@ public class Pony {
     }
     
     private void setDirection(Point targetPos) {
-        int dX = targetPos.x - currentPos.x;
+        float dX = targetPos.x - posX;
         if (dX > 0 && direction != PonyAction.RIGHT) {
             direction = PonyAction.RIGHT;
             frameTime = 0;

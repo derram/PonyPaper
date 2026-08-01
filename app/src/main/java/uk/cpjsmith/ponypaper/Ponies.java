@@ -63,14 +63,17 @@ public class Ponies {
     }
     
     /**
-     * Updates all active ponies for one frame of motion and draws them on the
+     * Updates all active ponies for the elapsed time and draws them on the
      * given canvas.
      * 
-     * @param c the canvas to draw on
+     * @param c       the canvas to draw on
+     * @param deltaMs milliseconds since the previous frame (animation and
+     *                motion are scaled by this so they stay consistent across
+     *                framerates)
      */
-    public void drawAndUpdate(Canvas c) {
+    public void drawAndUpdate(Canvas c, long deltaMs) {
         for (int i = 0; i < activePonies.length; i++) {
-            activePonies[i].doUpdate(c.getClipBounds());
+            activePonies[i].doUpdate(c.getClipBounds(), deltaMs);
             if (activePonies[i].goneOffScreen()) {
                 Pony temp = activePonies[i];
                 temp.reset();
@@ -79,7 +82,7 @@ public class Ponies {
                     activePonies[i] = inactivePonies.remove(j);
                     inactivePonies.add(temp);
                 }
-                activePonies[i].doUpdate(c.getClipBounds());
+                activePonies[i].doUpdate(c.getClipBounds(), 0);
             }
         }
         Arrays.sort(activePonies, compareY);

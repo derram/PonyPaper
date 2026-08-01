@@ -9,6 +9,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.service.wallpaper.WallpaperService;
 import android.view.MotionEvent;
@@ -16,6 +17,18 @@ import android.view.SurfaceHolder;
 import java.io.File;
 
 public class PonyWallpaper extends WallpaperService {
+    
+    /**
+     * Target redraw rate. 60 FPS is the modern baseline for smooth animation
+     * without chasing high-refresh panels (90/120) that cost battery for little
+     * gain on a soft-pixel live wallpaper.
+     */
+    static final int TARGET_FPS = 60;
+    private static final int FRAME_PERIOD_MS = 1000 / TARGET_FPS;
+    /** Cap one-frame jumps after pause so motion does not teleport. */
+    private static final long MAX_DELTA_MS = 100;
+    /** Original Berry Punch fade took ~3 frames at 25 FPS. */
+    private static final int DRUNK_FADE_MS = 120;
     
     private class PonyEngine extends Engine implements SharedPreferences.OnSharedPreferenceChangeListener {
         
@@ -26,9 +39,10 @@ public class PonyWallpaper extends WallpaperService {
         private boolean drunkMode = false;
         private Paint paint = null;
         private int backgroundColour = 0;
-        private int initFrameCount = 0;
+        private int drunkElapsedMs = 0;
         
         private boolean isVisible = false;
+        private long lastFrameUptimeMs = 0;
         private final Runnable drawFrameCallback = new Runnable() {
             public void run() {
                 drawFrame();
@@ -60,8 +74,12 @@ public class PonyWallpaper extends WallpaperService {
         @Override
         public void onVisibilityChanged(boolean visible) {
             isVisible = visible;
-            if (visible) drawFrame();
-            else handler.removeCallbacks(drawFrameCallback);
+            if (visible) {
+                lastFrameUptimeMs = 0;
+                drawFrame();
+            } else {
+                handler.removeCallbacks(drawFrameCallback);
+            }
         }
         
         @Override
@@ -75,10 +93,11 @@ public class PonyWallpaper extends WallpaperService {
             super.onSurfaceChanged(holder, format, width, height);
             if (ponies != null) ponies.reset();
             if (drunkMode) {
-                initFrameCount = 0;
+                drunkElapsedMs = 0;
                 backgroundColour = 0xff333333;
                 paint.setAlpha(0xff);
             }
+            lastFrameUptimeMs = 0;
             drawFrame();
         }
         
@@ -96,6 +115,14 @@ public class PonyWallpaper extends WallpaperService {
         
         private void drawFrame() {
             final SurfaceHolder holder = getSurfaceHolder();
+            final long now = SystemClock.uptimeMillis();
+            long deltaMs = FRAME_PERIOD_MS;
+            if (lastFrameUptimeMs != 0) {
+                deltaMs = now - lastFrameUptimeMs;
+                if (deltaMs < 0) deltaMs = FRAME_PERIOD_MS;
+                if (deltaMs > MAX_DELTA_MS) deltaMs = MAX_DELTA_MS;
+            }
+            lastFrameUptimeMs = now;
             
             Canvas c = null;
             try {
@@ -106,7 +133,7 @@ public class PonyWallpaper extends WallpaperService {
                     
                     background = null;
                     drunkMode = prefs.getBoolean("pref_drunk_mode", false);
-                    initFrameCount = 0;
+                    drunkElapsedMs = 0;
                     backgroundColour = 0xff333333;
                     paint.setAlpha(0xff);
                     if (prefs.getBoolean("pref_background", false)) {
@@ -125,9 +152,12 @@ public class PonyWallpaper extends WallpaperService {
                         }
                     }
                 }
-                if (drunkMode && initFrameCount <= 3 && initFrameCount++ == 3) {
-                    backgroundColour = 0x33333333;
-                    paint.setAlpha(0x33);
+                if (drunkMode && paint.getAlpha() == 0xff) {
+                    drunkElapsedMs += (int)deltaMs;
+                    if (drunkElapsedMs >= DRUNK_FADE_MS) {
+                        backgroundColour = 0x33333333;
+                        paint.setAlpha(0x33);
+                    }
                 }
                 if (c != null) {
                     if (background != null) {
@@ -143,7 +173,7 @@ public class PonyWallpaper extends WallpaperService {
                     } else {
                         c.drawColor(backgroundColour);
                     }
-                    ponies.drawAndUpdate(c);
+                    ponies.drawAndUpdate(c, deltaMs);
                 }
             } finally {
                 if (c != null) holder.unlockCanvasAndPost(c);
@@ -151,7 +181,7 @@ public class PonyWallpaper extends WallpaperService {
             
             // Reschedule the next redraw
             handler.removeCallbacks(drawFrameCallback);
-            if (isVisible) handler.postDelayed(drawFrameCallback, 1000 / 25);
+            if (isVisible) handler.postDelayed(drawFrameCallback, FRAME_PERIOD_MS);
         }
         
     }
