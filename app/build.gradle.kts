@@ -1,17 +1,52 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
 }
+
+// Optional release signing. Prefer (in order):
+// 1) keystore.properties at the repo root (local builds; never commit)
+// 2) SIGNING_* environment variables (CI / GitHub Actions secrets)
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+val envStoreFile = System.getenv("SIGNING_STORE_FILE")
+val hasReleaseSigning =
+    keystorePropertiesFile.exists() || (envStoreFile != null && envStoreFile.isNotBlank())
 
 android {
     namespace = "uk.cpjsmith.ponypaper"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "uk.cpjsmith.ponypaper"
+        // Install identity for this fork (separate from upstream uk.cpjsmith.ponypaper).
+        // Java package / namespace stay upstream-shaped for less source churn.
+        applicationId = "io.github.derram.ponypaper"
         minSdk = 21
         targetSdk = 35
         versionCode = 2
         versionName = "1.7.0-modern"
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                if (keystorePropertiesFile.exists()) {
+                    storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
+                    storePassword = keystoreProperties["storePassword"] as String
+                    keyAlias = keystoreProperties["keyAlias"] as String
+                    keyPassword = keystoreProperties["keyPassword"] as String
+                } else {
+                    storeFile = file(envStoreFile!!)
+                    storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                    keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                    keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+                }
+            }
+        }
     }
 
     buildTypes {
@@ -21,6 +56,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             applicationIdSuffix = ".debug"
