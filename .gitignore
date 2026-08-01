@@ -1,8 +1,28 @@
-# Built
+# Built outputs
 bin/
 gen/
+build/
+.gradle/
+**/build/
+*.apk
+*.ap_
+*.aab
+*.dex
 *.class
 *.jar
+!gradle/wrapper/gradle-wrapper.jar
+captures/
+output.json
+.cxx/
 
-# Machine-specific
+# IDE / local
+.idea/
+*.iml
+.DS_Store
 local.properties
+*.hprof
+
+# Signing keys (never commit)
+*.jks
+*.keystore
+keystore.properties

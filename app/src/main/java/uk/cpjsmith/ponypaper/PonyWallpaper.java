@@ -8,6 +8,7 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.Handler;
+import android.os.Looper;
 import android.preference.PreferenceManager;
 import android.service.wallpaper.WallpaperService;
 import android.view.MotionEvent;
@@ -35,6 +36,8 @@ public class PonyWallpaper extends WallpaperService {
         };
         
         private PonyEngine() {
+            // Live wallpaper engines do not receive touch events unless enabled.
+            setTouchEventsEnabled(true);
             getPreferences().registerOnSharedPreferenceChangeListener(this);
             paint = new Paint();
         }
@@ -153,7 +156,7 @@ public class PonyWallpaper extends WallpaperService {
         
     }
     
-    private final Handler handler = new Handler();
+    private final Handler handler = new Handler(Looper.getMainLooper());
     
     @Override
     public Engine onCreateEngine() {

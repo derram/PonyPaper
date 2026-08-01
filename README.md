@@ -1,28 +1,79 @@
-# PonyPaper
-A live wallpaper for Android using pixel-art sprites of characters from My Little Pony: Friendship is Magic.
+# PonyPaper (modern fork)
 
-Basically, it's a bit like [Desktop Ponies](https://github.com/RoosterDragon/Desktop-Ponies), but for Android phones and tablets, instead of PC (and it has a lot fewer features and doesn't come with as many ponies).
+A live wallpaper for Android using pixel-art sprites of characters from *My Little Pony: Friendship is Magic*.
+
+This repository is a **grok build modernization fork** of the [Smithers888/PonyPaper](https://github.com/Smithers888/PonyPaper) project. Upstream Ant tooling and an ancient `targetSdk` no longer build or install cleanly on current Android. This fork targets a Gradle-based build and modern SDK levels so you can produce **debug/sideload APKs** without upstream signing keys.
 
 <img src='screenshots/screen1.png' width='180'> <img src='screenshots/screen2.png' width='180'> <img src='screenshots/drag.png' width='180'> <img src='screenshots/screen3.png' width='180'> <img src='screenshots/preferences.png' width='180'>
 
-## Installation
-This wallpaper should be compatible with any device running Android 3.0 (Honeycomb) or higher.
+## Status
 
-1. Download `PonyPaper-release.apk` from [the latest release](http://github.com/Smithers888/PonyPaper/releases).
-2. Open the file on your device to install the app. Your device may prompt you to allow installation of non-market apps.
-3. To use the wallpaper, go to the home screen and press and hold the background. Navigate the ensuing dialogs to set the wallpaper of the home screen from "Live wallpapers". Next, select the "Pony Paper" wallpaper.
-4. Optional: choose "settings" and configure the wallpaper as listed below.
-5. Choose "Set wallpaper".
-6. Watch colourful ponies trot, fly and teleport across your screen.
+| Phase | Goal | Status |
+|-------|------|--------|
+| 1 | Gradle build, installable debug APK on modern devices | Done |
+| 2 | AndroidX Preference settings, permission cleanup | Planned |
+| 3 | Optional launcher/setup activity, store-ready packaging | Planned |
 
-## Settings
-* Most of the options are to enable or disable specific ponies. The wallpaper will display four of the selected ponies at once; periodically one will leave the screen to be replaced with another.
-* Another option adds custom ponies to the rotation; information on creating these is at  [custom/README.md](custom/README.md).
-* Additionally, you can select an image to use as a background. You may select any image stored on your device (be it one of your own photographs or something found on a web search for your favourite Equestrian location). The image will be automatically pixellated to better fit in with the ponies.
+Original app version was **1.6.0** (`targetSdk 21`). This fork versions as **1.7.0-modern** (`minSdk 21`, `targetSdk 35`). Debug builds use application id `uk.cpjsmith.ponypaper.debug` so they can sit alongside an older install.
 
-## Licensing/Credits
-All artwork was created by contributors to the Desktop Ponies team (who have a [DeviantArt group here](http://desktop-pony-team.deviantart.com/) and a [source repository here](https://github.com/RoosterDragon/Desktop-Ponies)). It is licensed under [Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported (CC BY-NC-SA 3.0)](http://creativecommons.org/licenses/by-nc-sa/3.0/).
+Debug APKs use the Android debug keystore automatically. For release builds, create your own keystore and wire it into `app/build.gradle.kts` (never commit the keystore or passwords).
 
-The source code was created by [Smithers888](http://cpjsmith.uk) and is available under the same license.
+## Build (debug)
 
-This means that anyone is free to share and modify this project, provided you give credit, do not use it commercially and allow others to use your modifications under the same terms.
+Requirements:
+
+- **Full JDK 17+** (not a JRE-only install — Android Gradle Plugin needs `jlink`)
+- Android SDK with platform **35** and a recent build-tools package
+- No release keystore needed for debug builds
+
+```bash
+# Point Gradle at your SDK (or copy local.properties.example)
+echo "sdk.dir=$HOME/Android/Sdk" > local.properties
+
+# If `java` is only a JRE, point Gradle at a full JDK, e.g.:
+# echo 'org.gradle.java.home=/path/to/jdk-17' >> gradle.properties
+
+./gradlew :app:assembleDebug
+```
+
+APK output:
+
+```
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+Install on a device/emulator:
+
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Then set the wallpaper: long-press home screen → Wallpapers → Live wallpapers → **Pony Paper**. Open settings from the wallpaper picker to toggle ponies, background image, etc.
+
+## Project layout
+
+```
+app/                 Android application module (Gradle)
+  src/main/java/     Wallpaper + settings Java sources
+  src/main/res/      Sprites, pony frame timings, preferences XML
+custom/              Desktop custom-pony editor (unchanged, Ant/Java SE)
+screenshots/         README images
+```
+
+The desktop editor under `custom/` is separate from the Android build.
+
+## Original features
+
+- Compatible in spirit with [Desktop Ponies](https://github.com/RoosterDragon/Desktop-Ponies), with a smaller pony set and fewer features.
+- Enable/disable individual ponies; a few appear at once and rotate on/off screen.
+- Optional custom ponies (see [custom/README.md](custom/README.md)).
+- Optional background image, auto-pixellated to match the sprites.
+- Drag ponies with touch (enabled in this fork).
+
+## Licensing / credits
+
+All artwork was created by contributors to the Desktop Ponies team ([DeviantArt](http://desktop-pony-team.deviantart.com/), [source](https://github.com/RoosterDragon/Desktop-Ponies)). Artwork and original source are licensed under [CC BY-NC-SA 3.0](http://creativecommons.org/licenses/by-nc-sa/3.0/).
+
+Original Android source: [Smithers888](http://cpjsmith.uk) / [Smithers888/PonyPaper](https://github.com/Smithers888/PonyPaper).
+
+You may share and modify this project under the same terms: credit, non-commercial use, and share-alike.
