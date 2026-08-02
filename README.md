@@ -98,11 +98,18 @@ app/build/outputs/apk/release/app-release.apk
 
 `keystore.properties`, `*.jks`, and `*.keystore` are gitignored.
 
-### 3. GitHub Releases (automated)
+### 3. Automated Releases (GitHub + Gitea)
 
-This repo includes [`.github/workflows/release.yml`](.github/workflows/release.yml). On a version tag, CI builds a signed APK and attaches it to a GitHub Release.
+The same release workflow lives in both places so either forge can run it:
 
-**One-time: add Actions secrets** (repo → Settings → Secrets and variables → Actions):
+| Path | Used by |
+|------|---------|
+| [`.github/workflows/release.yml`](.github/workflows/release.yml) | GitHub Actions |
+| [`.gitea/workflows/release.yml`](.gitea/workflows/release.yml) | Gitea Actions |
+
+Keep those two files identical when you edit the pipeline. On a version tag, CI builds a signed APK and attaches it to a Release on **whichever forge ran the job**.
+
+**One-time: add the same Actions secrets on each host** that should publish:
 
 | Secret | Value |
 |--------|--------|
@@ -110,6 +117,30 @@ This repo includes [`.github/workflows/release.yml`](.github/workflows/release.y
 | `SIGNING_STORE_PASSWORD` | keystore password |
 | `SIGNING_KEY_ALIAS` | e.g. `ponypaper` |
 | `SIGNING_KEY_PASSWORD` | key password |
+
+- **GitHub:** repo → Settings → Secrets and variables → Actions  
+- **Gitea:** repo → Settings → Actions → Secrets (Actions must be enabled for the instance and repo)
+
+`GITHUB_TOKEN` is provided automatically on both; the workflow uses it to create the release on that host’s API (`softprops/action-gh-release`).
+
+#### Gitea runner checklist
+
+1. Install and register [act_runner](https://docs.gitea.com/usage/actions/act-runner) against your Gitea instance.
+2. Give the runner a label matching `runs-on` in the workflow (`ubuntu-latest`). Prefer a **full Ubuntu** Docker image or a host executor — thin `node`-only images often break JDK/Android SDK setup.
+3. The runner needs outbound HTTPS to download Actions (from GitHub by default), Temurin JDK, and Android SDK packages. If the runner is air-gapped, mirror those actions onto Gitea and set `[actions].DEFAULT_ACTIONS_URL` (or use absolute `uses:` URLs).
+4. Add the four `SIGNING_*` secrets on the Gitea repo (same values as GitHub if you want the same signing key).
+
+#### Dual push (this repo’s usual setup)
+
+If `origin` pushes to both Gitea and GitHub, a single tag push can trigger **both** pipelines and publish the APK on each forge’s Releases page:
+
+```bash
+# example multi-push remote (adjust URLs to match your remotes)
+git remote set-url --add --push origin git@werkhorse.net:derram/PonyPaper.git
+git remote set-url --add --push origin git@github.com:derram/PonyPaper.git
+```
+
+If Gitea is a **pull mirror** of GitHub only, tag events may not run Actions on Gitea the same way — prefer dual-push (or push the tag to Gitea explicitly) when you want both releases.
 
 **Publish a release:**
 
@@ -122,9 +153,9 @@ git tag v1.7.0-modern
 git push origin v1.7.0-modern
 ```
 
-4. Wait for the **Release APK** workflow. It creates a GitHub Release named after `versionName` with asset `PonyPaper-<versionName>.apk`.
+4. Wait for the **Release APK** workflow on each forge that received the tag. It creates a Release named after `versionName` with asset `PonyPaper-<versionName>.apk`.
 
-You can also run the workflow manually (**Actions → Release APK → Run workflow**); manual runs create a **draft** release so you can inspect the APK before publishing.
+You can also run the workflow manually (**Actions → Release APK → Run workflow**); manual runs create a **draft** release so you can inspect the APK before publishing. On GitHub, auto-generated release notes are enabled; on Gitea they are skipped (API difference).
 
 ### 4. Manual upload (no CI)
 

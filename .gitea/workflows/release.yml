@@ -1,4 +1,4 @@
-# Keep in sync with .gitea/workflows/release.yml (GitHub reads .github/; Gitea prefers .gitea/).
+# Keep in sync with .github/workflows/release.yml (GitHub reads .github/; Gitea prefers .gitea/).
 #
 # Build a signed release APK and attach it to a forge Release when a version tag is pushed.
 # Works on GitHub Actions and Gitea Actions.
