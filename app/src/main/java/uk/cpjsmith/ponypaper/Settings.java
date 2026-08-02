@@ -23,7 +23,6 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Random;
 import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Document;
 
 public class Settings extends PreferenceActivity {
@@ -41,6 +40,7 @@ public class Settings extends PreferenceActivity {
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
             
             File[] files = dir.listFiles(AllPonies.xmlFilter);
+            if (files == null) files = new File[0];
             Arrays.sort(files);
             PreferenceCategory customCat = (PreferenceCategory)findPreference("pref_custom");
             for (int i = 0; i < files.length; i++) {
@@ -72,8 +72,13 @@ public class Settings extends PreferenceActivity {
         findPreference("pref_background").setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
             public boolean onPreferenceChange(Preference preference, Object newValue) {
                 if ((Boolean)newValue) {
-                    File dir = getExternalFilesDir(null);
-                    if (!new File(dir, "background").exists()) {
+                    File filesDir = getExternalFilesDir(null);
+                    if (filesDir == null) {
+                        showAlertDialog("Background unavailable",
+                                "App storage is not available on this device right now.");
+                        return false;
+                    }
+                    if (!new File(filesDir, "background").exists()) {
                         selectBackground();
                     }
                 }
@@ -121,10 +126,10 @@ public class Settings extends PreferenceActivity {
                     
                     // Validate the pony before storing it.
                     try {
-                        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-                        DocumentBuilder docBuilder = dbf.newDocumentBuilder();
+                        DocumentBuilder docBuilder = SecureXml.newDocumentBuilder();
                         InputStream in = getContentResolver().openInputStream(ponyUri);
                         Document document = docBuilder.parse(in);
+                        if (in != null) in.close();
                         PonyDefinition definition = new PonyDefinition(document);
                         definition.validate();
                     } catch (Exception e) {
@@ -133,9 +138,10 @@ public class Settings extends PreferenceActivity {
                     }
                     
                     try {
-                        String fileName = getFileName(ponyUri);
-                        if (!fileName.endsWith(".xml")) {
-                            fileName += ".xml";
+                        String fileName = sanitizeCustomPonyFileName(getFileName(ponyUri));
+                        if (fileName == null) {
+                            showAlertDialog("Failed to add pony", "Could not determine a safe file name for the selected pony.");
+                            break;
                         }
                         
                         String hash = copyToLocalAndGetHash(ponyUri, fileName);
@@ -144,7 +150,7 @@ public class Settings extends PreferenceActivity {
                         SharedPreferences.Editor editor = sp.edit();
                         String prefKey = "pref_custom_" + fileName;
                         editor.putBoolean(prefKey, true);
-                        editor.putString("pref_add_custom", hash.toString());
+                        editor.putString("pref_add_custom", hash);
                         editor.commit();
                         if (findPreference(prefKey) == null) {
                             CheckBoxPreference checkbox = new CheckBoxPreference(this);
@@ -161,7 +167,16 @@ public class Settings extends PreferenceActivity {
     }
     
     private String copyToLocalAndGetHash(Uri sourceUri, String destName) throws IOException {
-        InputStream in = getContentResolver().openInputStream(sourceUri);
+        File dir = getExternalFilesDir(null);
+        if (dir == null) {
+            throw new IOException("External files directory unavailable");
+        }
+        // destName must already be a sanitized basename (no path separators).
+        File dest = new File(dir, destName);
+        if (!dest.getCanonicalFile().getParentFile().equals(dir.getCanonicalFile())) {
+            throw new IOException("Refusing to write outside app files directory");
+        }
+        
         MessageDigest digester;
         try {
             digester = MessageDigest.getInstance("SHA-1");
@@ -169,18 +184,25 @@ public class Settings extends PreferenceActivity {
             digester = null;
         }
         
-        File dir = getExternalFilesDir(null);
-        OutputStream out = new FileOutputStream(new File(dir, destName));
-        
-        byte[] buffer = new byte[1024];
-        int n;
-        while ((n = in.read(buffer)) >= 0) {
-            out.write(buffer, 0, n);
-            if (digester != null) digester.update(buffer, 0, n);
+        InputStream in = getContentResolver().openInputStream(sourceUri);
+        if (in == null) {
+            throw new IOException("Could not open selected content");
         }
-        
-        out.close();
-        in.close();
+        try {
+            OutputStream out = new FileOutputStream(dest);
+            try {
+                byte[] buffer = new byte[1024];
+                int n;
+                while ((n = in.read(buffer)) >= 0) {
+                    out.write(buffer, 0, n);
+                    if (digester != null) digester.update(buffer, 0, n);
+                }
+            } finally {
+                out.close();
+            }
+        } finally {
+            in.close();
+        }
         
         byte[] digest;
         if (digester != null) {
@@ -193,6 +215,48 @@ public class Settings extends PreferenceActivity {
         for (int i = 0; i < digest.length; i++)
             hash.append(String.format("%02x", (256 + digest[i]) % 256));
         return hash.toString();
+    }
+    
+    /**
+     * Produce a safe basename for custom pony XML under the app files directory.
+     * Strips path segments, rejects {@code ..}, allows only {@code [A-Za-z0-9._-]},
+     * and forces a {@code .xml} suffix.
+     *
+     * @return sanitized name, or null if nothing usable remains
+     */
+    static String sanitizeCustomPonyFileName(String raw) {
+        if (raw == null) return null;
+        String name = raw.trim();
+        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        if (slash >= 0) {
+            name = name.substring(slash + 1);
+        }
+        if (name.isEmpty() || name.equals(".") || name.equals("..")) {
+            return null;
+        }
+        if (name.regionMatches(true, name.length() - 4, ".xml", 0, 4)) {
+            name = name.substring(0, name.length() - 4);
+        }
+        StringBuilder sb = new StringBuilder(name.length());
+        for (int i = 0; i < name.length(); i++) {
+            char ch = name.charAt(i);
+            if ((ch >= 'A' && ch <= 'Z')
+                    || (ch >= 'a' && ch <= 'z')
+                    || (ch >= '0' && ch <= '9')
+                    || ch == '.' || ch == '_' || ch == '-') {
+                sb.append(ch);
+            } else {
+                sb.append('_');
+            }
+        }
+        String base = sb.toString();
+        while (base.startsWith(".")) {
+            base = base.substring(1);
+        }
+        if (base.isEmpty() || base.equals(".") || base.equals("..")) {
+            return null;
+        }
+        return base + ".xml";
     }
     
     private void showAlertDialog(String title, String message) {
@@ -215,7 +279,10 @@ public class Settings extends PreferenceActivity {
             try {
                 cursor = getContentResolver().query(uri, null, null, null, null);
                 if (cursor != null && cursor.moveToFirst()) {
-                    result = cursor.getString(cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+                    int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    if (nameIndex >= 0) {
+                        result = cursor.getString(nameIndex);
+                    }
                 }
             } catch (Exception e) {
             }

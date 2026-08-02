@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Document;
 
 /**
@@ -632,12 +631,12 @@ public class AllPonies {
         }
         
         File[] files = dir.listFiles(xmlFilter);
+        if (files == null) return;
         
-        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
         for (int i = 0; i < files.length; i++) {
             if (prefs.getBoolean("pref_custom_" + files[i].getName(), true)) {
                 try {
-                    DocumentBuilder docBuilder = dbf.newDocumentBuilder();
+                    DocumentBuilder docBuilder = SecureXml.newDocumentBuilder();
                     Document document = docBuilder.parse(files[i]);
                     PonyDefinition definition = new PonyDefinition(document);
                     definition.validate();
