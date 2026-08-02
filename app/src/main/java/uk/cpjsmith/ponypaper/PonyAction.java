@@ -122,6 +122,10 @@ public class PonyAction {
      * @see #unload()
      */
     public void load() {
+        // Avoid leaking a previous load if this is called again without unload.
+        if (sprites != null) {
+            unload();
+        }
         if (res != null) {
             TypedArray array = res.obtainTypedArray(arrayId);
             
@@ -147,13 +151,22 @@ public class PonyAction {
     }
     
     /**
-     * Unload the sprites from memory. This will release the memory consumed by
-     * the images, but some methods of this class will cease to function.
+     * Unload the sprites from memory. Recycles each sheet's {@link android.graphics.Bitmap}
+     * so native pixel buffers are freed promptly when ponies cycle off-screen
+     * (not only after GC). Some methods of this class will cease to function
+     * until {@link #load()} is called again.
      * 
      * @see #load()
      */
     public void unload() {
-        sprites = null;
+        if (sprites != null) {
+            for (int i = 0; i < sprites.length; i++) {
+                if (sprites[i] != null) {
+                    sprites[i].recycle();
+                }
+            }
+            sprites = null;
+        }
     }
     
     public int getAnimationTime(int dir) {

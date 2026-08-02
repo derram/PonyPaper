@@ -88,4 +88,15 @@ public class SpriteSheet {
         frameHeight = bitmap.getHeight();
     }
     
+    /**
+     * Release the pixel buffer held by this sheet. Safe to call more than once;
+     * after this, the sheet must not be drawn until reloaded.
+     */
+    public void recycle() {
+        if (bitmap != null && !bitmap.isRecycled()) {
+            bitmap.recycle();
+        }
+        bitmap = null;
+    }
+    
 }
