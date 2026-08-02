@@ -76,6 +76,12 @@ public class SpriteSheet {
     }
     
     private void setInternals() {
+        if (bitmap == null) {
+            throw new IllegalArgumentException("Failed to decode sprite sheet bitmap");
+        }
+        if (frameTimes == null || frameTimes.length == 0) {
+            throw new IllegalArgumentException("Sprite sheet has no frame times");
+        }
         totalTime = 0;
         for (int x : frameTimes) totalTime += x;
         frameWidth = bitmap.getWidth() / frameTimes.length;

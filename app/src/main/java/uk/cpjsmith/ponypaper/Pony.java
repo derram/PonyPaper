@@ -375,8 +375,14 @@ public class Pony {
      */
     private Point randomOnScreen() {
         int s = (int)(30 * getScale());
-        return new Point(screenBounds.left + s + random.nextInt(screenBounds.width() - 2*s),
-                         screenBounds.top + s + random.nextInt(screenBounds.height() - 2*s));
+        int usableW = screenBounds.width() - 2 * s;
+        int usableH = screenBounds.height() - 2 * s;
+        // Transient zero-size surfaces would make nextInt throw IllegalArgumentException.
+        if (usableW < 1 || usableH < 1) {
+            return new Point(screenBounds.centerX(), screenBounds.centerY());
+        }
+        return new Point(screenBounds.left + s + random.nextInt(usableW),
+                         screenBounds.top + s + random.nextInt(usableH));
     }
     
     /**
@@ -405,8 +411,11 @@ public class Pony {
      */
     private Point randomOffScreen() {
         int s = (int)(30 * getScale());
-        return new Point(random.nextBoolean() ? screenBounds.left - s : screenBounds.right + s,
-                         screenBounds.top + s + random.nextInt(screenBounds.height() - 2*s));
+        int usableH = screenBounds.height() - 2 * s;
+        int y = usableH < 1
+                ? screenBounds.centerY()
+                : screenBounds.top + s + random.nextInt(usableH);
+        return new Point(random.nextBoolean() ? screenBounds.left - s : screenBounds.right + s, y);
     }
     
     /**
