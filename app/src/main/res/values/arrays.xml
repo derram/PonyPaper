@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="pref_target_fps_entries">
+        <item>30 FPS (recommended)</item>
+        <item>60 FPS</item>
+        <item>90 FPS</item>
+        <item>120 FPS</item>
+    </string-array>
+    <string-array name="pref_target_fps_values">
+        <item>30</item>
+        <item>60</item>
+        <item>90</item>
+        <item>120</item>
+    </string-array>
+</resources>

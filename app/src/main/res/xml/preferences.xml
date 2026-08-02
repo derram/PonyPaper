@@ -13,6 +13,13 @@
     </PreferenceCategory>
     <PreferenceCategory android:key="pref_misc"
                         android:title="Other options">
+        <ListPreference android:key="pref_target_fps"
+                        android:title="Target frame rate"
+                        android:summary="%s"
+                        android:dialogTitle="Target frame rate"
+                        android:entries="@array/pref_target_fps_entries"
+                        android:entryValues="@array/pref_target_fps_values"
+                        android:defaultValue="30" />
         <CheckBoxPreference android:key="pref_background"
                             android:title="Use background"
                             android:defaultValue="false" />
