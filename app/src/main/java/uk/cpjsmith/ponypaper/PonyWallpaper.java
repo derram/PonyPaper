@@ -18,6 +18,13 @@ import java.io.File;
 
 public class PonyWallpaper extends WallpaperService {
     
+    /** Preference key for {@link #DEFAULT_TARGET_FPS} and allowed list values. */
+    static final String PREF_TARGET_FPS = "pref_target_fps";
+    /** Battery-friendly default; motion uses delta time so speed stays consistent. */
+    static final int DEFAULT_TARGET_FPS = 30;
+    /** Hard ceiling so a corrupt preference cannot schedule a tight spin loop. */
+    private static final int MAX_TARGET_FPS = 120;
+    private static final int MIN_TARGET_FPS = 1;
     /** Cap one-frame jumps after pause so motion does not teleport. */
     private static final long MAX_DELTA_MS = 100;
     /** Original Berry Punch fade took ~3 frames at 25 FPS. */
@@ -33,8 +40,8 @@ public class PonyWallpaper extends WallpaperService {
         private Paint paint = null;
         private int backgroundColour = 0;
         private int drunkElapsedMs = 0;
-        /** Delay between draw callbacks; derived from {@link TargetFps#PREF_KEY}. */
-        private int framePeriodMs = 1000 / TargetFps.DEFAULT;
+        /** Delay between draw callbacks; derived from {@link #PREF_TARGET_FPS}. */
+        private int framePeriodMs = 1000 / DEFAULT_TARGET_FPS;
         
         private boolean isVisible = false;
         private long lastFrameUptimeMs = 0;
@@ -58,24 +65,24 @@ public class PonyWallpaper extends WallpaperService {
         
         /**
          * Reads the target FPS preference and updates {@link #framePeriodMs}.
-         * Clamped to rates the display reports via supported modes. Motion is
-         * delta-time based, so changing FPS only affects smoothness and battery.
+         * Motion is delta-time based, so changing FPS only affects smoothness and battery.
          */
         private void applyTargetFps(SharedPreferences prefs) {
-            int fps = TargetFps.DEFAULT;
+            int fps = DEFAULT_TARGET_FPS;
             try {
-                fps = Integer.parseInt(prefs.getString(TargetFps.PREF_KEY,
-                        Integer.toString(TargetFps.DEFAULT)));
+                fps = Integer.parseInt(prefs.getString(PREF_TARGET_FPS,
+                        Integer.toString(DEFAULT_TARGET_FPS)));
             } catch (NumberFormatException e) {
-                fps = TargetFps.DEFAULT;
+                fps = DEFAULT_TARGET_FPS;
             }
-            fps = TargetFps.clamp(PonyWallpaper.this, fps);
+            if (fps < MIN_TARGET_FPS) fps = DEFAULT_TARGET_FPS;
+            if (fps > MAX_TARGET_FPS) fps = MAX_TARGET_FPS;
             framePeriodMs = Math.max(1, 1000 / fps);
         }
         
         @Override
         public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
-            if (TargetFps.PREF_KEY.equals(key)) {
+            if (PREF_TARGET_FPS.equals(key)) {
                 applyTargetFps(prefs);
                 // Reschedule immediately at the new rate without rebuilding ponies.
                 handler.removeCallbacks(drawFrameCallback);

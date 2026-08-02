@@ -8,7 +8,6 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
 import android.preference.CheckBoxPreference;
-import android.preference.ListPreference;
 import android.preference.Preference;
 import android.preference.PreferenceActivity;
 import android.preference.PreferenceCategory;
@@ -35,8 +34,6 @@ public class Settings extends PreferenceActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         addPreferencesFromResource(R.xml.preferences);
-        
-        configureTargetFpsPreference();
         
         File dir = getExternalFilesDir(null);
         if (dir != null) {
@@ -95,40 +92,6 @@ public class Settings extends PreferenceActivity {
                 return true;
             }
         });
-    }
-    
-    /**
-     * Restrict the frame-rate list to rates the panel can present, based on
-     * {@link android.view.Display#getSupportedModes()} (not the active rate).
-     */
-    private void configureTargetFpsPreference() {
-        ListPreference fpsPref = (ListPreference) findPreference(TargetFps.PREF_KEY);
-        if (fpsPref == null) {
-            return;
-        }
-        int[] offered = TargetFps.offered(this);
-        CharSequence[] entries = new CharSequence[offered.length];
-        CharSequence[] values = new CharSequence[offered.length];
-        for (int i = 0; i < offered.length; i++) {
-            entries[i] = TargetFps.labelFor(offered[i]);
-            values[i] = Integer.toString(offered[i]);
-        }
-        fpsPref.setEntries(entries);
-        fpsPref.setEntryValues(values);
-        
-        String current = fpsPref.getValue();
-        int currentFps = TargetFps.DEFAULT;
-        if (current != null) {
-            try {
-                currentFps = Integer.parseInt(current);
-            } catch (NumberFormatException e) {
-                currentFps = TargetFps.DEFAULT;
-            }
-        }
-        int clamped = TargetFps.clamp(this, currentFps);
-        if (current == null || clamped != currentFps) {
-            fpsPref.setValue(Integer.toString(clamped));
-        }
     }
     
     private void selectBackground() {
