@@ -64,18 +64,32 @@ public class Ponies {
     private float lastY;
     
     /**
-     * Creates a new {@code Ponies} instance.
-     * 
+     * Creates a new {@code Ponies} instance using {@code pref_num_ponies}.
+     *
      * @param context the current application context
      * @param prefs   the user's preferences of which ponies to load
      */
     public Ponies(Context context, SharedPreferences prefs) {
+        this(context, prefs, prefs.getInt("pref_num_ponies", 4));
+    }
+
+    /**
+     * Creates a new {@code Ponies} instance with an explicit active-pony count.
+     * Callers can pass a battery-saver (or other policy) capped value instead of
+     * reading the preference themselves.
+     *
+     * @param context     the current application context
+     * @param prefs       the user's preferences of which ponies to load
+     * @param desiredCount requested number of on-screen ponies (clamped to the
+     *                    available pool size; values below 1 become 0)
+     */
+    public Ponies(Context context, SharedPreferences prefs, int desiredCount) {
         inactivePonies = AllPonies.getPonies(context, prefs);
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
-        
-        activeCount = prefs.getInt("pref_num_ponies", 4);
-        activeCount = Math.min(inactivePonies.size(), activeCount);
-        
+
+        if (desiredCount < 0) desiredCount = 0;
+        activeCount = Math.min(inactivePonies.size(), desiredCount);
+
         random = new Random();
         activePonies = new Pony[activeCount];
         for (int i = 0; i < activeCount; i++) {
@@ -83,7 +97,14 @@ public class Ponies {
             activePonies[i] = inactivePonies.remove(j);
         }
     }
-    
+
+    /**
+     * @return how many ponies are currently drawn on screen
+     */
+    public int getActiveCount() {
+        return activeCount;
+    }
+
     /**
      * Resets the position of all active (on-screen) ponies.
      */
