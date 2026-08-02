@@ -67,8 +67,11 @@ public class PonyWallpaper extends WallpaperService {
         
         @Override
         public void onDestroy() {
-            super.onDestroy();
+            getPreferences().unregisterOnSharedPreferenceChangeListener(this);
             handler.removeCallbacks(drawFrameCallback);
+            ponies = null;
+            background = null;
+            super.onDestroy();
         }
         
         @Override
@@ -127,39 +130,50 @@ public class PonyWallpaper extends WallpaperService {
             Canvas c = null;
             try {
                 c = holder.lockCanvas();
-                if (ponies == null) {
-                    SharedPreferences prefs = getPreferences();
-                    ponies = new Ponies(PonyWallpaper.this, prefs);
-                    
-                    background = null;
-                    drunkMode = prefs.getBoolean("pref_drunk_mode", false);
-                    drunkElapsedMs = 0;
-                    backgroundColour = 0xff333333;
-                    paint.setAlpha(0xff);
-                    if (prefs.getBoolean("pref_background", false)) {
-                        File bgFile = new File(getExternalFilesDir(null), "background");
-                        if (bgFile.exists()) {
-                            BitmapFactory.Options bfo = new BitmapFactory.Options();
-                            bfo.inScaled = false;
-                            bfo.inJustDecodeBounds = true;
-                            BitmapFactory.decodeFile(bgFile.toString(), bfo);
-                            int h = bfo.outHeight, w = bfo.outWidth;
-                            int scale = Math.min(h / c.getHeight(), w / c.getWidth());
-                            scale *= prefs.getInt("pref_pixelation", 1);
-                            bfo.inJustDecodeBounds = false;
-                            bfo.inSampleSize = scale;
-                            background = BitmapFactory.decodeFile(bgFile.toString(), bfo);
+                // Surface may be lost or not yet ready; never touch a null/zero canvas.
+                if (c != null && c.getWidth() > 0 && c.getHeight() > 0) {
+                    if (ponies == null) {
+                        SharedPreferences prefs = getPreferences();
+                        ponies = new Ponies(PonyWallpaper.this, prefs);
+                        
+                        background = null;
+                        drunkMode = prefs.getBoolean("pref_drunk_mode", false);
+                        drunkElapsedMs = 0;
+                        backgroundColour = 0xff333333;
+                        paint.setAlpha(0xff);
+                        if (prefs.getBoolean("pref_background", false)) {
+                            File filesDir = getExternalFilesDir(null);
+                            if (filesDir != null) {
+                                File bgFile = new File(filesDir, "background");
+                                if (bgFile.exists()) {
+                                    BitmapFactory.Options bfo = new BitmapFactory.Options();
+                                    bfo.inScaled = false;
+                                    bfo.inJustDecodeBounds = true;
+                                    BitmapFactory.decodeFile(bgFile.toString(), bfo);
+                                    int h = bfo.outHeight, w = bfo.outWidth;
+                                    int canvasH = c.getHeight();
+                                    int canvasW = c.getWidth();
+                                    int scale = 1;
+                                    if (h > 0 && w > 0) {
+                                        scale = Math.min(h / canvasH, w / canvasW);
+                                        if (scale < 1) scale = 1;
+                                    }
+                                    scale *= prefs.getInt("pref_pixelation", 1);
+                                    if (scale < 1) scale = 1;
+                                    bfo.inJustDecodeBounds = false;
+                                    bfo.inSampleSize = scale;
+                                    background = BitmapFactory.decodeFile(bgFile.toString(), bfo);
+                                }
+                            }
                         }
                     }
-                }
-                if (drunkMode && paint.getAlpha() == 0xff) {
-                    drunkElapsedMs += (int)deltaMs;
-                    if (drunkElapsedMs >= DRUNK_FADE_MS) {
-                        backgroundColour = 0x33333333;
-                        paint.setAlpha(0x33);
+                    if (drunkMode && paint.getAlpha() == 0xff) {
+                        drunkElapsedMs += (int)deltaMs;
+                        if (drunkElapsedMs >= DRUNK_FADE_MS) {
+                            backgroundColour = 0x33333333;
+                            paint.setAlpha(0x33);
+                        }
                     }
-                }
-                if (c != null) {
                     if (background != null) {
                         Rect srcRect = new Rect(0, 0, background.getWidth(), background.getHeight());
                         Rect cb = c.getClipBounds();
