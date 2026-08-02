@@ -1,5 +1,9 @@
 package uk.cpjsmith.ponypaper;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -7,8 +11,10 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.service.wallpaper.WallpaperService;
@@ -20,8 +26,14 @@ public class PonyWallpaper extends WallpaperService {
     
     /** Preference key for {@link #DEFAULT_TARGET_FPS} and allowed list values. */
     static final String PREF_TARGET_FPS = "pref_target_fps";
+    /** When true (default), system Battery Saver caps FPS and pony count. */
+    static final String PREF_RESPECT_BATTERY_SAVER = "pref_respect_battery_saver";
+    /** Preference key for the user's preferred number of on-screen ponies. */
+    static final String PREF_NUM_PONIES = "pref_num_ponies";
     /** Battery-friendly default; motion uses delta time so speed stays consistent. */
     static final int DEFAULT_TARGET_FPS = 30;
+    /** Default pony count when the preference is missing. */
+    static final int DEFAULT_NUM_PONIES = 4;
     /** Hard ceiling so a corrupt preference cannot schedule a tight spin loop. */
     private static final int MAX_TARGET_FPS = 120;
     private static final int MIN_TARGET_FPS = 1;
@@ -29,6 +41,10 @@ public class PonyWallpaper extends WallpaperService {
     private static final long MAX_DELTA_MS = 100;
     /** Original Berry Punch fade took ~3 frames at 25 FPS. */
     private static final int DRUNK_FADE_MS = 120;
+    /** Maximum FPS while system Battery Saver is active. */
+    private static final int BATTERY_SAVER_MAX_FPS = 25;
+    /** Maximum on-screen ponies while system Battery Saver is active. */
+    private static final int BATTERY_SAVER_MAX_PONIES = 3;
     
     private class PonyEngine extends Engine implements SharedPreferences.OnSharedPreferenceChangeListener {
         
@@ -42,6 +58,8 @@ public class PonyWallpaper extends WallpaperService {
         private int drunkElapsedMs = 0;
         /** Delay between draw callbacks; derived from {@link #PREF_TARGET_FPS}. */
         private int framePeriodMs = 1000 / DEFAULT_TARGET_FPS;
+        /** Last known system Battery Saver state (see {@link PowerManager#isPowerSaveMode()}). */
+        private boolean powerSaveMode = false;
         
         private boolean isVisible = false;
         private long lastFrameUptimeMs = 0;
@@ -51,21 +69,68 @@ public class PonyWallpaper extends WallpaperService {
             }
         };
         
+        private final BroadcastReceiver powerSaveReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (intent == null) return;
+                if (!PowerManager.ACTION_POWER_SAVE_MODE_CHANGED.equals(intent.getAction())) return;
+                applyPowerSaveMode(isSystemPowerSaveMode());
+            }
+        };
+        
         private PonyEngine() {
             // Live wallpaper engines do not receive touch events unless enabled.
             setTouchEventsEnabled(true);
             getPreferences().registerOnSharedPreferenceChangeListener(this);
             paint = new Paint();
+            powerSaveMode = isSystemPowerSaveMode();
             applyTargetFps(getPreferences());
+            registerPowerSaveReceiver();
         }
         
         private SharedPreferences getPreferences() {
             return PreferenceManager.getDefaultSharedPreferences(PonyWallpaper.this);
         }
         
+        private boolean isSystemPowerSaveMode() {
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            return pm != null && pm.isPowerSaveMode();
+        }
+        
+        /**
+         * Whether Battery Saver limits should be applied right now. Requires both
+         * system power-save mode and the user preference to respect it.
+         */
+        private boolean shouldApplyBatterySaverLimits(SharedPreferences prefs) {
+            return powerSaveMode && prefs.getBoolean(PREF_RESPECT_BATTERY_SAVER, true);
+        }
+        
+        /**
+         * Effective on-screen pony count: user preference, optionally capped under
+         * Battery Saver.
+         */
+        private int getEffectivePonyCount(SharedPreferences prefs) {
+            int count = prefs.getInt(PREF_NUM_PONIES, DEFAULT_NUM_PONIES);
+            if (count < 1) count = DEFAULT_NUM_PONIES;
+            if (shouldApplyBatterySaverLimits(prefs)) {
+                count = Math.min(count, BATTERY_SAVER_MAX_PONIES);
+            }
+            return count;
+        }
+        
+        private void registerPowerSaveReceiver() {
+            IntentFilter filter = new IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(powerSaveReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(powerSaveReceiver, filter);
+            }
+        }
+        
         /**
          * Reads the target FPS preference and updates {@link #framePeriodMs}.
          * Motion is delta-time based, so changing FPS only affects smoothness and battery.
+         * Under Battery Saver the rate is capped at {@link #BATTERY_SAVER_MAX_FPS}.
          */
         private void applyTargetFps(SharedPreferences prefs) {
             int fps = DEFAULT_TARGET_FPS;
@@ -77,7 +142,34 @@ public class PonyWallpaper extends WallpaperService {
             }
             if (fps < MIN_TARGET_FPS) fps = DEFAULT_TARGET_FPS;
             if (fps > MAX_TARGET_FPS) fps = MAX_TARGET_FPS;
+            if (shouldApplyBatterySaverLimits(prefs)) {
+                fps = Math.min(fps, BATTERY_SAVER_MAX_FPS);
+            }
             framePeriodMs = Math.max(1, 1000 / fps);
+        }
+        
+        /**
+         * Applies a change in system Battery Saver state: cap FPS and rebuild the
+         * pony set if the effective count would change.
+         */
+        private void applyPowerSaveMode(boolean enabled) {
+            if (powerSaveMode == enabled) return;
+            powerSaveMode = enabled;
+            
+            SharedPreferences prefs = getPreferences();
+            applyTargetFps(prefs);
+            
+            int effective = getEffectivePonyCount(prefs);
+            if (ponies == null || ponies.getActiveCount() != effective) {
+                // Rebuild so the active herd matches the new cap (or restored pref).
+                ponies = null;
+            }
+            
+            handler.removeCallbacks(drawFrameCallback);
+            if (isVisible) {
+                lastFrameUptimeMs = 0;
+                drawFrame();
+            }
         }
         
         @Override
@@ -92,11 +184,30 @@ public class PonyWallpaper extends WallpaperService {
                 }
                 return;
             }
+            if (PREF_RESPECT_BATTERY_SAVER.equals(key)) {
+                // Re-evaluate caps without waiting for another system broadcast.
+                applyTargetFps(prefs);
+                int effective = getEffectivePonyCount(prefs);
+                if (ponies == null || ponies.getActiveCount() != effective) {
+                    ponies = null;
+                }
+                handler.removeCallbacks(drawFrameCallback);
+                if (isVisible) {
+                    lastFrameUptimeMs = 0;
+                    drawFrame();
+                }
+                return;
+            }
             ponies = null;
         }
         
         @Override
         public void onDestroy() {
+            try {
+                unregisterReceiver(powerSaveReceiver);
+            } catch (IllegalArgumentException ignored) {
+                // Already unregistered or never registered.
+            }
             getPreferences().unregisterOnSharedPreferenceChangeListener(this);
             handler.removeCallbacks(drawFrameCallback);
             ponies = null;
@@ -108,6 +219,8 @@ public class PonyWallpaper extends WallpaperService {
         public void onVisibilityChanged(boolean visible) {
             isVisible = visible;
             if (visible) {
+                // Sync in case Battery Saver changed while we were not drawing.
+                applyPowerSaveMode(isSystemPowerSaveMode());
                 lastFrameUptimeMs = 0;
                 drawFrame();
             } else {
@@ -164,7 +277,8 @@ public class PonyWallpaper extends WallpaperService {
                 if (c != null && c.getWidth() > 0 && c.getHeight() > 0) {
                     if (ponies == null) {
                         SharedPreferences prefs = getPreferences();
-                        ponies = new Ponies(PonyWallpaper.this, prefs);
+                        applyTargetFps(prefs);
+                        ponies = new Ponies(PonyWallpaper.this, prefs, getEffectivePonyCount(prefs));
                         
                         background = null;
                         drunkMode = prefs.getBoolean("pref_drunk_mode", false);
@@ -223,7 +337,7 @@ public class PonyWallpaper extends WallpaperService {
                 if (c != null) holder.unlockCanvasAndPost(c);
             }
             
-            // Reschedule the next redraw at the user-selected target rate.
+            // Reschedule the next redraw at the effective target rate.
             handler.removeCallbacks(drawFrameCallback);
             if (isVisible) handler.postDelayed(drawFrameCallback, framePeriodMs);
         }

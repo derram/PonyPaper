@@ -20,6 +20,10 @@
                         android:entries="@array/pref_target_fps_entries"
                         android:entryValues="@array/pref_target_fps_values"
                         android:defaultValue="30" />
+        <CheckBoxPreference android:key="pref_respect_battery_saver"
+                            android:title="Respect Battery Saver"
+                            android:summary="Limit to 25 FPS and at most 3 ponies when system Battery Saver is on"
+                            android:defaultValue="true" />
         <CheckBoxPreference android:key="pref_background"
                             android:title="Use background"
                             android:defaultValue="false" />
