@@ -40,6 +40,12 @@ public class Ponies {
     
     private ArrayList<Pony> inactivePonies;
     private Pony[] activePonies;
+    /**
+     * Preference key of the user's favorite pony ({@code pref_waifu}), or empty
+     * for none. When non-empty, inactive ponies with this key are preferred when
+     * filling or replacing active slots.
+     */
+    private final String waifuKey;
     
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final int touchSlop;
@@ -86,6 +92,8 @@ public class Ponies {
     public Ponies(Context context, SharedPreferences prefs, int desiredCount) {
         inactivePonies = AllPonies.getPonies(context, prefs);
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+        String rawWaifu = prefs.getString("pref_waifu", "");
+        waifuKey = rawWaifu != null ? rawWaifu : "";
 
         if (desiredCount < 0) desiredCount = 0;
         activeCount = Math.min(inactivePonies.size(), desiredCount);
@@ -93,8 +101,7 @@ public class Ponies {
         random = new Random();
         activePonies = new Pony[activeCount];
         for (int i = 0; i < activeCount; i++) {
-            int j = random.nextInt(inactivePonies.size());
-            activePonies[i] = inactivePonies.remove(j);
+            activePonies[i] = takeFromInactive();
         }
     }
 
@@ -128,8 +135,7 @@ public class Ponies {
                 Pony temp = activePonies[i];
                 temp.reset();
                 if (inactivePonies.size() != 0) {
-                    int j = random.nextInt(inactivePonies.size());
-                    activePonies[i] = inactivePonies.remove(j);
+                    activePonies[i] = takeFromInactive();
                     inactivePonies.add(temp);
                 }
                 activePonies[i].doUpdate(c.getClipBounds(), 0);
@@ -211,6 +217,37 @@ public class Ponies {
             draggedPony.stopDrag();
             draggedPony = null;
         }
+    }
+    
+    /**
+     * Removes and returns one pony from the inactive pool. If a waifu key is set
+     * and any inactive pony matches it, picks uniformly among those; otherwise
+     * picks uniformly among all inactive ponies.
+     */
+    private Pony takeFromInactive() {
+        if (inactivePonies.isEmpty()) {
+            throw new IllegalStateException("inactive pool is empty");
+        }
+        if (waifuKey.length() > 0) {
+            int matchCount = 0;
+            for (int i = 0; i < inactivePonies.size(); i++) {
+                if (waifuKey.equals(inactivePonies.get(i).getPrefKey())) {
+                    matchCount++;
+                }
+            }
+            if (matchCount > 0) {
+                int pick = random.nextInt(matchCount);
+                for (int i = 0; i < inactivePonies.size(); i++) {
+                    if (waifuKey.equals(inactivePonies.get(i).getPrefKey())) {
+                        if (pick == 0) {
+                            return inactivePonies.remove(i);
+                        }
+                        pick--;
+                    }
+                }
+            }
+        }
+        return inactivePonies.remove(random.nextInt(inactivePonies.size()));
     }
     
 }
