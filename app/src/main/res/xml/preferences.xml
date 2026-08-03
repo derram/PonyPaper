@@ -11,9 +11,9 @@
                 custom:wrap="false"
                 android:defaultValue="4" />
         <ListPreference android:key="pref_waifu"
-                        android:title="Favorite (waifu)"
+                        android:title="Waifu/Husbando"
                         android:summary="%s"
-                        android:dialogTitle="Favorite pony"
+                        android:dialogTitle="best pony"
                         android:entries="@array/pref_waifu_entries"
                         android:entryValues="@array/pref_waifu_values"
                         android:defaultValue="" />
@@ -52,11 +52,11 @@
                         android:title="On battery">
         <CheckBoxPreference android:key="pref_battery_default_fps"
                             android:title="Default frame rate on battery"
-                            android:summary="Use 30 FPS (the default) while running on battery power"
+                            android:summary="Use 30 FPS while running on battery power"
                             android:defaultValue="false" />
         <CheckBoxPreference android:key="pref_battery_default_ponies"
                             android:title="Default pony count on battery"
-                            android:summary="Use 4 ponies (the default) while running on battery power"
+                            android:summary="Use 4 ponies while running on battery power"
                             android:defaultValue="false" />
         <CheckBoxPreference android:key="pref_battery_disable_background"
                             android:title="Disable background on battery"

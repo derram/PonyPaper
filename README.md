@@ -4,7 +4,20 @@ A live wallpaper for Android using pixel-art sprites of characters from *My Litt
 
 This repository is a **grok build modernization fork** of the [Smithers888/PonyPaper](https://github.com/Smithers888/PonyPaper) project. Upstream Ant tooling and an ancient `targetSdk` no longer build or install cleanly on current Android. This fork targets a Gradle-based build and modern SDK levels so you can produce **debug/sideload APKs** without upstream signing keys.
 
-<img src='screenshots/screen1.png' width='180'> <img src='screenshots/screen2.png' width='180'> <img src='screenshots/screen3.png' width='180'> <img src='screenshots/preview.png' width='180'>  <img src='screenshots/preferences.png' width='180'>
+### Features in this fork
+
+- **Modern Gradle build** — builds and installs on current Android (minSdk 21); signed release APKs via GitHub/Gitea Actions
+- **Installs alongside upstream** — application id `io.github.derram.ponypaper` (does not replace the original app)
+- **Target frame rate** — prefer 30 / 60 / 90 / 120 FPS (default 30); motion is delta-time based so pony speed stays consistent
+- **Battery Saver support** — optional respect for system Battery Saver (default on): cap at 25 FPS, at most 3 ponies, and solid-colour backgrounds instead of images
+- **On-battery power profile** — optional prefs to force default FPS (30), default pony count (4), and/or disable image backgrounds while unplugged
+- **Up to 20 ponies** on screen (was lower upstream)
+- **Discrete gaits** — stroll, walk, and trot for more varied movement
+- **Hold-to-drag** — press and hold a pony to drag it; uses a lowered/drag sprite while held
+- **Crash and stability fixes** — safer canvas handling, preference listener cleanup, hardened custom-pony import, sprite bitmap recycling
+- **Waifu selector** — best pony should always come first
+
+<img src='screenshots/screen1.png' width='180'> <img src='screenshots/screen2.png' width='180'> <img src='screenshots/screen3.png' width='180'> <img src='screenshots/preview.png' width='180'>  <img src='screenshots/preferences1.png' width='180'> <img src='screenshots/preferences2.png' width='180'>
 
 ## Install (from Releases)
 
