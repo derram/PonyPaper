@@ -50,6 +50,11 @@ public class Pony {
     
     private final PonyAction[] allActions;
     private final PonyAction[] startActions;
+    /**
+     * Preference key that enabled this pony (e.g. {@code pref_ts},
+     * {@code pref_custom_foo.xml}). Used for waifu / priority selection.
+     */
+    private String prefKey = "";
     
     private Random random;
     private Point targetPos;
@@ -89,6 +94,24 @@ public class Pony {
         this.startActions = startActions;
         this.random = new Random();
         this.direction = random.nextBoolean() ? PonyAction.LEFT : PonyAction.RIGHT;
+    }
+    
+    /**
+     * @return the SharedPreferences key for this pony definition, or empty if unset
+     */
+    public String getPrefKey() {
+        return prefKey != null ? prefKey : "";
+    }
+    
+    /**
+     * Tags this instance with the preference key that selected it into the pool.
+     * 
+     * @param prefKey e.g. {@code pref_ts} or {@code pref_custom_name.xml}
+     * @return this pony (for chaining at construction sites)
+     */
+    public Pony withPrefKey(String prefKey) {
+        this.prefKey = prefKey != null ? prefKey : "";
+        return this;
     }
     
     /**

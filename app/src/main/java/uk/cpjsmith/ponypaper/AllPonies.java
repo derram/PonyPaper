@@ -40,45 +40,45 @@ public class AllPonies {
         ArrayList<Pony> result = new ArrayList<Pony>();
         
         Resources res = context.getResources();
-        if (prefs.getBoolean("pref_ab", true)) result.add(makeAppleBloom(res));
-        if (prefs.getBoolean("pref_aj", true)) result.add(makeApplejack(res));
-        if (prefs.getBoolean("pref_babs", true)) result.add(makeBabsSeed(res));
-        if (prefs.getBoolean("pref_bp", true)) result.add(makeBerryPunch(res));
-        if (prefs.getBoolean("pref_bigmac", true)) result.add(makeBigMcIntosh(res));
-        if (prefs.getBoolean("pref_derpy", true)) result.add(makeDerpyHooves(res));
-        if (prefs.getBoolean("pref_doctor", true)) result.add(makeDoctorHooves(res));
-        if (prefs.getBoolean("pref_ember", true)) result.add(makeEmber(res));
-        if (prefs.getBoolean("pref_fs", true)) result.add(makeFluttershy(res));
-        if (prefs.getBoolean("pref_gallus", true)) result.add(makeGallus(res));
-        if (prefs.getBoolean("pref_gilda", true)) result.add(makeGilda(res));
-        if (prefs.getBoolean("pref_lyra", true)) result.add(makeLyraHeartstrings(res));
-        if (prefs.getBoolean("pref_minuette", true)) result.add(makeMinuette(res));
-        if (prefs.getBoolean("pref_ocellus", true)) result.add(makeOcellus(res));
-        if (prefs.getBoolean("pref_octavia", true)) result.add(makeOctavia(res));
-        if (prefs.getBoolean("pref_pp", true)) result.add(makePinkiePie(res));
-        if (prefs.getBoolean("pref_cadance", true)) result.add(makePrincessCadance(res));
-        if (prefs.getBoolean("pref_celestia", true)) result.add(makePrincessCelestia(res));
-        if (prefs.getBoolean("pref_luna", true)) result.add(makePrincessLuna(res));
-        if (prefs.getBoolean("pref_rd", true)) result.add(makeRainbowDash(res));
-        if (prefs.getBoolean("pref_rarity", true)) result.add(makeRarity(res));
-        if (prefs.getBoolean("pref_sandbar", true)) result.add(makeSandbar(res));
-        if (prefs.getBoolean("pref_scootaloo", true)) result.add(makeScootaloo(res));
-        if (prefs.getBoolean("pref_sa", true)) result.add(makeShiningArmor(res));
-        if (prefs.getBoolean("pref_silverstream", true)) result.add(makeSilverstream(res));
-        if (prefs.getBoolean("pref_smolder", true)) result.add(makeSmolder(res));
-        if (prefs.getBoolean("pref_soarin", true)) result.add(makeSoarin(res));
-        if (prefs.getBoolean("pref_spike", true)) result.add(makeSpike(res));
-        if (prefs.getBoolean("pref_spitfire", true)) result.add(makeSpitfire(res));
-        if (prefs.getBoolean("pref_sg", true)) result.add(makeStarlightGlimmer(res));
-        if (prefs.getBoolean("pref_ss", true)) result.add(makeSunsetShimmer(res));
-        if (prefs.getBoolean("pref_sb", true)) result.add(makeSweetieBelle(res));
-        if (prefs.getBoolean("pref_sd", true)) result.add(makeSweetieDrops(res));
-        if (prefs.getBoolean("pref_thorax", true)) result.add(makeThorax(res));
-        if (prefs.getBoolean("pref_trixie", true)) result.add(makeTrixie(res));
-        if (prefs.getBoolean("pref_ts", true)) result.add(makeTwilightSparkle(res));
-        if (prefs.getBoolean("pref_vinyl", true)) result.add(makeVinylScratch(res));
-        if (prefs.getBoolean("pref_yona", true)) result.add(makeYona(res));
-        if (prefs.getBoolean("pref_zecora", true)) result.add(makeZecora(res));
+        if (prefs.getBoolean("pref_ab", true)) result.add(makeAppleBloom(res).withPrefKey("pref_ab"));
+        if (prefs.getBoolean("pref_aj", true)) result.add(makeApplejack(res).withPrefKey("pref_aj"));
+        if (prefs.getBoolean("pref_babs", true)) result.add(makeBabsSeed(res).withPrefKey("pref_babs"));
+        if (prefs.getBoolean("pref_bp", true)) result.add(makeBerryPunch(res).withPrefKey("pref_bp"));
+        if (prefs.getBoolean("pref_bigmac", true)) result.add(makeBigMcIntosh(res).withPrefKey("pref_bigmac"));
+        if (prefs.getBoolean("pref_derpy", true)) result.add(makeDerpyHooves(res).withPrefKey("pref_derpy"));
+        if (prefs.getBoolean("pref_doctor", true)) result.add(makeDoctorHooves(res).withPrefKey("pref_doctor"));
+        if (prefs.getBoolean("pref_ember", true)) result.add(makeEmber(res).withPrefKey("pref_ember"));
+        if (prefs.getBoolean("pref_fs", true)) result.add(makeFluttershy(res).withPrefKey("pref_fs"));
+        if (prefs.getBoolean("pref_gallus", true)) result.add(makeGallus(res).withPrefKey("pref_gallus"));
+        if (prefs.getBoolean("pref_gilda", true)) result.add(makeGilda(res).withPrefKey("pref_gilda"));
+        if (prefs.getBoolean("pref_lyra", true)) result.add(makeLyraHeartstrings(res).withPrefKey("pref_lyra"));
+        if (prefs.getBoolean("pref_minuette", true)) result.add(makeMinuette(res).withPrefKey("pref_minuette"));
+        if (prefs.getBoolean("pref_ocellus", true)) result.add(makeOcellus(res).withPrefKey("pref_ocellus"));
+        if (prefs.getBoolean("pref_octavia", true)) result.add(makeOctavia(res).withPrefKey("pref_octavia"));
+        if (prefs.getBoolean("pref_pp", true)) result.add(makePinkiePie(res).withPrefKey("pref_pp"));
+        if (prefs.getBoolean("pref_cadance", true)) result.add(makePrincessCadance(res).withPrefKey("pref_cadance"));
+        if (prefs.getBoolean("pref_celestia", true)) result.add(makePrincessCelestia(res).withPrefKey("pref_celestia"));
+        if (prefs.getBoolean("pref_luna", true)) result.add(makePrincessLuna(res).withPrefKey("pref_luna"));
+        if (prefs.getBoolean("pref_rd", true)) result.add(makeRainbowDash(res).withPrefKey("pref_rd"));
+        if (prefs.getBoolean("pref_rarity", true)) result.add(makeRarity(res).withPrefKey("pref_rarity"));
+        if (prefs.getBoolean("pref_sandbar", true)) result.add(makeSandbar(res).withPrefKey("pref_sandbar"));
+        if (prefs.getBoolean("pref_scootaloo", true)) result.add(makeScootaloo(res).withPrefKey("pref_scootaloo"));
+        if (prefs.getBoolean("pref_sa", true)) result.add(makeShiningArmor(res).withPrefKey("pref_sa"));
+        if (prefs.getBoolean("pref_silverstream", true)) result.add(makeSilverstream(res).withPrefKey("pref_silverstream"));
+        if (prefs.getBoolean("pref_smolder", true)) result.add(makeSmolder(res).withPrefKey("pref_smolder"));
+        if (prefs.getBoolean("pref_soarin", true)) result.add(makeSoarin(res).withPrefKey("pref_soarin"));
+        if (prefs.getBoolean("pref_spike", true)) result.add(makeSpike(res).withPrefKey("pref_spike"));
+        if (prefs.getBoolean("pref_spitfire", true)) result.add(makeSpitfire(res).withPrefKey("pref_spitfire"));
+        if (prefs.getBoolean("pref_sg", true)) result.add(makeStarlightGlimmer(res).withPrefKey("pref_sg"));
+        if (prefs.getBoolean("pref_ss", true)) result.add(makeSunsetShimmer(res).withPrefKey("pref_ss"));
+        if (prefs.getBoolean("pref_sb", true)) result.add(makeSweetieBelle(res).withPrefKey("pref_sb"));
+        if (prefs.getBoolean("pref_sd", true)) result.add(makeSweetieDrops(res).withPrefKey("pref_sd"));
+        if (prefs.getBoolean("pref_thorax", true)) result.add(makeThorax(res).withPrefKey("pref_thorax"));
+        if (prefs.getBoolean("pref_trixie", true)) result.add(makeTrixie(res).withPrefKey("pref_trixie"));
+        if (prefs.getBoolean("pref_ts", true)) result.add(makeTwilightSparkle(res).withPrefKey("pref_ts"));
+        if (prefs.getBoolean("pref_vinyl", true)) result.add(makeVinylScratch(res).withPrefKey("pref_vinyl"));
+        if (prefs.getBoolean("pref_yona", true)) result.add(makeYona(res).withPrefKey("pref_yona"));
+        if (prefs.getBoolean("pref_zecora", true)) result.add(makeZecora(res).withPrefKey("pref_zecora"));
         loadCustomPonies(context, prefs, result);
         
         return result;
@@ -634,13 +634,14 @@ public class AllPonies {
         if (files == null) return;
         
         for (int i = 0; i < files.length; i++) {
-            if (prefs.getBoolean("pref_custom_" + files[i].getName(), true)) {
+            String prefKey = "pref_custom_" + files[i].getName();
+            if (prefs.getBoolean(prefKey, true)) {
                 try {
                     DocumentBuilder docBuilder = SecureXml.newDocumentBuilder();
                     Document document = docBuilder.parse(files[i]);
                     PonyDefinition definition = new PonyDefinition(document);
                     definition.validate();
-                    ponies.add(makeCustomPony(definition));
+                    ponies.add(makeCustomPony(definition).withPrefKey(prefKey));
                 } catch (Exception e) {
                     android.util.Log.e("PonyPaper", "Error loading " + files[i] + ": " + e.toString());
                 }
