@@ -11,6 +11,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -28,6 +29,12 @@ public class PonyWallpaper extends WallpaperService {
     static final String PREF_TARGET_FPS = "pref_target_fps";
     /** When true (default), system Battery Saver caps FPS, pony count, and image backgrounds. */
     static final String PREF_RESPECT_BATTERY_SAVER = "pref_respect_battery_saver";
+    /** When true, use {@link #DEFAULT_TARGET_FPS} while the device is on battery power. */
+    static final String PREF_BATTERY_DEFAULT_FPS = "pref_battery_default_fps";
+    /** When true, use {@link #DEFAULT_NUM_PONIES} while the device is on battery power. */
+    static final String PREF_BATTERY_DEFAULT_PONIES = "pref_battery_default_ponies";
+    /** When true, replace image backgrounds with a solid colour while on battery. */
+    static final String PREF_BATTERY_DISABLE_BACKGROUND = "pref_battery_disable_background";
     /** Preference key for the user's preferred number of on-screen ponies. */
     static final String PREF_NUM_PONIES = "pref_num_ponies";
     /** Battery-friendly default; motion uses delta time so speed stays consistent. */
@@ -60,6 +67,8 @@ public class PonyWallpaper extends WallpaperService {
         private int framePeriodMs = 1000 / DEFAULT_TARGET_FPS;
         /** Last known system Battery Saver state (see {@link PowerManager#isPowerSaveMode()}). */
         private boolean powerSaveMode = false;
+        /** True when the device is not plugged in (running on battery). */
+        private boolean onBattery = true;
         
         private boolean isVisible = false;
         private long lastFrameUptimeMs = 0;
@@ -74,7 +83,16 @@ public class PonyWallpaper extends WallpaperService {
             public void onReceive(Context context, Intent intent) {
                 if (intent == null) return;
                 if (!PowerManager.ACTION_POWER_SAVE_MODE_CHANGED.equals(intent.getAction())) return;
-                applyPowerSaveMode(isSystemPowerSaveMode());
+                applyPowerPolicyState(isSystemPowerSaveMode(), onBattery);
+            }
+        };
+        
+        private final BroadcastReceiver batteryReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (intent == null) return;
+                if (!Intent.ACTION_BATTERY_CHANGED.equals(intent.getAction())) return;
+                applyPowerPolicyState(powerSaveMode, isOnBattery(intent));
             }
         };
         
@@ -84,8 +102,9 @@ public class PonyWallpaper extends WallpaperService {
             getPreferences().registerOnSharedPreferenceChangeListener(this);
             paint = new Paint();
             powerSaveMode = isSystemPowerSaveMode();
+            onBattery = isOnBattery(null);
             applyTargetFps(getPreferences());
-            registerPowerSaveReceiver();
+            registerPowerReceivers();
         }
         
         private SharedPreferences getPreferences() {
@@ -98,6 +117,21 @@ public class PonyWallpaper extends WallpaperService {
         }
         
         /**
+         * Whether the device is running on battery (not AC/USB/wireless charging).
+         * Pass a sticky {@link Intent#ACTION_BATTERY_CHANGED} intent when available;
+         * otherwise a sticky broadcast is queried.
+         */
+        private boolean isOnBattery(Intent batteryStatus) {
+            Intent status = batteryStatus;
+            if (status == null) {
+                status = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            }
+            if (status == null) return true; // Assume battery if unknown.
+            int plugged = status.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0);
+            return plugged == 0;
+        }
+        
+        /**
          * Whether Battery Saver limits should be applied right now. Requires both
          * system power-save mode and the user preference to respect it.
          */
@@ -106,8 +140,31 @@ public class PonyWallpaper extends WallpaperService {
         }
         
         /**
+         * Whether the on-battery power profile should force the default frame rate.
+         */
+        private boolean shouldUseDefaultFpsOnBattery(SharedPreferences prefs) {
+            return onBattery && prefs.getBoolean(PREF_BATTERY_DEFAULT_FPS, false);
+        }
+        
+        /**
+         * Whether the on-battery power profile should force the default pony count.
+         */
+        private boolean shouldUseDefaultPoniesOnBattery(SharedPreferences prefs) {
+            return onBattery && prefs.getBoolean(PREF_BATTERY_DEFAULT_PONIES, false);
+        }
+        
+        /**
+         * Whether image backgrounds should be replaced with a solid colour right now
+         * (Battery Saver and/or the on-battery disable-background option).
+         */
+        private boolean shouldDisableBackgroundImage(SharedPreferences prefs) {
+            if (shouldApplyBatterySaverLimits(prefs)) return true;
+            return onBattery && prefs.getBoolean(PREF_BATTERY_DISABLE_BACKGROUND, false);
+        }
+        
+        /**
          * Effective on-screen pony count: user preference, optionally capped under
-         * Battery Saver.
+         * Battery Saver and/or the on-battery default-ponies profile.
          */
         private int getEffectivePonyCount(SharedPreferences prefs) {
             int count = prefs.getInt(PREF_NUM_PONIES, DEFAULT_NUM_PONIES);
@@ -115,22 +172,28 @@ public class PonyWallpaper extends WallpaperService {
             if (shouldApplyBatterySaverLimits(prefs)) {
                 count = Math.min(count, BATTERY_SAVER_MAX_PONIES);
             }
+            if (shouldUseDefaultPoniesOnBattery(prefs)) {
+                count = Math.min(count, DEFAULT_NUM_PONIES);
+            }
             return count;
         }
         
-        private void registerPowerSaveReceiver() {
-            IntentFilter filter = new IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED);
+        private void registerPowerReceivers() {
+            IntentFilter powerSaveFilter = new IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED);
+            IntentFilter batteryFilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(powerSaveReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+                registerReceiver(powerSaveReceiver, powerSaveFilter, Context.RECEIVER_NOT_EXPORTED);
+                registerReceiver(batteryReceiver, batteryFilter, Context.RECEIVER_NOT_EXPORTED);
             } else {
-                registerReceiver(powerSaveReceiver, filter);
+                registerReceiver(powerSaveReceiver, powerSaveFilter);
+                registerReceiver(batteryReceiver, batteryFilter);
             }
         }
         
         /**
          * Reads the target FPS preference and updates {@link #framePeriodMs}.
          * Motion is delta-time based, so changing FPS only affects smoothness and battery.
-         * Under Battery Saver the rate is capped at {@link #BATTERY_SAVER_MAX_FPS}.
+         * Battery Saver and the on-battery default-FPS profile may lower the rate.
          */
         private void applyTargetFps(SharedPreferences prefs) {
             int fps = DEFAULT_TARGET_FPS;
@@ -145,31 +208,63 @@ public class PonyWallpaper extends WallpaperService {
             if (shouldApplyBatterySaverLimits(prefs)) {
                 fps = Math.min(fps, BATTERY_SAVER_MAX_FPS);
             }
+            if (shouldUseDefaultFpsOnBattery(prefs)) {
+                fps = Math.min(fps, DEFAULT_TARGET_FPS);
+            }
             framePeriodMs = Math.max(1, 1000 / fps);
         }
         
         /**
-         * Applies a change in system Battery Saver state: cap FPS, drop image
-         * backgrounds for a solid colour, and rebuild the pony set if the
-         * effective count would change.
+         * Snapshot of which power-policy effects are active, used to decide whether
+         * a plug/unplug or Battery Saver change needs a full rebuild.
          */
-        private void applyPowerSaveMode(boolean enabled) {
-            if (powerSaveMode == enabled) return;
+        private int powerPolicySignature(SharedPreferences prefs) {
+            int sig = 0;
+            if (shouldApplyBatterySaverLimits(prefs)) sig |= 1;
+            if (shouldUseDefaultFpsOnBattery(prefs)) sig |= 2;
+            if (shouldUseDefaultPoniesOnBattery(prefs)) sig |= 4;
+            if (shouldDisableBackgroundImage(prefs)) sig |= 8;
+            return sig;
+        }
+        
+        /**
+         * Applies a change in Battery Saver and/or on-battery state: adjust FPS,
+         * drop image backgrounds when required, and rebuild the pony set if the
+         * effective count or background policy would change.
+         */
+        private void applyPowerPolicyState(boolean newPowerSaveMode, boolean newOnBattery) {
+            if (powerSaveMode == newPowerSaveMode && onBattery == newOnBattery) return;
             SharedPreferences prefs = getPreferences();
-            boolean wasApplying = shouldApplyBatterySaverLimits(prefs);
-            powerSaveMode = enabled;
-            boolean nowApplying = shouldApplyBatterySaverLimits(prefs);
+            int wasSig = powerPolicySignature(prefs);
+            int wasEffective = getEffectivePonyCount(prefs);
+            
+            powerSaveMode = newPowerSaveMode;
+            onBattery = newOnBattery;
+            
+            int nowSig = powerPolicySignature(prefs);
+            int nowEffective = getEffectivePonyCount(prefs);
             
             applyTargetFps(prefs);
             
-            int effective = getEffectivePonyCount(prefs);
-            // Rebuild when the herd size changes, or when image-background policy
-            // toggles (solid colour under saver; restore the bitmap when leaving).
-            if (ponies == null || ponies.getActiveCount() != effective
-                    || wasApplying != nowApplying) {
+            // Rebuild when herd size or image-background policy changes.
+            if (ponies == null || wasEffective != nowEffective || wasSig != nowSig) {
                 ponies = null;
             }
             
+            handler.removeCallbacks(drawFrameCallback);
+            if (isVisible) {
+                lastFrameUptimeMs = 0;
+                drawFrame();
+            }
+        }
+        
+        /**
+         * Re-evaluate power-profile prefs (FPS/ponies/background) after the user
+         * toggles a related checkbox, without waiting for a system broadcast.
+         */
+        private void reapplyPowerProfilePrefs(SharedPreferences prefs) {
+            applyTargetFps(prefs);
+            ponies = null;
             handler.removeCallbacks(drawFrameCallback);
             if (isVisible) {
                 lastFrameUptimeMs = 0;
@@ -189,16 +284,11 @@ public class PonyWallpaper extends WallpaperService {
                 }
                 return;
             }
-            if (PREF_RESPECT_BATTERY_SAVER.equals(key)) {
-                // Re-evaluate caps and background policy without waiting for a
-                // system broadcast. Always rebuild so image vs solid colour matches.
-                applyTargetFps(prefs);
-                ponies = null;
-                handler.removeCallbacks(drawFrameCallback);
-                if (isVisible) {
-                    lastFrameUptimeMs = 0;
-                    drawFrame();
-                }
+            if (PREF_RESPECT_BATTERY_SAVER.equals(key)
+                    || PREF_BATTERY_DEFAULT_FPS.equals(key)
+                    || PREF_BATTERY_DEFAULT_PONIES.equals(key)
+                    || PREF_BATTERY_DISABLE_BACKGROUND.equals(key)) {
+                reapplyPowerProfilePrefs(prefs);
                 return;
             }
             ponies = null;
@@ -208,6 +298,11 @@ public class PonyWallpaper extends WallpaperService {
         public void onDestroy() {
             try {
                 unregisterReceiver(powerSaveReceiver);
+            } catch (IllegalArgumentException ignored) {
+                // Already unregistered or never registered.
+            }
+            try {
+                unregisterReceiver(batteryReceiver);
             } catch (IllegalArgumentException ignored) {
                 // Already unregistered or never registered.
             }
@@ -222,8 +317,8 @@ public class PonyWallpaper extends WallpaperService {
         public void onVisibilityChanged(boolean visible) {
             isVisible = visible;
             if (visible) {
-                // Sync in case Battery Saver changed while we were not drawing.
-                applyPowerSaveMode(isSystemPowerSaveMode());
+                // Sync in case Battery Saver or plug state changed while hidden.
+                applyPowerPolicyState(isSystemPowerSaveMode(), isOnBattery(null));
                 lastFrameUptimeMs = 0;
                 drawFrame();
             } else {
@@ -288,10 +383,10 @@ public class PonyWallpaper extends WallpaperService {
                         drunkElapsedMs = 0;
                         backgroundColour = 0xff333333;
                         paint.setAlpha(0xff);
-                        // Under Battery Saver, keep a solid colour instead of decoding
-                        // and blitting a full-screen image each frame.
+                        // Under Battery Saver / on-battery profile, keep a solid colour
+                        // instead of decoding and blitting a full-screen image each frame.
                         if (prefs.getBoolean("pref_background", false)
-                                && !shouldApplyBatterySaverLimits(prefs)) {
+                                && !shouldDisableBackgroundImage(prefs)) {
                             File filesDir = getExternalFilesDir(null);
                             if (filesDir != null) {
                                 File bgFile = new File(filesDir, "background");

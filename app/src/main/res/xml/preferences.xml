@@ -41,6 +41,21 @@
         <CheckBoxPreference android:key="pref_drunk_mode"
                             android:title="Berry Punch mode" />
     </PreferenceCategory>
+    <PreferenceCategory android:key="pref_on_battery"
+                        android:title="On battery">
+        <CheckBoxPreference android:key="pref_battery_default_fps"
+                            android:title="Default frame rate on battery"
+                            android:summary="Use 30 FPS (the default) while running on battery power"
+                            android:defaultValue="false" />
+        <CheckBoxPreference android:key="pref_battery_default_ponies"
+                            android:title="Default pony count on battery"
+                            android:summary="Use 4 ponies (the default) while running on battery power"
+                            android:defaultValue="false" />
+        <CheckBoxPreference android:key="pref_battery_disable_background"
+                            android:title="Disable background on battery"
+                            android:summary="Replace the background image with a solid colour while on battery"
+                            android:defaultValue="false" />
+    </PreferenceCategory>
     <PreferenceCategory android:key="pref_mane6"
                         android:title="Mane 6">
         <CheckBoxPreference android:key="pref_aj"
