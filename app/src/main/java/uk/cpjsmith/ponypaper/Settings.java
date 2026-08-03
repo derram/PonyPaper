@@ -8,6 +8,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
 import android.preference.CheckBoxPreference;
+import android.preference.ListPreference;
 import android.preference.Preference;
 import android.preference.PreferenceActivity;
 import android.preference.PreferenceCategory;
@@ -20,6 +21,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Random;
 import javax.xml.parsers.DocumentBuilder;
@@ -36,12 +38,14 @@ public class Settings extends PreferenceActivity {
         addPreferencesFromResource(R.xml.preferences);
         
         File dir = getExternalFilesDir(null);
+        File[] customFiles = new File[0];
         if (dir != null) {
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
             
             File[] files = dir.listFiles(AllPonies.xmlFilter);
             if (files == null) files = new File[0];
             Arrays.sort(files);
+            customFiles = files;
             PreferenceCategory customCat = (PreferenceCategory)findPreference("pref_custom");
             for (int i = 0; i < files.length; i++) {
                 String fileName = files[i].getName();
@@ -59,6 +63,8 @@ public class Settings extends PreferenceActivity {
                 customCat.addPreference(checkbox);
             }
         }
+        
+        refreshWaifuList(customFiles);
         
         findPreference("pref_add_custom").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
             public boolean onPreferenceClick(Preference preference) {
@@ -92,6 +98,51 @@ public class Settings extends PreferenceActivity {
                 return true;
             }
         });
+    }
+    
+    /**
+     * Rebuilds the Favorite (waifu) list from built-in arrays plus any custom
+     * pony XML basenames currently on disk.
+     */
+    private void refreshWaifuList(File[] customFiles) {
+        ListPreference waifu = (ListPreference)findPreference("pref_waifu");
+        if (waifu == null) return;
+        
+        CharSequence[] baseEntries = getResources().getTextArray(R.array.pref_waifu_entries);
+        CharSequence[] baseValues = getResources().getTextArray(R.array.pref_waifu_values);
+        
+        if (customFiles == null) customFiles = new File[0];
+        
+        ArrayList<CharSequence> entries = new ArrayList<CharSequence>(baseEntries.length + customFiles.length);
+        ArrayList<CharSequence> values = new ArrayList<CharSequence>(baseValues.length + customFiles.length);
+        for (int i = 0; i < baseEntries.length; i++) {
+            entries.add(baseEntries[i]);
+            values.add(baseValues[i]);
+        }
+        for (int i = 0; i < customFiles.length; i++) {
+            String fileName = customFiles[i].getName();
+            entries.add(fileName);
+            values.add("pref_custom_" + fileName);
+        }
+        
+        CharSequence[] entryArr = entries.toArray(new CharSequence[entries.size()]);
+        CharSequence[] valueArr = values.toArray(new CharSequence[values.size()]);
+        waifu.setEntries(entryArr);
+        waifu.setEntryValues(valueArr);
+        
+        // Keep summary correct when the stored value is still valid.
+        String current = waifu.getValue();
+        if (current == null) current = "";
+        boolean known = false;
+        for (int i = 0; i < valueArr.length; i++) {
+            if (current.equals(valueArr[i].toString())) {
+                known = true;
+                break;
+            }
+        }
+        if (!known) {
+            waifu.setValue("");
+        }
     }
     
     private void selectBackground() {
@@ -158,6 +209,10 @@ public class Settings extends PreferenceActivity {
                             checkbox.setTitle(fileName);
                             ((PreferenceCategory)findPreference("pref_custom")).addPreference(checkbox);
                         }
+                        File dirAfter = getExternalFilesDir(null);
+                        File[] filesAfter = dirAfter != null ? dirAfter.listFiles(AllPonies.xmlFilter) : null;
+                        if (filesAfter != null) Arrays.sort(filesAfter);
+                        refreshWaifuList(filesAfter != null ? filesAfter : new File[0]);
                     } catch (IOException e) {
                         showAlertDialog("Failed to add pony", "An I/O error occurred.");
                     }

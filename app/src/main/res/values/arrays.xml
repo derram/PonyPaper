@@ -12,4 +12,89 @@
         <item>90</item>
         <item>120</item>
     </string-array>
+    <!-- Built-in favorites for pref_waifu; Settings appends custom ponies at runtime. -->
+    <string-array name="pref_waifu_entries">
+        <item>None</item>
+        <item>Apple Bloom</item>
+        <item>Applejack</item>
+        <item>Babs Seed</item>
+        <item>Berry Punch</item>
+        <item>Big McIntosh</item>
+        <item>Derpy</item>
+        <item>Dr. Hooves</item>
+        <item>Ember</item>
+        <item>Fluttershy</item>
+        <item>Gallus</item>
+        <item>Gilda</item>
+        <item>Lyra Heartstrings</item>
+        <item>Minuette</item>
+        <item>Ocellus</item>
+        <item>Octavia</item>
+        <item>Pinkie Pie</item>
+        <item>Princess Cadance</item>
+        <item>Princess Celestia</item>
+        <item>Princess Luna</item>
+        <item>Rainbow Dash</item>
+        <item>Rarity</item>
+        <item>Sandbar</item>
+        <item>Scootaloo</item>
+        <item>Shining Armor</item>
+        <item>Silverstream</item>
+        <item>Smolder</item>
+        <item>Soarin</item>
+        <item>Spike</item>
+        <item>Spitfire</item>
+        <item>Starlight Glimmer</item>
+        <item>Sunset Shimmer</item>
+        <item>Sweetie Belle</item>
+        <item>Sweetie Drops</item>
+        <item>Thorax</item>
+        <item>Trixie</item>
+        <item>Twilight Sparkle</item>
+        <item>Vinyl Scratch</item>
+        <item>Yona</item>
+        <item>Zecora</item>
+    </string-array>
+    <string-array name="pref_waifu_values">
+        <item></item>
+        <item>pref_ab</item>
+        <item>pref_aj</item>
+        <item>pref_babs</item>
+        <item>pref_bp</item>
+        <item>pref_bigmac</item>
+        <item>pref_derpy</item>
+        <item>pref_doctor</item>
+        <item>pref_ember</item>
+        <item>pref_fs</item>
+        <item>pref_gallus</item>
+        <item>pref_gilda</item>
+        <item>pref_lyra</item>
+        <item>pref_minuette</item>
+        <item>pref_ocellus</item>
+        <item>pref_octavia</item>
+        <item>pref_pp</item>
+        <item>pref_cadance</item>
+        <item>pref_celestia</item>
+        <item>pref_luna</item>
+        <item>pref_rd</item>
+        <item>pref_rarity</item>
+        <item>pref_sandbar</item>
+        <item>pref_scootaloo</item>
+        <item>pref_sa</item>
+        <item>pref_silverstream</item>
+        <item>pref_smolder</item>
+        <item>pref_soarin</item>
+        <item>pref_spike</item>
+        <item>pref_spitfire</item>
+        <item>pref_sg</item>
+        <item>pref_ss</item>
+        <item>pref_sb</item>
+        <item>pref_sd</item>
+        <item>pref_thorax</item>
+        <item>pref_trixie</item>
+        <item>pref_ts</item>
+        <item>pref_vinyl</item>
+        <item>pref_yona</item>
+        <item>pref_zecora</item>
+    </string-array>
 </resources>

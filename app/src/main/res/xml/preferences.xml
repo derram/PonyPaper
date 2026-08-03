@@ -10,6 +10,13 @@
                 custom:maxValue="20"
                 custom:wrap="false"
                 android:defaultValue="4" />
+        <ListPreference android:key="pref_waifu"
+                        android:title="Favorite (waifu)"
+                        android:summary="%s"
+                        android:dialogTitle="Favorite pony"
+                        android:entries="@array/pref_waifu_entries"
+                        android:entryValues="@array/pref_waifu_values"
+                        android:defaultValue="" />
     </PreferenceCategory>
     <PreferenceCategory android:key="pref_misc"
                         android:title="Other options">
