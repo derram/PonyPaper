@@ -70,6 +70,11 @@ public class Pony {
      * the walk/trot animation rate while {@link #MOTION_MOVING}.
      */
     private float moveSpeedFactor = GAIT_TROT;
+    /**
+     * Animation rate for idle/stand cycles while {@link #MOTION_WAITING}.
+     * Chosen 50/50 between full speed and {@link #GAIT_WALK} each wait.
+     */
+    private float idleAnimRate = GAIT_TROT;
     
     private Rect screenBounds;
     
@@ -98,6 +103,7 @@ public class Pony {
         posY = 0;
         frameTime = 0;
         moveSpeedFactor = GAIT_TROT;
+        idleAnimRate = GAIT_TROT;
         for (int i = 0; i < allActions.length; i++) {
             allActions[i].unload();
         }
@@ -128,11 +134,13 @@ public class Pony {
             setRandomTarget();
             if (motion == MOTION_MOVING) chooseGait();
         } else if (deltaMs > 0) {
-            // Match gait animation rate to travel speed for normal walks; keep
-            // full rate for idle, drag, and one-shot teleport sequences.
+            // Match gait animation rate to travel speed for normal walks; idle
+            // uses a per-wait rate (full or walk-speed 50/50); drag/teleport stay full.
             float animRate = 1f;
             if (motion == MOTION_MOVING && currentAction.type == PonyAction.NORMAL) {
                 animRate = moveSpeedFactor;
+            } else if (motion == MOTION_WAITING) {
+                animRate = idleAnimRate;
             }
             frameTime += deltaMs * CS_PER_MS * animRate;
             int animTime = currentAction.getAnimationTime(direction);
@@ -283,6 +291,8 @@ public class Pony {
     
     private void setWaiting() {
         changeAction(currentAction.getNextWaiting(random));
+        // 50/50 full-speed idle vs same rate as a normal walk gait.
+        idleAnimRate = random.nextBoolean() ? GAIT_TROT : GAIT_WALK;
     }
     
     private void setMoving() {
