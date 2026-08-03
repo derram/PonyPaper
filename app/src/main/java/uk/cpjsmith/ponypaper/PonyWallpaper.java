@@ -26,7 +26,7 @@ public class PonyWallpaper extends WallpaperService {
     
     /** Preference key for {@link #DEFAULT_TARGET_FPS} and allowed list values. */
     static final String PREF_TARGET_FPS = "pref_target_fps";
-    /** When true (default), system Battery Saver caps FPS and pony count. */
+    /** When true (default), system Battery Saver caps FPS, pony count, and image backgrounds. */
     static final String PREF_RESPECT_BATTERY_SAVER = "pref_respect_battery_saver";
     /** Preference key for the user's preferred number of on-screen ponies. */
     static final String PREF_NUM_PONIES = "pref_num_ponies";
@@ -149,19 +149,24 @@ public class PonyWallpaper extends WallpaperService {
         }
         
         /**
-         * Applies a change in system Battery Saver state: cap FPS and rebuild the
-         * pony set if the effective count would change.
+         * Applies a change in system Battery Saver state: cap FPS, drop image
+         * backgrounds for a solid colour, and rebuild the pony set if the
+         * effective count would change.
          */
         private void applyPowerSaveMode(boolean enabled) {
             if (powerSaveMode == enabled) return;
-            powerSaveMode = enabled;
-            
             SharedPreferences prefs = getPreferences();
+            boolean wasApplying = shouldApplyBatterySaverLimits(prefs);
+            powerSaveMode = enabled;
+            boolean nowApplying = shouldApplyBatterySaverLimits(prefs);
+            
             applyTargetFps(prefs);
             
             int effective = getEffectivePonyCount(prefs);
-            if (ponies == null || ponies.getActiveCount() != effective) {
-                // Rebuild so the active herd matches the new cap (or restored pref).
+            // Rebuild when the herd size changes, or when image-background policy
+            // toggles (solid colour under saver; restore the bitmap when leaving).
+            if (ponies == null || ponies.getActiveCount() != effective
+                    || wasApplying != nowApplying) {
                 ponies = null;
             }
             
@@ -185,12 +190,10 @@ public class PonyWallpaper extends WallpaperService {
                 return;
             }
             if (PREF_RESPECT_BATTERY_SAVER.equals(key)) {
-                // Re-evaluate caps without waiting for another system broadcast.
+                // Re-evaluate caps and background policy without waiting for a
+                // system broadcast. Always rebuild so image vs solid colour matches.
                 applyTargetFps(prefs);
-                int effective = getEffectivePonyCount(prefs);
-                if (ponies == null || ponies.getActiveCount() != effective) {
-                    ponies = null;
-                }
+                ponies = null;
                 handler.removeCallbacks(drawFrameCallback);
                 if (isVisible) {
                     lastFrameUptimeMs = 0;
@@ -285,7 +288,10 @@ public class PonyWallpaper extends WallpaperService {
                         drunkElapsedMs = 0;
                         backgroundColour = 0xff333333;
                         paint.setAlpha(0xff);
-                        if (prefs.getBoolean("pref_background", false)) {
+                        // Under Battery Saver, keep a solid colour instead of decoding
+                        // and blitting a full-screen image each frame.
+                        if (prefs.getBoolean("pref_background", false)
+                                && !shouldApplyBatterySaverLimits(prefs)) {
                             File filesDir = getExternalFilesDir(null);
                             if (filesDir != null) {
                                 File bgFile = new File(filesDir, "background");

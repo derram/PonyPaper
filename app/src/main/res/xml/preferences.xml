@@ -22,7 +22,7 @@
                         android:defaultValue="30" />
         <CheckBoxPreference android:key="pref_respect_battery_saver"
                             android:title="Respect Battery Saver"
-                            android:summary="Limit to 25 FPS and at most 3 ponies when system Battery Saver is on"
+                            android:summary="Limit to 25 FPS, at most 3 ponies, and replace image backgrounds with a solid colour when system Battery Saver is on"
                             android:defaultValue="true" />
         <CheckBoxPreference android:key="pref_background"
                             android:title="Use background"
