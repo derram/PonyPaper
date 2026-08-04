@@ -20,8 +20,10 @@ import android.view.View;
  * timeout while charging or docked — see Display → Screen saver → When to start).
  * This service only controls content and interactive exit.
  *
- * <p>Interactive so hold-to-drag works. Exit with Back, or a real tap/swipe that is
- * not a completed long-press drag ({@link #finish()}).
+ * <p>Interactive so hold-to-drag works. Starts dimmed for dock/idle power use.
+ * A real tap/swipe that is not a completed long-press drag brightens the screen
+ * if dimmed (dream continues); the same gesture exits only when already bright
+ * ({@link #finish()}). Back always exits after the start grace window.
  */
 public class PonyDreamService extends DreamService implements PonySceneController.FrameSurface {
 
@@ -32,7 +34,21 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      */
     private static final long DISMISS_GRACE_MS = 750;
 
+    /**
+     * After a tap brightens a dim dream, re-dim if there is no further interaction.
+     * Keeps dock/idle power behaviour without requiring a second tap to exit first.
+     */
+    private static final long RE_DIM_IDLE_MS = 30_000;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable reDimRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (dreaming && isScreenBright()) {
+                setScreenBright(false);
+            }
+        }
+    };
     private PonySceneController controller;
     private SurfaceView surfaceView;
     private boolean dreaming = false;
@@ -89,21 +105,36 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 switch (action) {
                     case MotionEvent.ACTION_DOWN:
                         gestureDown = true;
+                        // Defer re-dim until the finger is up so a long drag cannot dim mid-gesture.
+                        cancelReDim();
                         break;
                     case MotionEvent.ACTION_UP:
-                        // Only dismiss for a complete user gesture we saw from DOWN.
+                        // Only act on a complete user gesture we saw from DOWN.
                         // Never finish on orphan UP or on CANCEL (window transitions).
                         if (gestureDown && canDismissFromTouch()) {
                             if (controller == null || !controller.didDragThisGesture()) {
                                 gestureDown = false;
-                                finish();
+                                if (isScreenBright()) {
+                                    finish();
+                                } else {
+                                    // Dimmed: brighten and keep dreaming (clock-style wake).
+                                    setScreenBright(true);
+                                    scheduleReDim();
+                                }
                                 return true;
                             }
+                        }
+                        // Drag ended (or grace/incomplete gesture): stay bright if already so.
+                        if (isScreenBright()) {
+                            scheduleReDim();
                         }
                         gestureDown = false;
                         break;
                     case MotionEvent.ACTION_CANCEL:
                         // Surface/window may cancel without a user intent to exit.
+                        if (isScreenBright()) {
+                            scheduleReDim();
+                        }
                         gestureDown = false;
                         break;
                     case MotionEvent.ACTION_POINTER_UP:
@@ -128,6 +159,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         dreaming = true;
         dreamingStartedAtMs = SystemClock.uptimeMillis();
         gestureDown = false;
+        // Always start dimmed; a prior bright session must not stick across dreams.
+        setScreenBright(false);
+        cancelReDim();
         updateActive();
         if (surfaceView != null) {
             surfaceView.requestFocus();
@@ -139,6 +173,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         dreaming = false;
         dreamingStartedAtMs = 0;
         gestureDown = false;
+        cancelReDim();
         if (controller != null) {
             controller.setActive(false);
         }
@@ -151,6 +186,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         dreamingStartedAtMs = 0;
         gestureDown = false;
         surfaceReady = false;
+        cancelReDim();
         if (controller != null) {
             controller.stop();
             controller = null;
@@ -164,6 +200,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         if (event.getAction() == KeyEvent.ACTION_UP) {
             int code = event.getKeyCode();
             // HOME is often not delivered to apps; BACK/ESCAPE still help on docks.
+            // Back exits regardless of dim/bright — only taps use the two-step wake.
             if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_ESCAPE) {
                 if (canDismissFromTouch()) {
                     finish();
@@ -175,12 +212,22 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     /**
-     * Whether a user-driven dismiss is allowed. Blocks the brief window after the
-     * dream starts so attach-time input noise cannot call {@link #finish()}.
+     * Whether a user-driven dismiss / brighten is allowed. Blocks the brief window
+     * after the dream starts so attach-time input noise cannot call {@link #finish()}
+     * or flip brightness.
      */
     private boolean canDismissFromTouch() {
         if (!dreaming || dreamingStartedAtMs == 0) return false;
         return SystemClock.uptimeMillis() - dreamingStartedAtMs >= DISMISS_GRACE_MS;
+    }
+
+    private void scheduleReDim() {
+        handler.removeCallbacks(reDimRunnable);
+        handler.postDelayed(reDimRunnable, RE_DIM_IDLE_MS);
+    }
+
+    private void cancelReDim() {
+        handler.removeCallbacks(reDimRunnable);
     }
 
     private void updateActive() {
