@@ -3,4 +3,6 @@
     <string name="app_name">Pony Paper</string>
     <string name="description">Cartoon ponies wander across your screen.</string>
     <string name="app_settings_name">Pony Paper settings</string>
+    <string name="pref_open_screensaver_title">Screen saver settings</string>
+    <string name="pref_open_screensaver_summary">Choose Pony Paper as the system screen saver (same ponies and options as the wallpaper)</string>
 </resources>

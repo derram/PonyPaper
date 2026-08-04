@@ -98,6 +98,31 @@ public class Settings extends PreferenceActivity {
                 return true;
             }
         });
+
+        Preference openScreensaver = findPreference("pref_open_screensaver");
+        if (openScreensaver != null) {
+            openScreensaver.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    openSystemDreamSettings();
+                    return true;
+                }
+            });
+        }
+    }
+
+    /**
+     * Opens the system screen saver / Daydream picker when available.
+     * Path and availability vary by OEM; fall back to a short notice if the
+     * intent cannot be resolved.
+     */
+    private void openSystemDreamSettings() {
+        Intent intent = new Intent(android.provider.Settings.ACTION_DREAM_SETTINGS);
+        try {
+            startActivity(intent);
+        } catch (Exception e) {
+            showAlertDialog("Screen saver settings",
+                    "Open system Settings → Display → Screen saver (wording varies by device) and choose Pony Paper.");
+        }
     }
     
     /**
