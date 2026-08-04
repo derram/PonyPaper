@@ -19,7 +19,7 @@ This repository is a **grok build modernization fork** of the [Smithers888/PonyP
 - **Crash and stability fixes** — safer canvas handling, preference listener cleanup, hardened custom-pony import, sprite bitmap recycling
 - **Waifu selector** — best pony should always come first
 
-<img src='screenshots/screen1.png' width='180'> <img src='screenshots/screen2.png' width='180'> <img src='screenshots/screen3.png' width='180'> <img src='screenshots/preview.png' width='180'>  <img src='screenshots/preferences1.png' width='180'> <img src='screenshots/preferences2.png' width='180'>
+<img src='screenshots/screen1.png' width='180'> <img src='screenshots/screen2.png' width='180'> <img src='screenshots/screen3.png' width='180'> <img src='screenshots/preview.png' width='180'>  <img src='screenshots/preferences1.png' width='180'> <img src='screenshots/preferences2.png' width='180'> <img src='screenshots/screensaver.png' width='180'>
 
 ## Install (from Releases)
 
