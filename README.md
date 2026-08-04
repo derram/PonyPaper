@@ -15,6 +15,7 @@ This repository is a **grok build modernization fork** of the [Smithers888/PonyP
 - **Discrete gaits** — stroll, walk, and trot for more varied movement
 - **Hold-to-drag** — press and hold a pony to drag it; uses a lowered/drag sprite while held
 - **Optional screen saver** — same herd and settings as a system Daydream / screen saver (`DreamService`); enable under system Display settings
+- **Optional screensaver clock** — Everyday Clock–style large digital time (and optional date) drawn over the herd; 12/24-hour follows the system setting
 - **Crash and stability fixes** — safer canvas handling, preference listener cleanup, hardened custom-pony import, sprite bitmap recycling
 - **Waifu selector** — best pony should always come first
 
@@ -28,11 +29,9 @@ Prebuilt APKs are published on the [Releases](https://github.com/derram/PonyPape
 2. Open the downloaded file (notification, Files app, or browser downloads).
 3. If Android blocks the install, allow installs from that source when prompted (see [warnings below](#android-install-warnings)).
 4. After install, set the wallpaper: long-press the home screen → **Wallpapers** → **Live wallpapers** → **Pony Paper**. Open settings from the wallpaper picker to toggle ponies, background, etc.
-5. (Optional) Use as a **screen saver**: system **Settings → Display → Screen saver** (wording varies by OEM) → choose **Pony Paper**. From in-app settings you can also open **Screen saver settings**. The screensaver uses the same preferences as the wallpaper (ponies, FPS, background, etc.).
+5. (Optional) Use as a **screen saver**: system **Settings → Display → Screen saver** (wording varies by OEM) → choose **Pony Paper**. From in-app settings you can also open **Screen saver settings**. The screensaver uses the same preferences as the wallpaper (ponies, FPS, background, etc.). Under **Screen saver** in-app you can optionally enable a large digital **clock** (and date) similar to Pixel’s Everyday Clock.
 
-   **When it starts is controlled by Android, not this app.** Typical setup: Screen saver → **When to start** → While charging / While docked / Either. The dream then appears after **screen timeout** (Display → Screen timeout) while that condition is met. Some phones also show it after power-off-to-sleep while charging, or via **Start now** in the screen saver screen. Pressing Power on a fully off screen may go to the lock screen instead of the saver on some OEMs — that is normal system behaviour.
-
-   **Tap or swipe** (or Back) to exit; hold a pony to drag without dismissing.
+   **Tap or swipe** while dimmed brightens the screen and keeps the saver running; the same gesture exits only when already bright. **Back** always exits. Hold a pony to drag without dismissing. After brightening, the screen re-dims after ~30s of no interaction.
 
 This fork uses application id `io.github.derram.ponypaper`, so it installs **alongside** the original upstream app (`uk.cpjsmith.ponypaper`) rather than replacing it. Updates only work when the new APK is signed with the **same** release key as the previous install of this fork.
 

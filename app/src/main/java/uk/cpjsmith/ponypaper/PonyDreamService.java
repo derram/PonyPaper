@@ -1,6 +1,7 @@
 package uk.cpjsmith.ponypaper;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -260,5 +261,22 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     @Override
     public float getBackgroundYOffset() {
         return 0.5f;
+    }
+
+    @Override
+    public boolean shouldShowClock() {
+        return getDreamPreferences().getBoolean(
+                PonySceneController.PREF_DREAM_SHOW_CLOCK, false);
+    }
+
+    @Override
+    public boolean shouldShowClockDate() {
+        SharedPreferences prefs = getDreamPreferences();
+        return prefs.getBoolean(PonySceneController.PREF_DREAM_SHOW_CLOCK, false)
+                && prefs.getBoolean(PonySceneController.PREF_DREAM_SHOW_DATE, true);
+    }
+
+    private SharedPreferences getDreamPreferences() {
+        return PreferenceManager.getDefaultSharedPreferences(this);
     }
 }

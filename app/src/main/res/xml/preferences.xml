@@ -51,6 +51,18 @@
                     android:title="@string/pref_open_screensaver_title"
                     android:summary="@string/pref_open_screensaver_summary" />
     </PreferenceCategory>
+    <PreferenceCategory android:key="pref_screensaver"
+                        android:title="@string/pref_screensaver_category">
+        <CheckBoxPreference android:key="pref_dream_show_clock"
+                            android:title="@string/pref_dream_show_clock_title"
+                            android:summary="@string/pref_dream_show_clock_summary"
+                            android:defaultValue="false" />
+        <CheckBoxPreference android:key="pref_dream_show_date"
+                            android:title="@string/pref_dream_show_date_title"
+                            android:summary="@string/pref_dream_show_date_summary"
+                            android:dependency="pref_dream_show_clock"
+                            android:defaultValue="true" />
+    </PreferenceCategory>
     <PreferenceCategory android:key="pref_on_battery"
                         android:title="On battery">
         <CheckBoxPreference android:key="pref_battery_default_fps"

@@ -39,6 +39,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     static final String PREF_BATTERY_DISABLE_BACKGROUND = "pref_battery_disable_background";
     /** Preference key for the user's preferred number of on-screen ponies. */
     static final String PREF_NUM_PONIES = "pref_num_ponies";
+    /** When true, the dream draws a large digital clock over the scene. */
+    static final String PREF_DREAM_SHOW_CLOCK = "pref_dream_show_clock";
+    /** When true (and the clock is shown), draw the date under the time. */
+    static final String PREF_DREAM_SHOW_DATE = "pref_dream_show_date";
     /** Battery-friendly default; motion uses delta time so speed stays consistent. */
     static final int DEFAULT_TARGET_FPS = 30;
     /** Default pony count when the preference is missing. */
@@ -64,6 +68,18 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         Context getContext();
         float getBackgroundXOffset();
         float getBackgroundYOffset();
+
+        /**
+         * Whether to draw the Everyday Clock–style digital overlay. Wallpaper
+         * hosts return false; the dream returns the screen-saver preference.
+         */
+        boolean shouldShowClock();
+
+        /**
+         * When {@link #shouldShowClock()} is true, whether to draw the date line
+         * under the time.
+         */
+        boolean shouldShowClockDate();
     }
 
     private final Context appContext;
@@ -74,6 +90,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private Bitmap background = null;
     private boolean drunkMode = false;
     private final Paint paint = new Paint();
+    private final DreamClock dreamClock = new DreamClock();
     private int backgroundColour = 0;
     private int drunkElapsedMs = 0;
     /** Delay between draw callbacks; derived from {@link #PREF_TARGET_FPS}. */
@@ -436,6 +453,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                     c.drawColor(backgroundColour);
                 }
                 ponies.drawAndUpdate(c, deltaMs);
+                // Clock on top so digits stay readable over ponies / backgrounds.
+                if (surface.shouldShowClock()) {
+                    dreamClock.draw(c, surface.getContext(), surface.shouldShowClockDate());
+                }
             }
         } finally {
             if (c != null) holder.unlockCanvasAndPost(c);

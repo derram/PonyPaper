@@ -54,6 +54,16 @@ public class PonyWallpaper extends WallpaperService {
         }
 
         @Override
+        public boolean shouldShowClock() {
+            return false;
+        }
+
+        @Override
+        public boolean shouldShowClockDate() {
+            return false;
+        }
+
+        @Override
         public void onDestroy() {
             controller.stop();
             super.onDestroy();
