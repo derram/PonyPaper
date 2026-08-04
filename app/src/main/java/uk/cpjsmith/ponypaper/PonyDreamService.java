@@ -5,6 +5,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.preference.PreferenceManager;
 import android.service.dreams.DreamService;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -13,6 +14,9 @@ import android.view.View;
 /**
  * Optional screensaver (Daydream) host. Uses the same {@link PonySceneController}
  * as the live wallpaper so scene, prefs, and power policy stay in one place.
+ *
+ * <p>Interactive so hold-to-drag works. Exit with Back, or any tap/swipe that is
+ * not a completed long-press drag ({@link #finish()}).
  */
 public class PonyDreamService extends DreamService implements PonySceneController.FrameSurface {
 
@@ -33,6 +37,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         setScreenBright(false);
 
         surfaceView = new SurfaceView(this);
+        surfaceView.setFocusable(true);
+        surfaceView.setFocusableInTouchMode(true);
         surfaceView.getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override
             public void surfaceCreated(SurfaceHolder holder) {
@@ -63,10 +69,19 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 if (controller != null) {
                     controller.onTouchEvent(event);
                 }
+                int action = event.getActionMasked();
+                // Tap, swipe, or long-press on empty space: leave the dream.
+                // After a pony drag, keep running so the user can keep watching.
+                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                    if (controller == null || !controller.didDragThisGesture()) {
+                        finish();
+                    }
+                }
                 return true;
             }
         });
         setContentView(surfaceView);
+        surfaceView.requestFocus();
 
         controller = new PonySceneController(this, handler, this);
         controller.start();
@@ -77,6 +92,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         super.onDreamingStarted();
         dreaming = true;
         updateActive();
+        if (surfaceView != null) {
+            surfaceView.requestFocus();
+        }
     }
 
     @Override
@@ -98,6 +116,20 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         }
         surfaceView = null;
         super.onDetachedFromWindow();
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_UP) {
+            int code = event.getKeyCode();
+            if (code == KeyEvent.KEYCODE_BACK
+                    || code == KeyEvent.KEYCODE_ESCAPE
+                    || code == KeyEvent.KEYCODE_HOME) {
+                finish();
+                return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
     }
 
     private void updateActive() {

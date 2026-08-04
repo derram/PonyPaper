@@ -55,6 +55,7 @@ public class Ponies {
             if (pendingPony == null) return;
             draggedPony = pendingPony;
             pendingPony = null;
+            draggedThisGesture = true;
             draggedPony.startDrag();
             draggedPony.moveTo(new Point(Math.round(lastX), Math.round(lastY)));
         }
@@ -64,6 +65,11 @@ public class Ponies {
     private Pony draggedPony = null;
     /** Pony under the finger waiting for the long-press timeout. */
     private Pony pendingPony = null;
+    /**
+     * True after a long-press drag starts within the current gesture. Used by
+     * hosts (e.g. dream/screensaver) that dismiss on tap but keep a drag open.
+     */
+    private boolean draggedThisGesture = false;
     private float downX;
     private float downY;
     private float lastX;
@@ -160,6 +166,7 @@ public class Ponies {
             case MotionEvent.ACTION_DOWN:
                 endDrag();
                 cancelPendingDrag();
+                draggedThisGesture = false;
                 
                 initialPointerId = event.getPointerId(0);
                 downX = lastX = event.getX();
@@ -205,6 +212,14 @@ public class Ponies {
                 }
                 break;
         }
+    }
+
+    /**
+     * Whether the current (or just-finished) gesture long-press-dragged a pony.
+     * Cleared on the next {@link MotionEvent#ACTION_DOWN}.
+     */
+    public boolean didDragThisGesture() {
+        return draggedThisGesture;
     }
     
     private void cancelPendingDrag() {

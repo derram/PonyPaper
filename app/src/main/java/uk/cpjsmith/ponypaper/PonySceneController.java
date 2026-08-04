@@ -192,6 +192,14 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (ponies != null) ponies.onTouchEvent(event);
     }
 
+    /**
+     * Whether the current gesture long-press-dragged a pony. Dream hosts use this
+     * to dismiss on tap/swipe while leaving an active drag alone.
+     */
+    public boolean didDragThisGesture() {
+        return ponies != null && ponies.didDragThisGesture();
+    }
+
     private SharedPreferences getPreferences() {
         return PreferenceManager.getDefaultSharedPreferences(appContext);
     }
