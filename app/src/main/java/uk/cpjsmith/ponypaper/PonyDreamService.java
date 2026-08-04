@@ -25,6 +25,10 @@ import android.view.View;
  * A real tap/swipe that is not a completed long-press drag brightens the screen
  * if dimmed (dream continues); the same gesture exits only when already bright
  * ({@link #finish()}). Back always exits after the start grace window.
+ *
+ * <p>After {@link #MAX_IDLE_MS} with no touch interaction, the dream calls
+ * {@link #finish()} so the system can turn the screen off (and run AOD if
+ * configured). Touch input resets that timer.
  */
 public class PonyDreamService extends DreamService implements PonySceneController.FrameSurface {
 
@@ -41,12 +45,26 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      */
     private static final long RE_DIM_IDLE_MS = 30_000;
 
+    /**
+     * Exit the dream after this long with no user touch so the display can sleep
+     * instead of animating overnight (e.g. docked / charging).
+     */
+    private static final long MAX_IDLE_MS = 10 * 60_000L;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable reDimRunnable = new Runnable() {
         @Override
         public void run() {
             if (dreaming && isScreenBright()) {
                 setScreenBright(false);
+            }
+        }
+    };
+    private final Runnable maxIdleRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (dreaming) {
+                finish();
             }
         }
     };
@@ -108,6 +126,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                         gestureDown = true;
                         // Defer re-dim until the finger is up so a long drag cannot dim mid-gesture.
                         cancelReDim();
+                        // Real contact counts as activity; ignore orphan UP/CANCEL for idle.
+                        noteUserActivity();
                         break;
                     case MotionEvent.ACTION_UP:
                         // Only act on a complete user gesture we saw from DOWN.
@@ -163,6 +183,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         // Always start dimmed; a prior bright session must not stick across dreams.
         setScreenBright(false);
         cancelReDim();
+        scheduleMaxIdle();
         updateActive();
         if (surfaceView != null) {
             surfaceView.requestFocus();
@@ -175,6 +196,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         dreamingStartedAtMs = 0;
         gestureDown = false;
         cancelReDim();
+        cancelMaxIdle();
         if (controller != null) {
             controller.setActive(false);
         }
@@ -188,6 +210,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         gestureDown = false;
         surfaceReady = false;
         cancelReDim();
+        cancelMaxIdle();
         if (controller != null) {
             controller.stop();
             controller = null;
@@ -229,6 +252,24 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void cancelReDim() {
         handler.removeCallbacks(reDimRunnable);
+    }
+
+    /**
+     * User touched the dream; restart the max-idle countdown so interaction
+     * keeps the screensaver running.
+     */
+    private void noteUserActivity() {
+        if (!dreaming) return;
+        scheduleMaxIdle();
+    }
+
+    private void scheduleMaxIdle() {
+        handler.removeCallbacks(maxIdleRunnable);
+        handler.postDelayed(maxIdleRunnable, MAX_IDLE_MS);
+    }
+
+    private void cancelMaxIdle() {
+        handler.removeCallbacks(maxIdleRunnable);
     }
 
     private void updateActive() {
