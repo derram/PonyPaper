@@ -327,19 +327,19 @@ public class Pony {
     }
     
     /**
-     * Picks a discrete gait for the next travel leg. Equal chance of stroll,
-     * walk, or trot; never above {@link #GAIT_TROT} (the historical full speed).
+     * Picks a discrete gait for the next travel leg. Prefer walk, chance for
+     * stroll or trot; never above {@link #GAIT_TROT} (the historical full speed).
      */
     private void chooseGait() {
-        switch (random.nextInt(3)) {
+        switch (random.nextInt(5)) {
             case 0:
                 moveSpeedFactor = GAIT_STROLL;
                 break;
             case 1:
-                moveSpeedFactor = GAIT_WALK;
+                moveSpeedFactor = GAIT_TROT;
                 break;
             default:
-                moveSpeedFactor = GAIT_TROT;
+                moveSpeedFactor = GAIT_WALK;
                 break;
         }
     }
