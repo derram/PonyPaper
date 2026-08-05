@@ -9,8 +9,9 @@ import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 
 /**
- * Live wallpaper host. Rendering, prefs, and power policy live in
+ * Live wallpaper host. Rendering, prefs, power, and thermal policy live in
  * {@link PonySceneController}; this class only maps engine lifecycle.
+ * Thermal emergency freezes animation in the controller (no host action needed).
  */
 public class PonyWallpaper extends WallpaperService {
 

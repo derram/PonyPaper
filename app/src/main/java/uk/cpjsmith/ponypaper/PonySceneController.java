@@ -22,8 +22,9 @@ import android.view.SurfaceHolder;
 import java.io.File;
 
 /**
- * Host-agnostic scene controller: frame loop, power policy, background, and
- * pony herd. Used by both the live wallpaper engine and the dream (screensaver).
+ * Host-agnostic scene controller: frame loop, power policy, thermal policy,
+ * background, and pony herd. Used by both the live wallpaper engine and the
+ * dream (screensaver).
  */
 public class PonySceneController implements SharedPreferences.OnSharedPreferenceChangeListener {
 
@@ -60,6 +61,30 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private static final int BATTERY_SAVER_MAX_PONIES = 3;
 
     /**
+     * Thermal status codes matching {@link PowerManager} (API 29+). Inlined so
+     * pre-Q devices can use the same scale for the battery-temperature fallback.
+     */
+    private static final int THERMAL_NONE = 0;
+    private static final int THERMAL_LIGHT = 1;
+    private static final int THERMAL_MODERATE = 2;
+    private static final int THERMAL_SEVERE = 3;
+    /** Maximum FPS while effective thermal status is MODERATE. */
+    private static final int THERMAL_MODERATE_MAX_FPS = 25;
+    /** Maximum on-screen ponies while effective thermal status is MODERATE. */
+    private static final int THERMAL_MODERATE_MAX_PONIES = 2;
+    /**
+     * Battery {@link BatteryManager#EXTRA_TEMPERATURE} (tenths of °C) treated as
+     * MODERATE when the Thermal API is unavailable or cooler than the pack.
+     */
+    private static final int BATTERY_TEMP_MODERATE_TENTHS = 430; // 43.0 °C
+    /** Battery temperature (tenths of °C) treated as SEVERE / emergency freeze. */
+    private static final int BATTERY_TEMP_SEVERE_TENTHS = 460; // 46.0 °C
+    /** Sentinel: battery temperature not yet read. */
+    private static final int BATTERY_TEMP_UNKNOWN = Integer.MIN_VALUE;
+    /** Solid fill while animation is frozen for thermal emergency. */
+    private static final int THERMAL_SAFE_COLOUR = 0xff333333;
+
+    /**
      * Provides the surface and host-specific drawing state for the controller.
      */
     public interface FrameSurface {
@@ -80,6 +105,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
          * under the time.
          */
         boolean shouldShowClockDate();
+
+        /**
+         * Called once when thermal emergency begins (effective status SEVERE+).
+         * Wallpaper may ignore; the dream should {@code finish()} so the display
+         * can sleep instead of holding a frozen screensaver.
+         */
+        default void onThermalHardStop() {}
     }
 
     private final Context appContext;
@@ -99,6 +131,19 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private boolean powerSaveMode = false;
     /** True when the device is not plugged in (running on battery). */
     private boolean onBattery = true;
+    /**
+     * Last status from {@link PowerManager#getCurrentThermalStatus()} (API 29+).
+     * Stays {@link #THERMAL_NONE} on older devices.
+     */
+    private int apiThermalStatus = THERMAL_NONE;
+    /** Last battery temperature in tenths of °C, or {@link #BATTERY_TEMP_UNKNOWN}. */
+    private int batteryTempTenths = BATTERY_TEMP_UNKNOWN;
+    /** True while effective thermal status warrants emergency freeze (SEVERE+). */
+    private boolean thermalEmergency = false;
+    /** True while status is MODERATE (soft throttle; not emergency). */
+    private boolean thermalThrottle = false;
+    /** Token from {@link ThermalStatusSupport#register}; typed as Object for pre-Q safety. */
+    private Object thermalListenerToken = null;
 
     private boolean active = false;
     private boolean started = false;
@@ -124,6 +169,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             if (intent == null) return;
             if (!Intent.ACTION_BATTERY_CHANGED.equals(intent.getAction())) return;
             applyPowerPolicyState(powerSaveMode, isOnBattery(intent));
+            // Battery temp is the pre-Q thermal fallback (and a secondary elevating
+            // signal when the Thermal API reports cooler than the pack).
+            int temp = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, BATTERY_TEMP_UNKNOWN);
+            if (temp != batteryTempTenths) {
+                batteryTempTenths = temp;
+                recomputeThermalPolicy();
+            }
         }
     };
 
@@ -136,7 +188,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Registers preference and power listeners. Safe to call once per controller lifetime.
+     * Registers preference, power, and thermal listeners. Safe to call once per
+     * controller lifetime.
      */
     public void start() {
         if (started) return;
@@ -144,8 +197,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         getPreferences().registerOnSharedPreferenceChangeListener(this);
         powerSaveMode = isSystemPowerSaveMode();
         onBattery = isOnBattery(null);
+        batteryTempTenths = readBatteryTemperatureTenths();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            PowerManager pm = (PowerManager) appContext.getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                apiThermalStatus = pm.getCurrentThermalStatus();
+            }
+        }
         applyTargetFps(getPreferences());
         registerPowerReceivers();
+        registerThermalListener();
+        recomputeThermalPolicy();
     }
 
     /**
@@ -155,6 +217,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (!started) return;
         started = false;
         active = false;
+        unregisterThermalListener();
         try {
             appContext.unregisterReceiver(powerSaveReceiver);
         } catch (IllegalArgumentException ignored) {
@@ -169,11 +232,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         handler.removeCallbacks(drawFrameCallback);
         ponies = null;
         background = null;
+        thermalEmergency = false;
+        thermalThrottle = false;
     }
 
     /**
      * Starts or stops the draw loop. Wallpaper maps visibility here; dream maps
-     * dreaming + surface-ready.
+     * dreaming + surface-ready. Does not animate while {@link #thermalEmergency}.
      */
     public void setActive(boolean active) {
         if (!active) {
@@ -181,10 +246,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             handler.removeCallbacks(drawFrameCallback);
             return;
         }
-        // Sync in case Battery Saver or plug state changed while inactive.
+        // Sync in case Battery Saver, plug state, or thermal changed while inactive.
         applyPowerPolicyState(isSystemPowerSaveMode(), isOnBattery(null));
+        recomputeThermalPolicy();
         this.active = true;
         lastFrameUptimeMs = 0;
+        if (thermalEmergency) {
+            paintThermalSafeFrame();
+            // Dream may have attached while already hot (hard-stop was a no-op then).
+            surface.onThermalHardStop();
+            return;
+        }
         drawFrame();
     }
 
@@ -253,7 +325,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         return onBattery && prefs.getBoolean(PREF_BATTERY_DEFAULT_PONIES, false);
     }
 
+    /** Soft thermal throttle (MODERATE): lower FPS/ponies; no full emergency freeze. */
+    private boolean shouldApplyThermalThrottle() {
+        return thermalThrottle && !thermalEmergency;
+    }
+
     private boolean shouldDisableBackgroundImage(SharedPreferences prefs) {
+        if (thermalEmergency || shouldApplyThermalThrottle()) return true;
         if (shouldApplyBatterySaverLimits(prefs)) return true;
         return onBattery && prefs.getBoolean(PREF_BATTERY_DISABLE_BACKGROUND, false);
     }
@@ -267,6 +345,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (shouldUseDefaultPoniesOnBattery(prefs)) {
             count = Math.min(count, DEFAULT_NUM_PONIES);
         }
+        if (shouldApplyThermalThrottle()) {
+            count = Math.min(count, THERMAL_MODERATE_MAX_PONIES);
+        }
         return count;
     }
 
@@ -279,6 +360,142 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         } else {
             appContext.registerReceiver(powerSaveReceiver, powerSaveFilter);
             appContext.registerReceiver(batteryReceiver, batteryFilter);
+        }
+    }
+
+    private void registerThermalListener() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return;
+        if (thermalListenerToken != null) return;
+        PowerManager pm = (PowerManager) appContext.getSystemService(Context.POWER_SERVICE);
+        if (pm == null) return;
+        thermalListenerToken = ThermalStatusSupport.register(pm, handler,
+                new ThermalStatusSupport.Callback() {
+                    @Override
+                    public void onThermalStatusChanged(int status) {
+                        if (!started) return;
+                        if (apiThermalStatus == status) return;
+                        apiThermalStatus = status;
+                        recomputeThermalPolicy();
+                    }
+                });
+    }
+
+    private void unregisterThermalListener() {
+        if (thermalListenerToken == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            PowerManager pm = (PowerManager) appContext.getSystemService(Context.POWER_SERVICE);
+            ThermalStatusSupport.unregister(pm, thermalListenerToken);
+        }
+        thermalListenerToken = null;
+    }
+
+    /**
+     * Battery pack temperature in tenths of a degree Celsius, or
+     * {@link #BATTERY_TEMP_UNKNOWN} if the sticky battery intent is missing.
+     */
+    private int readBatteryTemperatureTenths() {
+        Intent status = appContext.registerReceiver(null,
+                new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        if (status == null) return BATTERY_TEMP_UNKNOWN;
+        return status.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, BATTERY_TEMP_UNKNOWN);
+    }
+
+    /**
+     * Map battery temperature to the same scale as {@link PowerManager} thermal
+     * status. Used as the sole signal on API &lt; 29 and as a max() elevating
+     * signal when the Thermal API is available.
+     */
+    private int batteryTemperatureThermalStatus() {
+        if (batteryTempTenths == BATTERY_TEMP_UNKNOWN) return THERMAL_NONE;
+        if (batteryTempTenths >= BATTERY_TEMP_SEVERE_TENTHS) return THERMAL_SEVERE;
+        if (batteryTempTenths >= BATTERY_TEMP_MODERATE_TENTHS) return THERMAL_MODERATE;
+        return THERMAL_NONE;
+    }
+
+    /**
+     * Worst-case of system thermal status (API 29+) and battery-temperature
+     * fallback. Battery temp alone covers pre-Q devices.
+     */
+    private int computeEffectiveThermalStatus() {
+        int fromBattery = batteryTemperatureThermalStatus();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            return Math.max(apiThermalStatus, fromBattery);
+        }
+        return fromBattery;
+    }
+
+    /**
+     * Apply soft throttle (MODERATE) or emergency freeze (SEVERE+) with hysteresis:
+     * once frozen, stay frozen until status drops to LIGHT or below so the herd
+     * does not thrash at the SEVERE boundary.
+     */
+    private void recomputeThermalPolicy() {
+        int effective = computeEffectiveThermalStatus();
+
+        boolean wantEmergency = effective >= THERMAL_SEVERE;
+        // Hysteresis: leave emergency only when clearly cool (NONE or LIGHT).
+        if (thermalEmergency && effective > THERMAL_LIGHT) {
+            wantEmergency = true;
+        }
+        boolean wantThrottle = !wantEmergency && effective >= THERMAL_MODERATE;
+
+        if (wantEmergency == thermalEmergency && wantThrottle == thermalThrottle) {
+            return;
+        }
+
+        SharedPreferences prefs = getPreferences();
+        int wasEffectivePonies = getEffectivePonyCount(prefs);
+        boolean wasEmergency = thermalEmergency;
+        boolean wasThrottle = thermalThrottle;
+
+        thermalEmergency = wantEmergency;
+        thermalThrottle = wantThrottle;
+
+        applyTargetFps(prefs);
+        int nowEffectivePonies = getEffectivePonyCount(prefs);
+
+        if (thermalEmergency) {
+            handler.removeCallbacks(drawFrameCallback);
+            ponies = null;
+            background = null;
+            if (active && surface.isDrawingEnabled()) {
+                paintThermalSafeFrame();
+            }
+            if (!wasEmergency) {
+                surface.onThermalHardStop();
+            }
+            return;
+        }
+
+        // Leaving emergency or crossing throttle: rebuild herd when size/profile changes.
+        if (wasEmergency || wasThrottle != thermalThrottle
+                || wasEffectivePonies != nowEffectivePonies) {
+            ponies = null;
+            background = null;
+        }
+
+        handler.removeCallbacks(drawFrameCallback);
+        if (active && surface.isDrawingEnabled()) {
+            lastFrameUptimeMs = 0;
+            drawFrame();
+        }
+    }
+
+    /**
+     * Single solid frame with no animation. Used while thermal emergency is active
+     * so the surface is not left showing a stale high-cost scene.
+     */
+    private void paintThermalSafeFrame() {
+        final SurfaceHolder holder = surface.getSurfaceHolder();
+        if (holder == null) return;
+        Canvas c = null;
+        try {
+            c = holder.lockCanvas();
+            if (c != null && c.getWidth() > 0 && c.getHeight() > 0) {
+                c.drawColor(THERMAL_SAFE_COLOUR);
+            }
+        } finally {
+            if (c != null) holder.unlockCanvasAndPost(c);
         }
     }
 
@@ -298,6 +515,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (shouldUseDefaultFpsOnBattery(prefs)) {
             fps = Math.min(fps, DEFAULT_TARGET_FPS);
         }
+        if (shouldApplyThermalThrottle()) {
+            fps = Math.min(fps, THERMAL_MODERATE_MAX_FPS);
+        }
         framePeriodMs = Math.max(1, 1000 / fps);
     }
 
@@ -307,6 +527,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (shouldUseDefaultFpsOnBattery(prefs)) sig |= 2;
         if (shouldUseDefaultPoniesOnBattery(prefs)) sig |= 4;
         if (shouldDisableBackgroundImage(prefs)) sig |= 8;
+        if (shouldApplyThermalThrottle()) sig |= 16;
+        if (thermalEmergency) sig |= 32;
         return sig;
     }
 
@@ -377,6 +599,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             return;
         }
 
+        // Thermal emergency: solid safe frame only; never schedule animation.
+        if (thermalEmergency) {
+            paintThermalSafeFrame();
+            handler.removeCallbacks(drawFrameCallback);
+            return;
+        }
+
         final long now = SystemClock.uptimeMillis();
         long deltaMs = framePeriodMs;
         if (lastFrameUptimeMs != 0) {
@@ -401,8 +630,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                     drunkElapsedMs = 0;
                     backgroundColour = 0xff333333;
                     paint.setAlpha(0xff);
-                    // Under Battery Saver / on-battery profile, keep a solid colour
-                    // instead of decoding and blitting a full-screen image each frame.
+                    // Under Battery Saver / thermal / on-battery profile, keep a solid
+                    // colour instead of decoding and blitting a full-screen image each frame.
                     if (prefs.getBoolean("pref_background", false)
                             && !shouldDisableBackgroundImage(prefs)) {
                         File filesDir = surface.getContext().getExternalFilesDir(null);
@@ -464,7 +693,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
         // Reschedule the next redraw at the effective target rate.
         handler.removeCallbacks(drawFrameCallback);
-        if (active && surface.isDrawingEnabled()) {
+        if (active && surface.isDrawingEnabled() && !thermalEmergency) {
             handler.postDelayed(drawFrameCallback, framePeriodMs);
         }
     }

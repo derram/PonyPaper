@@ -15,7 +15,7 @@ import android.view.View;
 
 /**
  * Optional screensaver (Daydream) host. Uses the same {@link PonySceneController}
- * as the live wallpaper so scene, prefs, and power policy stay in one place.
+ * as the live wallpaper so scene, prefs, power, and thermal policy stay in one place.
  *
  * <p>When the dream runs is decided entirely by the system (typically after screen
  * timeout while charging or docked — see Display → Screen saver → When to start).
@@ -315,6 +315,17 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         SharedPreferences prefs = getDreamPreferences();
         return prefs.getBoolean(PonySceneController.PREF_DREAM_SHOW_CLOCK, false)
                 && prefs.getBoolean(PonySceneController.PREF_DREAM_SHOW_DATE, true);
+    }
+
+    /**
+     * Thermal emergency (SEVERE+): end the dream so the system can turn the
+     * display off instead of holding a frozen screensaver on a hot device.
+     */
+    @Override
+    public void onThermalHardStop() {
+        if (dreaming) {
+            finish();
+        }
     }
 
     private SharedPreferences getDreamPreferences() {
