@@ -15,6 +15,9 @@ import java.util.Locale;
  * optional date line, sized relative to the surface so it stays readable on
  * phones and tablets without covering the whole herd.
  *
+ * <p>Type scales with the short side of the canvas, with a larger fraction in
+ * landscape so the clock reads bigger when the device is docked horizontally.
+ *
  * <p>Position drifts slowly in a Lissajous path so the same pixels are not lit
  * for hours on a docked OLED.
  */
@@ -118,18 +121,30 @@ final class DreamClock {
         if (formatChanged || sizeChanged) {
             lastWidth = width;
             lastHeight = height;
-            // Large type relative to the short side; date is secondary.
+            // Size relative to the short side so type stays proportional on
+            // phones and tablets. Landscape uses a larger fraction so the
+            // clock fills more of the docked / horizontal view.
             float shortSide = Math.min(width, height);
-            float timeSize = shortSide * 0.18f;
-            float dateSize = shortSide * 0.045f;
+            boolean landscape = width > height;
+            float timeFraction = landscape ? 0.30f : 0.18f;
+            float dateFraction = landscape ? 0.075f : 0.045f;
+            float timeSize = shortSide * timeFraction;
+            float dateSize = shortSide * dateFraction;
             timePaint.setTextSize(timeSize);
             datePaint.setTextSize(dateSize);
+            // Shadow scales with type so large landscape digits keep a soft edge.
+            float timeShadow = Math.max(8f, timeSize * 0.04f);
+            float dateShadow = Math.max(4f, dateSize * 0.06f);
+            timePaint.setShadowLayer(timeShadow, 0f, timeShadow * 0.35f, SHADOW_COLOR);
+            datePaint.setShadowLayer(dateShadow, 0f, dateShadow * 0.5f, SHADOW_COLOR);
             // Keep the time on one line (e.g. "12:59 PM" or "23:59").
             float maxTimeWidth = width * 0.85f;
             String sample = is24 ? "00:00" : "12:59 PM";
             float measured = timePaint.measureText(sample);
             if (measured > maxTimeWidth && measured > 0f) {
-                timePaint.setTextSize(timeSize * (maxTimeWidth / measured));
+                float scale = maxTimeWidth / measured;
+                timePaint.setTextSize(timeSize * scale);
+                datePaint.setTextSize(dateSize * scale);
             }
         }
     }
