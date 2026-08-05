@@ -14,7 +14,7 @@ This repository is a **grok build modernization fork** of the [Smithers888/PonyP
 - **Up to 20 ponies** on screen (was lower upstream)
 - **Discrete gaits** — stroll, walk, and trot for more varied movement
 - **Hold-to-drag** — press and hold a pony to drag it; uses a lowered/drag sprite while held
-- **Optional screen saver** — same herd and settings as a system Daydream / screen saver (`DreamService`); enable under system Display settings
+- **Optional screen saver** — can be enabled independantly of wallpaper, uses the same herd and settings; enable under system Display settings
 - **Optional screensaver clock** — Everyday Clock–style large digital time (and optional date) drawn over the herd; 12/24-hour follows the system setting
 - **Crash and stability fixes** — safer canvas handling, preference listener cleanup, hardened custom-pony import, sprite bitmap recycling
 - **Waifu selector** — best pony should always come first
