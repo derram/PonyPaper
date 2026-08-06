@@ -24,11 +24,15 @@ import android.view.View;
  * <p>Interactive so hold-to-drag works. Starts dimmed for dock/idle power use.
  * A real tap/swipe that is not a completed long-press drag brightens the screen
  * if dimmed (dream continues); the same gesture exits only when already bright
- * ({@link #finish()}). Back always exits after the start grace window.
+ * via {@link #requestUserUnlock()}. Back always exits after the start grace window
+ * the same way. That path gently wakes the dream and starts
+ * {@link UnlockRequestActivity} so a secure keyguard can show the unlock method
+ * (PIN / pattern / biometrics) without an extra lock-screen swipe.
  *
  * <p>After {@link #MAX_IDLE_MS} with no touch interaction, the dream calls
  * {@link #finish()} so the system can turn the screen off (and run AOD if
- * configured). Touch input resets that timer.
+ * configured). Touch input resets that timer. Thermal hard-stop also uses
+ * {@link #finish()} — neither should prompt for unlock.
  */
 public class PonyDreamService extends DreamService implements PonySceneController.FrameSurface {
 
@@ -131,12 +135,12 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                         break;
                     case MotionEvent.ACTION_UP:
                         // Only act on a complete user gesture we saw from DOWN.
-                        // Never finish on orphan UP or on CANCEL (window transitions).
+                        // Never exit on orphan UP or on CANCEL (window transitions).
                         if (gestureDown && canDismissFromTouch()) {
                             if (controller == null || !controller.didDragThisGesture()) {
                                 gestureDown = false;
                                 if (isScreenBright()) {
-                                    finish();
+                                    requestUserUnlock();
                                 } else {
                                     // Dimmed: brighten and keep dreaming (clock-style wake).
                                     setScreenBright(true);
@@ -227,7 +231,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             // Back exits regardless of dim/bright — only taps use the two-step wake.
             if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_ESCAPE) {
                 if (canDismissFromTouch()) {
-                    finish();
+                    requestUserUnlock();
                     return true;
                 }
             }
@@ -236,9 +240,21 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     /**
+     * User intends to leave the dream and unlock. Starts the keyguard-dismiss
+     * trampoline (API 26+), then {@link #wakeUp()} so the dream ends gently and
+     * the device stays awake. Idle / thermal paths keep using {@link #finish()}
+     * so they do not prompt for credentials.
+     */
+    private void requestUserUnlock() {
+        if (!dreaming) return;
+        UnlockRequestActivity.launch(this);
+        wakeUp();
+    }
+
+    /**
      * Whether a user-driven dismiss / brighten is allowed. Blocks the brief window
-     * after the dream starts so attach-time input noise cannot call {@link #finish()}
-     * or flip brightness.
+     * after the dream starts so attach-time input noise cannot call
+     * {@link #requestUserUnlock()} / flip brightness.
      */
     private boolean canDismissFromTouch() {
         if (!dreaming || dreamingStartedAtMs == 0) return false;

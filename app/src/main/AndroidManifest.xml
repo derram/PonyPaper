@@ -46,5 +46,16 @@
             android:label="@string/app_settings_name"
             android:exported="true"
             android:theme="@android:style/Theme.DeviceDefault.Light" />
+
+        <!-- Dream user-exit trampoline: requestDismissKeyguard needs an Activity. -->
+        <activity
+            android:name=".UnlockRequestActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.PonyPaper.UnlockRequest"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
     </application>
 </manifest>
