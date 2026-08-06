@@ -40,7 +40,7 @@ public class Pony {
      * Discrete gaits as fractions of {@link #MOVE_SPEED_PER_SECOND}. Chosen once
      * per travel leg so the AI does not always move at the ceiling.
      */
-    private static final float GAIT_STROLL = 0.4f;
+    private static final float GAIT_STROLL = 0.5f;
     private static final float GAIT_WALK = 0.7f;
     private static final float GAIT_TROT = 1.0f;
     
