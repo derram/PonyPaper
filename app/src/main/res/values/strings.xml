@@ -7,7 +7,7 @@
     <string name="pref_open_screensaver_summary">Choose Pony Paper as the system screen saver (same ponies and options as the wallpaper)</string>
     <string name="pref_screensaver_category">Screen saver</string>
     <string name="pref_dream_show_clock_title">Show clock</string>
-    <string name="pref_dream_show_clock_summary">Large digital clock over the herd (Everyday Clock style; 12/24-hour follows system setting)</string>
+    <string name="pref_dream_show_clock_summary">Large digital clock over the herd (12/24-hour follows system setting)</string>
     <string name="pref_dream_show_date_title">Show date</string>
     <string name="pref_dream_show_date_summary">Weekday and full date under the time</string>
 </resources>
