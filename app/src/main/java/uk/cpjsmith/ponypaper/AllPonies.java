@@ -111,6 +111,7 @@ public class AllPonies {
         
         PonyAction[] all = {stand, trot, fly};
         PonyAction[] justStand = {stand};
+        PonyAction[] justTrot = {trot};
         PonyAction[] justFly = {fly};
         PonyAction[] waitStates = {stand, fly};
         PonyAction[] moveStates = {trot, fly};
@@ -123,9 +124,10 @@ public class AllPonies {
         trot.setNextMoving(moveStates);
         fly.setNextMoving(justFly);
         
-        stand.setNextDrag(justFly);
-        trot.setNextDrag(justFly);
-        fly.setNextDrag(justFly);
+        // Ground gait while held: fly sheets read as airborne and lift the body.
+        stand.setNextDrag(justTrot);
+        trot.setNextDrag(justTrot);
+        fly.setNextDrag(justTrot);
         
         return new Pony(all, moveStates);
     }
@@ -532,6 +534,7 @@ public class AllPonies {
         PonyAction dragU = new PonyAction(res, R.array.ts_drag);
         
         PonyAction[] justStandA = {standA};
+        PonyAction[] justTrotA = {trotA};
         PonyAction[] justFlyA = {flyA};
         PonyAction[] waitStatesA = {standA, standA, standA, flyA};
         PonyAction[] moveStatesA = {trotA, trotA, flyA, teleportOutA};
@@ -561,11 +564,12 @@ public class AllPonies {
         teleportInU.setNextMoving(moveStatesU);
         dragU.setNextMoving(moveStatesU);
         
-        standA.setNextDrag(justFlyA);
-        trotA.setNextDrag(justFlyA);
-        flyA.setNextDrag(justFlyA);
-        teleportOutA.setNextDrag(justFlyA);
-        teleportInA.setNextDrag(justFlyA);
+        // Alicorn has no drag sheet; use trot (not fly) so drag stays grounded.
+        standA.setNextDrag(justTrotA);
+        trotA.setNextDrag(justTrotA);
+        flyA.setNextDrag(justTrotA);
+        teleportOutA.setNextDrag(justTrotA);
+        teleportInA.setNextDrag(justTrotA);
         standU.setNextDrag(justDragU);
         trotU.setNextDrag(justDragU);
         teleportOutU.setNextDrag(justDragU);

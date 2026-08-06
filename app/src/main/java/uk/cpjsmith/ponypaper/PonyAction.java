@@ -183,10 +183,8 @@ public class PonyAction {
         
         if (dragged) {
             p = new Point(p);
-            // Hang slightly above the finger so the sprite stays visible; keep
-            // the offset modest so the pony doesn't sit too high on modern
-            // high-density screens.
-            p.y -= dH/2;
+            // Hang above the finger so the sprite stays visible under the touch.
+            p.y -= dH/2 + 20 * scale;
         }
         
         RectF dstRect = new RectF(p.x - dW/2, p.y - dH/2, p.x + dW/2, p.y + dH/2);
