@@ -296,7 +296,7 @@ public class PonyEditor {
     public static void main(String[] args) {
         if (args.length == 0) {
             PonyEditorGUI.start();
-        } else if (args.length == 1 && args[0] == "-help") {
+        } else if (args.length == 1 && "-help".equals(args[0])) {
             System.out.println("PonyPaper custom pony editor");
             System.out.println("With no arguments, run a graphical user interface.");
             System.out.println("With -help, print this help.");

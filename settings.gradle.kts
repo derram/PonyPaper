@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "PonyPaper"
 include(":app")
+include(":custom")
