@@ -14,6 +14,7 @@ This repository is a **modernization fork** of the [Smithers888/PonyPaper](https
 - **Up to 20 ponies** on screen (11 wasn't loud enough)
 - **Discrete gaits** — stroll, walk, and trot for more varied movement
 - **Hold-to-drag** — press and hold a pony to drag it; no more accidentally jostling ponies when swiping the home screen
+- **Import from Desktop Ponies** — updated custom character editor can import a folder from DP and build an xml file for use with PP
 - **Optional screen saver** — wallpaper and screensaver can be enabled/disabled independently, uses the same herd and settings; enable under system Display settings
 - **Optional screensaver clock** — large digital clock, with optional date, drawn over the herd; 12/24-hour follows the system setting
 - **Crash and stability fixes** — safer canvas handling, preference listener cleanup, hardened custom-pony import, sprite bitmap recycling
