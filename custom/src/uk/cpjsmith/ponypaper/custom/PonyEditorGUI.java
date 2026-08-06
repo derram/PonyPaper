@@ -410,7 +410,7 @@ public class PonyEditorGUI extends JPanel {
         public void actionPerformed(ActionEvent e) {
             fc.setFileFilter(new FileNameExtensionFilter("XML Files", "xml"));
             if (fc.showSaveDialog(PonyEditorGUI.this) == JFileChooser.APPROVE_OPTION) {
-                savePony(fc.getSelectedFile());
+                savePony(ensureXmlExtension(fc.getSelectedFile()));
             }
             fc.resetChoosableFileFilters();
         }
@@ -477,6 +477,15 @@ public class PonyEditorGUI extends JPanel {
     private boolean hasChanges;
     
     private PonyEditorGUI(JFrame parentFrame) {
+        this(parentFrame, null, false);
+    }
+
+    /**
+     * @param parentFrame host frame for dialogs and the window title
+     * @param existing    pre-populated editor model, or {@code null} for a blank pony
+     * @param dirty       whether to treat the model as having unsaved changes
+     */
+    private PonyEditorGUI(JFrame parentFrame, PonyEditor existing, boolean dirty) {
         super(new GridBagLayout());
         
         this.parentFrame = parentFrame;
@@ -504,9 +513,30 @@ public class PonyEditorGUI extends JPanel {
         c.gridwidth = 2;
         add(startActionsPane, c);
         
-        editor = new PonyEditor();
+        editor = existing != null ? existing : new PonyEditor();
         setFile(null);
-        hasChanges = false;
+        hasChanges = dirty;
+        if (existing != null) {
+            setUIFromPony();
+        }
+    }
+
+    /**
+     * Ensures a save path ends with {@code .xml} when the user omits the extension.
+     */
+    static File ensureXmlExtension(File file) {
+        if (file == null) {
+            return null;
+        }
+        String name = file.getName();
+        if (name.isEmpty()) {
+            return file;
+        }
+        if (!name.toLowerCase(java.util.Locale.ROOT).endsWith(".xml")) {
+            File parent = file.getParentFile();
+            return parent != null ? new File(parent, name + ".xml") : new File(name + ".xml");
+        }
+        return file;
     }
     
     private void setFile(File file) {
@@ -606,6 +636,7 @@ public class PonyEditorGUI extends JPanel {
     }
     
     private boolean savePony(File file) {
+        file = ensureXmlExtension(file);
         try {
             editor.validate();
         } catch (PonyEditor.GenericException e) {
@@ -638,7 +669,7 @@ public class PonyEditorGUI extends JPanel {
         if (file == null) {
             fc.setFileFilter(new FileNameExtensionFilter("XML Files", "xml"));
             if (fc.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
-                file = fc.getSelectedFile();
+                file = ensureXmlExtension(fc.getSelectedFile());
             }
             fc.resetChoosableFileFilters();
         }
@@ -772,13 +803,13 @@ public class PonyEditorGUI extends JPanel {
         return result;
     }
     
-    private static void createAndShowGUI() {
+    private static void createAndShowGUI(PonyEditor existing, boolean dirty) {
         JFrame frame = new JFrame();
         frame.setMinimumSize(new Dimension(600, 450));
         frame.setPreferredSize(new Dimension(800, 600));
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         
-        PonyEditorGUI contentPane = new PonyEditorGUI(frame);
+        PonyEditorGUI contentPane = new PonyEditorGUI(frame, existing, dirty);
         contentPane.setOpaque(true);
         frame.setContentPane(contentPane);
         frame.addWindowListener(contentPane.windowListener);
@@ -791,6 +822,17 @@ public class PonyEditorGUI extends JPanel {
     }
     
     public static void start() {
+        start(null, false);
+    }
+
+    /**
+     * Starts the GUI, optionally with a pre-filled {@link PonyEditor} (e.g. after
+     * {@code -import-dp} without {@code -save}).
+     *
+     * @param existing pre-populated model, or {@code null} for a blank pony
+     * @param dirty    whether the model should be treated as unsaved
+     */
+    public static void start(PonyEditor existing, boolean dirty) {
         try {
             for (UIManager.LookAndFeelInfo info : UIManager.getInstalledLookAndFeels()) {
                 if (info.getName().equals("Nimbus")) {
@@ -803,7 +845,7 @@ public class PonyEditorGUI extends JPanel {
         SwingUtilities.invokeLater(new Runnable() {
             @Override
             public void run() {
-                createAndShowGUI();
+                createAndShowGUI(existing, dirty);
             }
         });
     }

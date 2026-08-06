@@ -412,7 +412,12 @@ public class PonyEditor {
             System.out.println("");
             PonyEditorCLI.showArguments();
         } else {
-            new PonyEditorCLI().processArguments(args);
+            PonyEditorCLI cli = new PonyEditorCLI();
+            cli.processArguments(args);
+            if (cli.shouldOpenGui()) {
+                // Import filled the model; open the editor so the user can review/save.
+                PonyEditorGUI.start(cli.getEditor(), true);
+            }
         }
     }
     

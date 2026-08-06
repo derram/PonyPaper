@@ -4,10 +4,25 @@ import java.io.File;
 
 public class PonyEditorCLI {
     
-    PonyEditor editor;
+    private final PonyEditor editor;
+    private boolean usedImportDp;
+    private boolean usedSave;
+    private boolean hadError;
     
     public PonyEditorCLI() {
         editor = new PonyEditor();
+    }
+
+    public PonyEditor getEditor() {
+        return editor;
+    }
+
+    /**
+     * @return {@code true} if the GUI should open with the current editor state
+     *         (Desktop-Ponies import succeeded and no {@code -save} was given)
+     */
+    public boolean shouldOpenGui() {
+        return usedImportDp && !usedSave && !hadError;
     }
     
     private static void checkArgument(String[] args, int i) throws PonyEditor.GenericException {
@@ -44,6 +59,7 @@ public class PonyEditorCLI {
                         checkArgument(args, i);
                         File ponyDir = new File(args[++i]);
                         String[] notes = editor.importDesktopPonies(ponyDir);
+                        usedImportDp = true;
                         for (String note : notes) {
                             System.err.println(note);
                         }
@@ -71,6 +87,7 @@ public class PonyEditorCLI {
                             for (String s : e.detail) System.err.println(s);
                         }
                         editor.save(new File(args[++i]));
+                        usedSave = true;
                         break;
                         
                     case "-special":
@@ -102,6 +119,7 @@ public class PonyEditorCLI {
                 }
             }
         } catch (PonyEditor.GenericException e) {
+            hadError = true;
             for (String s : e.detail) System.err.println(s);
         }
     }
@@ -112,6 +130,7 @@ public class PonyEditorCLI {
         System.out.println("-import-dp DIR");
         System.out.println("    Import a Desktop Ponies character folder (pony.ini + GIFs),");
         System.out.println("    replacing the current pony. Notes are printed to stderr.");
+        System.out.println("    Without -save, opens the GUI with the imported pony loaded.");
         System.out.println("-save FILE");
         System.out.println("    Save the pony definition to the given file path.");
         System.out.println("-start NAMES");

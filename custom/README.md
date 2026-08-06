@@ -71,12 +71,17 @@ Effects, speech, interactions, non-zero behavior groups, and most `Skip=True` st
 From the command line:
 
 ```bash
+# Import and open the GUI with fields filled (review, then Save)
+java -jar custom/build/libs/customponies.jar \
+  -import-dp ../Desktop-Ponies/Content/Ponies/Ace
+
+# Import and write XML without opening the GUI
 java -jar custom/build/libs/customponies.jar \
   -import-dp ../Desktop-Ponies/Content/Ponies/Ace \
   -save ace.xml
 ```
 
-If the working directory is the PonyPaper repo root (or next to a `Desktop-Ponies` checkout), the folder chooser prefers `../Desktop-Ponies/Content/Ponies`.
+If the working directory is the PonyPaper repo root (or next to a `Desktop-Ponies` checkout), the folder chooser prefers `../Desktop-Ponies/Content/Ponies`. Save dialogs append `.xml` when the extension is omitted.
 
 On the left side of the editor is the list of actions. You can create a new action or delete the selected action using the buttons underneath the list. Selecting an action in this list allows its properties to be edited on the right. These properties are:
 * Special type: This field should usually be left blank. the only current exceptions to this rule are actions related to teleporting; see the section on 'Teleporting', below.
