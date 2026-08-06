@@ -292,6 +292,114 @@ public class PonyEditor {
         if (!ponyDefinition.actions[index].nextActions.containsKey(type)) throw new IndexOutOfBoundsException();
         ponyDefinition.actions[index].nextActions.put(type, actionNames);
     }
+
+    /**
+     * Replaces the current pony by importing a Desktop Ponies character folder
+     * ({@code pony.ini} plus GIF sprites). On failure the current pony is left
+     * unchanged.
+     *
+     * @param ponyDir directory containing {@code pony.ini}
+     * @return human-readable import notes (counts, skipped features, etc.)
+     * @throws GenericException if the folder cannot be imported
+     */
+    public String[] importDesktopPonies(File ponyDir) throws GenericException {
+        DesktopPoniesImport.Result result;
+        try {
+            result = DesktopPoniesImport.importPony(ponyDir);
+        } catch (IllegalArgumentException e) {
+            throw new GenericException("Import Failed", e.getMessage());
+        } catch (IOException e) {
+            throw new GenericException("Import Failed", "Failed to read " + ponyDir + ": " + e.getMessage());
+        }
+
+        // Build into a temporary definition so a mid-import sprite failure does not wipe work
+        PonyDefinition previous = ponyDefinition;
+        java.util.List<String> notes = new java.util.ArrayList<String>();
+        for (String w : result.warnings) {
+            notes.add(w);
+        }
+        try {
+            ponyDefinition = new PonyDefinition();
+            int loaded = 0;
+            for (DesktopPoniesImport.ImportedAction action : result.actions) {
+                try {
+                    int index = addAction(action.name);
+                    setActionSpecial(index, action.specialType);
+                    loadActionSprite(index, "left", action.leftImage);
+                    loadActionSprite(index, "right", action.rightImage);
+                    setActionNext(index, "waiting", action.nextWaiting);
+                    setActionNext(index, "moving", action.nextMoving);
+                    setActionNext(index, "drag", action.nextDrag);
+                    loaded++;
+                } catch (GenericException e) {
+                    int idx = findActionByName(action.name);
+                    if (idx >= 0) {
+                        removeAction(idx);
+                    }
+                    notes.add("Skipped action \"" + action.name + "\": could not load sprites ("
+                            + (e.detail != null && e.detail.length > 0 ? e.detail[0] : e.getMessage()) + ").");
+                } catch (RuntimeException e) {
+                    int idx = findActionByName(action.name);
+                    if (idx >= 0) {
+                        removeAction(idx);
+                    }
+                    notes.add("Skipped action \"" + action.name + "\": " + e.getMessage());
+                }
+            }
+            if (loaded == 0) {
+                ponyDefinition = previous;
+                throw new GenericException("Import Failed", "No actions could be loaded from " + ponyDir);
+            }
+            // Rebuild next/start lists if some actions were dropped, keep importer lists but
+            // validation will warn on missing names — strip references to removed actions.
+            java.util.Set<String> present = new java.util.HashSet<String>();
+            for (int i = 0; i < getActionCount(); i++) {
+                present.add(getActionName(i));
+            }
+            for (int i = 0; i < getActionCount(); i++) {
+                setActionNext(i, "waiting", filterActionList(getActionNext(i, "waiting"), present));
+                setActionNext(i, "moving", filterActionList(getActionNext(i, "moving"), present));
+                setActionNext(i, "drag", filterActionList(getActionNext(i, "drag"), present));
+            }
+            setStartActions(filterActionList(result.startActions, present));
+            notes.add(0, "Loaded " + loaded + " action(s) into the editor.");
+        } catch (GenericException e) {
+            ponyDefinition = previous;
+            throw e;
+        } catch (RuntimeException e) {
+            ponyDefinition = previous;
+            throw new GenericException("Import Failed", "Unexpected error: " + e.getMessage());
+        }
+
+        return notes.toArray(new String[0]);
+    }
+
+    private int findActionByName(String name) {
+        for (int i = 0; i < ponyDefinition.actions.length; i++) {
+            if (ponyDefinition.actions[i].name.equals(name)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static String filterActionList(String list, java.util.Set<String> present) {
+        if (list == null || list.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String part : list.split(",")) {
+            String name = part.trim();
+            if (name.isEmpty() || !present.contains(name)) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            sb.append(name);
+        }
+        return sb.toString();
+    }
     
     public static void main(String[] args) {
         if (args.length == 0) {

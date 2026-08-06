@@ -415,6 +415,13 @@ public class PonyEditorGUI extends JPanel {
             fc.resetChoosableFileFilters();
         }
     };
+
+    private ActionListener fileImportDesktopPoniesListener = new ActionListener() {
+        public void actionPerformed(ActionEvent e) {
+            if (!checkChanges()) return;
+            importDesktopPonies();
+        }
+    };
     
     private ListSelectionListener actionListSelectionListener = new ListSelectionListener() {
         public void valueChanged(ListSelectionEvent e) {
@@ -544,6 +551,58 @@ public class PonyEditorGUI extends JPanel {
         
         setFile(file);
         hasChanges = false;
+    }
+
+    /**
+     * Prompts for a Desktop Ponies character folder and imports it into the editor.
+     */
+    private void importDesktopPonies() {
+        File startDir = DesktopPoniesImport.defaultPoniesRoot();
+        JFileChooser dirChooser = new JFileChooser(startDir);
+        dirChooser.setDialogTitle("Import from Desktop-Ponies");
+        dirChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        dirChooser.setAcceptAllFileFilterUsed(false);
+        dirChooser.setFileFilter(new javax.swing.filechooser.FileFilter() {
+            @Override
+            public boolean accept(File f) {
+                return f.isDirectory();
+            }
+
+            @Override
+            public String getDescription() {
+                return "Desktop Ponies character folders (containing pony.ini)";
+            }
+        });
+
+        if (dirChooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+
+        File ponyDir = dirChooser.getSelectedFile();
+        String[] notes;
+        try {
+            notes = editor.importDesktopPonies(ponyDir);
+        } catch (PonyEditor.GenericException e) {
+            JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        setUIFromPony();
+        // Unsaved import; suggest a filename from the folder name on first Save
+        setFile(null);
+        hasChanges = true;
+
+        String message = String.join("\n", notes);
+        int messageType = JOptionPane.INFORMATION_MESSAGE;
+        for (String note : notes) {
+            if (note.startsWith("Skipped") || note.startsWith("Omitted") || note.startsWith("Limited")
+                    || note.startsWith("No Dragged") || note.startsWith("Duplicate")
+                    || note.startsWith("Ignored")) {
+                messageType = JOptionPane.WARNING_MESSAGE;
+                break;
+            }
+        }
+        JOptionPane.showMessageDialog(this, message, "Desktop-Ponies Import", messageType);
     }
     
     private boolean savePony(File file) {
@@ -690,6 +749,12 @@ public class PonyEditorGUI extends JPanel {
         open.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_O, ActionEvent.CTRL_MASK));
         open.addActionListener(fileOpenListener);
         fileMenu.add(open);
+
+        JMenuItem importDp = new JMenuItem("Import from Desktop-Ponies...");
+        importDp.setMnemonic(KeyEvent.VK_I);
+        importDp.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_I, ActionEvent.CTRL_MASK));
+        importDp.addActionListener(fileImportDesktopPoniesListener);
+        fileMenu.add(importDp);
         
         JMenuItem save = new JMenuItem("Save");
         save.setMnemonic(KeyEvent.VK_S);

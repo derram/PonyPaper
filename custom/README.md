@@ -56,6 +56,28 @@ The Ant `build.xml` in this directory is deprecated and will refuse to run; use 
 
 It can be started by launching the JAR from the file manager (if `.jar` is associated with Java) or from the command line with `java -jar …`.
 
+#### Import from Desktop-Ponies
+
+**File → Import from Desktop-Ponies…** (Ctrl+I) opens a folder chooser. Select a character directory that contains a `pony.ini` and GIF sprites (as shipped in [Desktop Ponies](https://github.com/RoosterDragon/Desktop-Ponies) under `Content/Ponies/<Name>/`). The editor will:
+
+* create actions from importable behaviors (group 0, no multi-pony follow targets)
+* convert left/right GIFs into PonyPaper spritesheets and fill frame timings
+* build **start** / **next waiting** / **next moving** / **next drag** lists from Chance, Speed, and Movement
+* map simple teleport chains (e.g. Twilight’s warp) to `teleport-out` / `teleport-in`
+* use a `Dragged` behavior for drag when present
+
+Effects, speech, interactions, non-zero behavior groups, and most `Skip=True` story sequences are skipped. A summary dialog lists what was imported or omitted—always review the action graph before saving.
+
+From the command line:
+
+```bash
+java -jar custom/build/libs/customponies.jar \
+  -import-dp ../Desktop-Ponies/Content/Ponies/Ace \
+  -save ace.xml
+```
+
+If the working directory is the PonyPaper repo root (or next to a `Desktop-Ponies` checkout), the folder chooser prefers `../Desktop-Ponies/Content/Ponies`.
+
 On the left side of the editor is the list of actions. You can create a new action or delete the selected action using the buttons underneath the list. Selecting an action in this list allows its properties to be edited on the right. These properties are:
 * Special type: This field should usually be left blank. the only current exceptions to this rule are actions related to teleporting; see the section on 'Teleporting', below.
 * Left/right sprite: The text field simply states whether an image has been loaded or not. You can use the 'Preview' button to display the image and the 'Import image' button to load a new one. Once you have entered the timings, moving the cursor over the preview will highlight the frames, allowing you to verify that the correct number of times have been entered.

@@ -38,6 +38,17 @@ public class PonyEditorCLI {
                         checkArgument(args, i);
                         editor.load(new File(args[++i]));
                         break;
+
+                    case "-import-dp":
+                    {
+                        checkArgument(args, i);
+                        File ponyDir = new File(args[++i]);
+                        String[] notes = editor.importDesktopPonies(ponyDir);
+                        for (String note : notes) {
+                            System.err.println(note);
+                        }
+                        break;
+                    }
                         
                     case "-next":
                     {
@@ -98,6 +109,9 @@ public class PonyEditorCLI {
     public static void showArguments() {
         System.out.println("-load FILE");
         System.out.println("    Load a pony definition from the given file path.");
+        System.out.println("-import-dp DIR");
+        System.out.println("    Import a Desktop Ponies character folder (pony.ini + GIFs),");
+        System.out.println("    replacing the current pony. Notes are printed to stderr.");
         System.out.println("-save FILE");
         System.out.println("    Save the pony definition to the given file path.");
         System.out.println("-start NAMES");
