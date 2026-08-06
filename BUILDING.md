@@ -30,9 +30,29 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Then set the wallpaper: long-press home screen → Wallpapers → Live wallpapers → **Pony Paper**. Open settings from the wallpaper picker to toggle ponies, background image, etc.
 
-## Release APKs
+## Custom pony editor (desktop JAR)
+
+The desktop editor is the Gradle `:custom` module (pure Java SE / Swing). It compiles only the editor sources plus shared `PonyDefinition.java` from the app tree — no Android SDK required.
+
+```bash
+./gradlew :custom:jar
+java -jar custom/build/libs/customponies.jar
+# optional: java -jar custom/build/libs/customponies.jar -help
+```
+
+Output:
+
+```
+custom/build/libs/customponies.jar
+```
+
+Tag releases rename this asset to `PonyPaper-CustomEditor-<versionName>.jar` automatically.
+
+## Release APKs (and editor JAR)
 
 Release builds use `applicationId` `io.github.derram.ponypaper` (no `.debug` suffix) and must be **signed** to install on a device. Without signing config, Gradle produces `app-release-unsigned.apk`, which Android will reject.
+
+The same tag workflow also builds the editor JAR (no signing secrets needed for that artifact).
 
 ### 1. Create a release keystore (once)
 
@@ -72,7 +92,7 @@ The same release workflow lives in both places so either forge can run it:
 | [`.github/workflows/release.yml`](.github/workflows/release.yml) | GitHub Actions |
 | [`.gitea/workflows/release.yml`](.gitea/workflows/release.yml) | Gitea Actions |
 
-Keep those two files identical when you edit the pipeline. On a version tag, CI builds a signed APK and attaches it to a Release on **whichever forge ran the job**.
+Keep those two files identical when you edit the pipeline. On a version tag, CI builds a signed APK and the desktop editor JAR, then attaches both to a Release on **whichever forge ran the job**.
 
 **One-time: add the same Actions secrets on each host** that should publish:
 
@@ -118,16 +138,22 @@ git tag v1.7.0-modern
 git push origin v1.7.0-modern
 ```
 
-4. Wait for the **Release APK** workflow on each forge that received the tag. It creates a Release named after `versionName` with asset `PonyPaper-<versionName>.apk`.
+4. Wait for the **Release APK** workflow on each forge that received the tag. It creates a Release named after `versionName` with assets:
+   - `PonyPaper-<versionName>.apk` — signed wallpaper
+   - `PonyPaper-CustomEditor-<versionName>.jar` — desktop custom-pony editor
 
-You can also run the workflow manually (**Actions → Release APK → Run workflow**); manual runs create a **draft** release so you can inspect the APK before publishing. On GitHub, auto-generated release notes are enabled; on Gitea they are skipped (API difference).
+You can also run the workflow manually (**Actions → Release APK → Run workflow**); manual runs create a **draft** release so you can inspect the artifacts before publishing. On GitHub, auto-generated release notes are enabled; on Gitea they are skipped (API difference).
 
 ### 4. Manual upload (no CI)
 
 ```bash
-./gradlew :app:assembleRelease
+./gradlew :app:assembleRelease :custom:jar
 cp app/build/outputs/apk/release/app-release.apk "PonyPaper-1.7.0-modern.apk"
-gh release create v1.7.0-modern "PonyPaper-1.7.0-modern.apk" --generate-notes
+cp custom/build/libs/customponies.jar "PonyPaper-CustomEditor-1.7.0-modern.jar"
+gh release create v1.7.0-modern \
+  "PonyPaper-1.7.0-modern.apk" \
+  "PonyPaper-CustomEditor-1.7.0-modern.jar" \
+  --generate-notes
 ```
 
 ## Project layout
@@ -136,8 +162,8 @@ gh release create v1.7.0-modern "PonyPaper-1.7.0-modern.apk" --generate-notes
 app/                 Android application module (Gradle)
   src/main/java/     Wallpaper + settings Java sources
   src/main/res/      Sprites, pony frame timings, preferences XML
-custom/              Desktop custom-pony editor (unchanged, Ant/Java SE)
+custom/              Desktop custom-pony editor (Gradle :custom, Java SE / Swing)
 screenshots/         README images
 ```
 
-The desktop editor under `custom/` is separate from the Android build.
+Build the wallpaper with `:app` and the editor with `:custom`. The editor reuses pure-Java `PonyDefinition` from the app source tree only; it does not depend on the Android application module.

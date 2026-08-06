@@ -6,7 +6,7 @@ This repository is a **modernization fork** of the [Smithers888/PonyPaper](https
 
 ### Features in this fork
 
-- **Modern Gradle build** — builds and installs on current Android (minSdk 21); signed release APKs via GitHub/Gitea Actions
+- **Modern Gradle build** — builds and installs on current Android (minSdk 21); signed release APKs and editor JARs via GitHub/Gitea Actions
 - **Installs alongside upstream** — application id `io.github.derram.ponypaper` (does not replace the original app)
 - **Target frame rate** — prefer 30 / 60 / 90 / 120 FPS (default 30); motion is delta-time based so pony speed stays consistent
 - **Battery Saver support** — optional respect for system Battery Saver (default on): cap at 25 FPS, at most 3 ponies, and solid-colour backgrounds instead of images
@@ -23,13 +23,22 @@ This repository is a **modernization fork** of the [Smithers888/PonyPaper](https
 
 ## Install (from Releases)
 
-Prebuilt APKs are published on the [Releases](https://github.com/derram/PonyPaper/releases) page. Prefer the latest release.
+Prebuilt APKs and the custom-pony editor JAR are published on the [Releases](https://github.com/derram/PonyPaper/releases) page. Prefer the latest release.
 
-1. On your phone, open the release page in a browser and download the `.apk`.
+### Wallpaper (Android)
+
+1. On your phone, open the release page in a browser and download the `.apk` (`PonyPaper-<version>.apk`).
 2. Open the downloaded file (notification, Files app, or browser downloads).
 3. If Android blocks the install, allow installs from that source when prompted (see [warnings below](#android-install-warnings)).
 4. After install, set the wallpaper: long-press the home screen → **Wallpapers** → **Live wallpapers** → **Pony Paper**. Open settings from the wallpaper picker to toggle ponies, background, etc.
 5. (Optional) Use as a **screen saver**: system **Settings → Display → Screen saver** (wording varies by OEM) → choose **Pony Paper**. From in-app settings you can also open **Screen saver settings**. The screensaver uses the same preferences as the wallpaper (ponies, FPS, background, etc.). Under **Screen saver** in-app you can optionally enable a large digital **clock** (and date).
+
+### Custom pony editor (desktop)
+
+1. From the same release, download `PonyPaper-CustomEditor-<version>.jar`.
+2. Requires a desktop **Java 17+** runtime (Temurin, OpenJDK, etc.).
+3. Run: `java -jar PonyPaper-CustomEditor-<version>.jar` (or double-click if your OS associates `.jar` with Java).
+4. See [custom/README.md](custom/README.md) for sprites, actions, and how to load the resulting XML onto the device.
 
 ### Android install warnings
 

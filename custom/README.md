@@ -27,7 +27,34 @@ For each action that your pony can perform, the app requires a sprite each for t
 The file [twilight-sparkle.xml](/custom/twilight-sparkle.xml) contains a copy of the built-in Twilight Sparkle. Twilight can be either a unicorn or an alicorn and can both fly and teleport, so she has examples of many possible details in creating ponies.
 
 ## The Editor
-The editor requires Java 8. It can be started by lauching `customponies.jar`, either from the file manager or from the command line with `java -jar customponies.jar`.
+
+### Download (recommended)
+
+Each project [Release](https://github.com/derram/PonyPaper/releases) includes a prebuilt editor JAR:
+
+- Asset name: `PonyPaper-CustomEditor-<version>.jar`
+- Requires a desktop **Java 17+** runtime
+
+```bash
+java -jar PonyPaper-CustomEditor-<version>.jar
+```
+
+With no arguments the GUI starts. Use `-help` for the command-line interface.
+
+### Build from source
+
+From the repository root (full JDK 17+; Android SDK not required for the editor):
+
+```bash
+./gradlew :custom:jar
+java -jar custom/build/libs/customponies.jar
+```
+
+The Ant `build.xml` in this directory is deprecated and will refuse to run; use Gradle as above.
+
+### Using the GUI
+
+It can be started by launching the JAR from the file manager (if `.jar` is associated with Java) or from the command line with `java -jar …`.
 
 On the left side of the editor is the list of actions. You can create a new action or delete the selected action using the buttons underneath the list. Selecting an action in this list allows its properties to be edited on the right. These properties are:
 * Special type: This field should usually be left blank. the only current exceptions to this rule are actions related to teleporting; see the section on 'Teleporting', below.
