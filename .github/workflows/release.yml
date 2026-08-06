@@ -1,7 +1,7 @@
 # Keep in sync with .gitea/workflows/release.yml (GitHub reads .github/; Gitea prefers .gitea/).
 #
-# Build a signed release APK and attach it to a forge Release when a version tag is pushed.
-# Works on GitHub Actions and Gitea Actions.
+# Build a signed release APK + desktop editor JAR and attach both to a forge Release
+# when a version tag is pushed. Works on GitHub Actions and Gitea Actions.
 #
 # Prerequisites (repo Settings → Secrets / Actions secrets):
 #   SIGNING_KEYSTORE_BASE64  base64-encoded .jks / .keystore file
@@ -12,7 +12,7 @@
 # Create a release:
 #   1. Bump versionCode / versionName in app/build.gradle.kts
 #   2. Commit, then: git tag v1.7.0-modern && git push origin v1.7.0-modern
-#   3. This workflow builds, signs, and publishes the APK on that tag's release
+#   3. This workflow builds, signs the APK, builds the editor JAR, and publishes both
 #
 # Gitea notes:
 #   - Register an act_runner with label ubuntu-latest (prefer a full Ubuntu image or host
@@ -91,27 +91,35 @@ jobs:
           echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "${GITHUB_WORKSPACE}/ponypaper-release.jks"
           echo "SIGNING_STORE_FILE=${GITHUB_WORKSPACE}/ponypaper-release.jks" >> "$GITHUB_ENV"
 
-      - name: Build signed release APK
+      - name: Build signed release APK and editor JAR
         env:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon :app:assembleRelease
+        run: ./gradlew --no-daemon :app:assembleRelease :custom:jar
 
-      - name: Name APK for the release
-        id: apk
+      - name: Name artifacts for the release
+        id: artifacts
         run: |
           VERSION_NAME=$(grep -E 'versionName\s*=' app/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-          SRC=$(ls app/build/outputs/apk/release/*.apk | head -1)
-          if echo "$SRC" | grep -q unsigned; then
+          APK_SRC=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          if echo "$APK_SRC" | grep -q unsigned; then
             echo "::error::APK is still unsigned. Check signing secrets and Gradle signing config."
             exit 1
           fi
-          DEST="PonyPaper-${VERSION_NAME}.apk"
-          cp "$SRC" "$DEST"
-          echo "path=$DEST" >> "$GITHUB_OUTPUT"
+          JAR_SRC="custom/build/libs/customponies.jar"
+          if [ ! -f "$JAR_SRC" ]; then
+            echo "::error::Editor JAR missing at $JAR_SRC"
+            exit 1
+          fi
+          APK_DEST="PonyPaper-${VERSION_NAME}.apk"
+          JAR_DEST="PonyPaper-CustomEditor-${VERSION_NAME}.jar"
+          cp "$APK_SRC" "$APK_DEST"
+          cp "$JAR_SRC" "$JAR_DEST"
+          echo "apk_path=$APK_DEST" >> "$GITHUB_OUTPUT"
+          echo "jar_path=$JAR_DEST" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          ls -la "$DEST"
+          ls -la "$APK_DEST" "$JAR_DEST"
 
       # softprops/action-gh-release talks to whatever API GITHUB_API_URL points at
       # (GitHub or Gitea). generate_release_notes is GitHub-only.
@@ -119,10 +127,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_id) }}
-          name: PonyPaper ${{ steps.apk.outputs.version }}
+          name: PonyPaper ${{ steps.artifacts.outputs.version }}
           draft: ${{ github.ref_type != 'tag' }}
           generate_release_notes: ${{ steps.forge.outputs.name == 'github' }}
-          files: ${{ steps.apk.outputs.path }}
+          files: |
+            ${{ steps.artifacts.outputs.apk_path }}
+            ${{ steps.artifacts.outputs.jar_path }}
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
