@@ -4,7 +4,6 @@ import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.Point;
-import android.graphics.Rect;
 import android.graphics.RectF;
 import android.util.Base64;
 import java.util.Random;
@@ -16,13 +15,18 @@ import java.util.Random;
  * are not immediately loaded and the {@link #getAnimationTime} and {@link
  * #drawOn} methods will fail with {@code NullPointerException} until the
  * {@link #load} method is called.
+ *
+ * <p>Each action carries a {@link #speed} factor used both as travel speed
+ * (when moving) and as animation playback rate (moving or idle). Multiple
+ * actions may share one sprite sheet via {@link #PonyAction(PonyAction, float)}
+ * so gait/idle variants do not load duplicate bitmaps.
  */
 public class PonyAction {
     
     /**
      * Type constant for actions which follow the normal rules. I.e. if/when
-     * used for moving, the pony travels at a fixed speed towards its
-     * destination.
+     * used for moving, the pony travels toward its destination at
+     * {@link #speed} times the global movement ceiling.
      */
     public static final int NORMAL = 0;
     /**
@@ -44,14 +48,30 @@ public class PonyAction {
     /** Represents motion towards the right (positive x) direction. */
     public static final int RIGHT = 1;
     
+    /** Default speed factor (full historical travel / animation rate). */
+    public static final float DEFAULT_SPEED = 1.0f;
+    
     /** The type of action; {@code NORMAL}, {@code PORT_O} or {@code PORT_I} */
     public final int type;
+    
+    /**
+     * Speed factor for this action. While {@code NORMAL} moving, multiplies
+     * both travel distance per second and animation rate. While waiting (or
+     * any non-travel use), multiplies animation rate only. Typical values
+     * are in {@code (0, 1]}; values above 1 are allowed for fast characters.
+     */
+    public final float speed;
     
     /* To create the sprite sheets for a built-in pony. */
     private Resources res;
     private int arrayId;
     /* To create the sprite sheets for a custom pony. */
     private PonyDefinition.Action definition;
+    /**
+     * When non-null, this action reuses {@code spriteSource}'s loaded sheets
+     * (gait/idle aliases). Load/unload ownership stays with the source.
+     */
+    private PonyAction spriteSource;
     
     private SpriteSheet[] sprites;
     
@@ -60,35 +80,80 @@ public class PonyAction {
     private PonyAction[] nextDrag;
     
     /**
-     * Constructs an action of type {@code NORMAL}.
+     * Constructs an action of type {@code NORMAL} at {@link #DEFAULT_SPEED}.
      * 
      * @param res     the {@code Resources} object to load from
      * @param arrayId the ID of the action's main array resource
-     * @see #PonyAction(Resources, int, int)
+     * @see #PonyAction(Resources, int, int, float)
      */
     public PonyAction(Resources res, int arrayId) {
-        this(res, arrayId, NORMAL);
+        this(res, arrayId, NORMAL, DEFAULT_SPEED);
     }
     
     /**
-     * Constructs an action of the given type. The {@code arrayId} parameter
-     * should be the ID of an array resource containing 4 other resources - the
-     * drawable for leftwards motion, the array of frame times for leftwards
-     * motion, the drawable for rightwards motion and the array of frame times
-     * for rightwards motion, respectively.
+     * Constructs an action of type {@code NORMAL} at the given speed.
+     * 
+     * @param res     the {@code Resources} object to load from
+     * @param arrayId the ID of the action's main array resource
+     * @param speed   travel / animation speed factor
+     */
+    public PonyAction(Resources res, int arrayId, float speed) {
+        this(res, arrayId, NORMAL, speed);
+    }
+    
+    /**
+     * Constructs an action of the given type at {@link #DEFAULT_SPEED}.
      * 
      * @param res     the {@code Resources} object to load from
      * @param arrayId the ID of the action's main array resource
      * @param type    the type of action
      */
     public PonyAction(Resources res, int arrayId, int type) {
-        this.res = res;
-        this.arrayId = arrayId;
-        this.type = type;
+        this(res, arrayId, type, DEFAULT_SPEED);
     }
     
     /**
-     * Constructs an action.
+     * Constructs an action of the given type and speed. The {@code arrayId}
+     * parameter should be the ID of an array resource containing 4 other
+     * resources - the drawable for leftwards motion, the array of frame times
+     * for leftwards motion, the drawable for rightwards motion and the array
+     * of frame times for rightwards motion, respectively.
+     * 
+     * @param res     the {@code Resources} object to load from
+     * @param arrayId the ID of the action's main array resource
+     * @param type    the type of action
+     * @param speed   travel / animation speed factor
+     */
+    public PonyAction(Resources res, int arrayId, int type, float speed) {
+        this.res = res;
+        this.arrayId = arrayId;
+        this.type = type;
+        this.speed = sanitizeSpeed(speed);
+    }
+    
+    /**
+     * Constructs an action that shares another action's sprite sheets but uses
+     * a different speed factor (stroll/walk/trot or slow/fast idle variants).
+     * 
+     * @param spriteSource action that owns the bitmaps (must not itself be an alias)
+     * @param speed        travel / animation speed factor for this variant
+     */
+    public PonyAction(PonyAction spriteSource, float speed) {
+        if (spriteSource == null) {
+            throw new IllegalArgumentException("spriteSource");
+        }
+        // Resolve to the true owner so alias chains stay flat.
+        this.spriteSource = spriteSource.spriteSource != null
+                ? spriteSource.spriteSource : spriteSource;
+        this.type = spriteSource.type;
+        this.speed = sanitizeSpeed(speed);
+        this.res = this.spriteSource.res;
+        this.arrayId = this.spriteSource.arrayId;
+        this.definition = this.spriteSource.definition;
+    }
+    
+    /**
+     * Constructs an action from a custom XML definition.
      * 
      * @param definition the action definition extracted from XML
      */
@@ -101,9 +166,17 @@ public class PonyAction {
         } else {
             this.type = NORMAL;
         }
+        this.speed = sanitizeSpeed(definition.speed);
         // Test the images.
         load();
         unload();
+    }
+    
+    private static float sanitizeSpeed(float speed) {
+        if (Float.isNaN(speed) || speed <= 0f) {
+            return DEFAULT_SPEED;
+        }
+        return speed;
     }
     
     private static int[] parseInts(String value) {
@@ -119,12 +192,19 @@ public class PonyAction {
      * Load the sprites into memory. After this is called, all the methods of
      * this class become functional. It will also consume far more memory.
      * 
+     * <p>Alias actions only pin the source's sheets; the source owns recycle.
+     * 
      * @see #unload()
      */
     public void load() {
-        // Avoid leaking a previous load if this is called again without unload.
+        if (spriteSource != null) {
+            spriteSource.load();
+            sprites = spriteSource.sprites;
+            return;
+        }
+        // Already loaded (idempotent so aliases can load the owner first).
         if (sprites != null) {
-            unload();
+            return;
         }
         if (res != null) {
             TypedArray array = res.obtainTypedArray(arrayId);
@@ -156,9 +236,15 @@ public class PonyAction {
      * (not only after GC). Some methods of this class will cease to function
      * until {@link #load()} is called again.
      * 
+     * <p>Alias actions only drop their reference; the owning action recycles.
+     * 
      * @see #load()
      */
     public void unload() {
+        if (spriteSource != null) {
+            sprites = null;
+            return;
+        }
         if (sprites != null) {
             for (int i = 0; i < sprites.length; i++) {
                 if (sprites[i] != null) {

@@ -32,17 +32,9 @@ public class Pony {
     /**
      * Movement speed ceiling in unscaled pixels per second. Matches the
      * historical behaviour of 3 pixels per frame at 25 FPS. Actual travel uses
-     * this times {@link #moveSpeedFactor} (a discrete gait ≤ 1).
+     * this times the current action's {@link PonyAction#speed}.
      */
     private static final float MOVE_SPEED_PER_SECOND = 75f;
-    
-    /**
-     * Discrete gaits as fractions of {@link #MOVE_SPEED_PER_SECOND}. Chosen once
-     * per travel leg so the AI does not always move at the ceiling.
-     */
-    private static final float GAIT_STROLL = 0.5f;
-    private static final float GAIT_WALK = 0.7f;
-    private static final float GAIT_TROT = 1.0f;
     
     /** Idle wait range in milliseconds (was 25–274 frames at 25 FPS). */
     private static final int WAIT_MIN_MS = 1000;
@@ -70,16 +62,6 @@ public class Pony {
     private int direction;
     /** Animation clock in centiseconds (same unit as sprite frame timings). */
     private float frameTime = 0;
-    /**
-     * Current gait factor in {@code (0, 1]}, applied to both travel speed and
-     * the walk/trot animation rate while {@link #MOTION_MOVING}.
-     */
-    private float moveSpeedFactor = GAIT_TROT;
-    /**
-     * Animation rate for idle/stand cycles while {@link #MOTION_WAITING}.
-     * Chosen 50/50 between full speed and {@link #GAIT_WALK} each wait.
-     */
-    private float idleAnimRate = GAIT_TROT;
     
     private Rect screenBounds;
     
@@ -125,8 +107,6 @@ public class Pony {
         posX = 0;
         posY = 0;
         frameTime = 0;
-        moveSpeedFactor = GAIT_TROT;
-        idleAnimRate = GAIT_TROT;
         for (int i = 0; i < allActions.length; i++) {
             allActions[i].unload();
         }
@@ -155,15 +135,15 @@ public class Pony {
             changeAction(startActions[random.nextInt(startActions.length)]);
             motion = currentAction.type == PonyAction.NORMAL ? MOTION_MOVING : MOTION_SPECIAL;
             setRandomTarget();
-            if (motion == MOTION_MOVING) chooseGait();
         } else if (deltaMs > 0) {
-            // Match gait animation rate to travel speed for normal walks; idle
-            // uses a per-wait rate (full or walk-speed 50/50); drag/teleport stay full.
+            // Animation rate comes from the current action (travel and idle).
+            // Drag / teleport keep full-rate playback so one-shot sheets finish
+            // on their authored timings.
             float animRate = 1f;
             if (motion == MOTION_MOVING && currentAction.type == PonyAction.NORMAL) {
-                animRate = moveSpeedFactor;
+                animRate = currentAction.speed;
             } else if (motion == MOTION_WAITING) {
-                animRate = idleAnimRate;
+                animRate = currentAction.speed;
             }
             frameTime += deltaMs * CS_PER_MS * animRate;
             int animTime = currentAction.getAnimationTime(direction);
@@ -196,12 +176,11 @@ public class Pony {
                         setMoving();
                         motion = currentAction.type == PonyAction.NORMAL ? MOTION_MOVING : MOTION_SPECIAL;
                         setRandomTarget();
-                        if (motion == MOTION_MOVING) chooseGait();
                     }
                     break;
                     
                 case MOTION_MOVING:
-                    float step = MOVE_SPEED_PER_SECOND * moveSpeedFactor * scale * (deltaMs / 1000f);
+                    float step = MOVE_SPEED_PER_SECOND * currentAction.speed * scale * (deltaMs / 1000f);
                     moveTowardsTarget(step);
                     break;
             }
@@ -282,14 +261,11 @@ public class Pony {
             leavingMode = LM_GOING;
             targetPos = new Point(screenBounds.left - s, y);
             setMoving();
-            // Purposeful exit after drag: always full-speed trot.
-            moveSpeedFactor = GAIT_TROT;
         } else if (x >= screenBounds.right - s) {
             motion = MOTION_MOVING;
             leavingMode = LM_GOING;
             targetPos = new Point(screenBounds.right + s, y);
             setMoving();
-            moveSpeedFactor = GAIT_TROT;
         } else {
             motion = MOTION_WAITING;
             waitTimerMs = WAIT_MIN_MS + random.nextInt(WAIT_EXTRA_MS);
@@ -314,8 +290,6 @@ public class Pony {
     
     private void setWaiting() {
         changeAction(currentAction.getNextWaiting(random));
-        // 50/50 full-speed idle vs same rate as a normal walk gait.
-        idleAnimRate = random.nextBoolean() ? GAIT_TROT : GAIT_WALK;
     }
     
     private void setMoving() {
@@ -324,24 +298,6 @@ public class Pony {
     
     private void setDragged() {
         changeAction(currentAction.getNextDrag(random));
-    }
-    
-    /**
-     * Picks a discrete gait for the next travel leg. Prefer walk, chance for
-     * stroll or trot; never above {@link #GAIT_TROT} (the historical full speed).
-     */
-    private void chooseGait() {
-        switch (random.nextInt(5)) {
-            case 0:
-                moveSpeedFactor = GAIT_STROLL;
-                break;
-            case 1:
-                moveSpeedFactor = GAIT_TROT;
-                break;
-            default:
-                moveSpeedFactor = GAIT_WALK;
-                break;
-        }
     }
     
     private void changeAction(PonyAction newAction) {
