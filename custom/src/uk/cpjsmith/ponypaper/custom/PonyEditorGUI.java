@@ -793,8 +793,33 @@ public class PonyEditorGUI extends JPanel {
         JOptionPane.showMessageDialog(this, message, "Desktop-Ponies Import", messageType);
     }
     
+    /**
+     * Asks before overwriting a file that already exists on disk, unless it is
+     * the file currently open in the editor (plain Save should not nag).
+     *
+     * @return {@code true} if saving may proceed
+     */
+    private boolean confirmOverwriteIfNeeded(File file) {
+        if (file == null || !file.exists()) {
+            return true;
+        }
+        if (currentFile != null && file.getAbsoluteFile().equals(currentFile.getAbsoluteFile())) {
+            return true;
+        }
+        int choice = JOptionPane.showConfirmDialog(
+                this,
+                "\"" + file.getName() + "\" already exists.\nDo you want to replace it?",
+                "Confirm Overwrite",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+        return choice == JOptionPane.YES_OPTION;
+    }
+
     private boolean savePony(File file) {
         file = ensureXmlExtension(file);
+        if (!confirmOverwriteIfNeeded(file)) {
+            return false;
+        }
         try {
             editor.validate();
         } catch (PonyEditor.GenericException e) {
