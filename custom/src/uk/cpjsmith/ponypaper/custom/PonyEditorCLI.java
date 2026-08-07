@@ -95,6 +95,22 @@ public class PonyEditorCLI {
                         if (currentAction < 0) throw new PonyEditor.GenericException("", "No current action for " + args[i]);
                         editor.setActionSpecial(currentAction, args[++i]);
                         break;
+
+                    case "-speed":
+                    {
+                        checkArgument(args, i);
+                        if (currentAction < 0) throw new PonyEditor.GenericException("", "No current action for " + args[i]);
+                        String speedText = args[++i];
+                        try {
+                            float speed = Float.parseFloat(speedText);
+                            editor.setActionSpeed(currentAction, speed);
+                        } catch (NumberFormatException e) {
+                            throw new PonyEditor.GenericException("", "Invalid speed: " + speedText);
+                        } catch (IllegalArgumentException e) {
+                            throw new PonyEditor.GenericException("", e.getMessage());
+                        }
+                        break;
+                    }
                         
                     case "-sprite":
                     {
@@ -141,6 +157,8 @@ public class PonyEditorCLI {
         System.out.println("    Set the current action's next actions of the given type.");
         System.out.println("-special TYPE");
         System.out.println("    Set the current action's special type.");
+        System.out.println("-speed VALUE");
+        System.out.println("    Set the current action's travel/animation speed factor (positive float).");
         System.out.println("-sprite DIRECTION FILE");
         System.out.println("    Set the current action's sprite for the given direction.");
     }

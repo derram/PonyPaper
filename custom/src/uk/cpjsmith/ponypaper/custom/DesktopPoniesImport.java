@@ -48,21 +48,31 @@ public final class DesktopPoniesImport {
         TELEPORT_IN
     }
 
+    /**
+     * Desktop Ponies speed units mapped so classic walk (~3) becomes PonyPaper
+     * factor 1.0 (historical full travel rate).
+     */
+    private static final double DP_SPEED_REF = 3.0;
+
     /** One action ready to load into the editor. */
     public static final class ImportedAction {
         public final String name;
         public final Role role;
         public final String specialType;
+        /** PonyPaper travel/animation speed factor (positive). */
+        public final float speed;
         public final File leftImage;
         public final File rightImage;
         public String nextWaiting = "";
         public String nextMoving = "";
         public String nextDrag = "";
 
-        ImportedAction(String name, Role role, String specialType, File leftImage, File rightImage) {
+        ImportedAction(String name, Role role, String specialType, float speed,
+                       File leftImage, File rightImage) {
             this.name = name;
             this.role = role;
             this.specialType = specialType != null ? specialType : "";
+            this.speed = speed;
             this.leftImage = leftImage;
             this.rightImage = rightImage;
         }
@@ -359,7 +369,8 @@ public final class DesktopPoniesImport {
                 special = "teleport-in";
             }
 
-            ImportedAction action = new ImportedAction(b.name, b.role, special, b.leftFile, b.rightFile);
+            ImportedAction action = new ImportedAction(
+                    b.name, b.role, special, mapDesktopSpeed(b.speed), b.leftFile, b.rightFile);
 
             if (b.role == Role.TELEPORT_OUT) {
                 String inKey = teleportOutToIn.get(b.name.toLowerCase(Locale.ROOT));
@@ -413,6 +424,25 @@ public final class DesktopPoniesImport {
             return Role.MOVING;
         }
         return Role.WAITING;
+    }
+
+    /**
+     * Maps a Desktop Ponies behavior speed onto a PonyPaper action speed factor.
+     * Stationary behaviors (speed 0) get full animation rate (1). Moving speeds
+     * scale around classic walk = 3 → factor 1.0, clamped to a sensible range.
+     */
+    static float mapDesktopSpeed(double desktopSpeed) {
+        if (desktopSpeed <= 0) {
+            return 1.0f;
+        }
+        float factor = (float)(desktopSpeed / DP_SPEED_REF);
+        if (factor < 0.2f) {
+            return 0.2f;
+        }
+        if (factor > 1.5f) {
+            return 1.5f;
+        }
+        return factor;
     }
 
     private static boolean isTeleportInName(DpBehavior b, Map<String, String> outToIn) {

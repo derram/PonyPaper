@@ -234,6 +234,19 @@ public class PonyEditor {
         ponyDefinition.actions[index].specialType = specialType;
     }
     
+    public float getActionSpeed(int index) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        return ponyDefinition.actions[index].speed;
+    }
+    
+    public void setActionSpeed(int index, float speed) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        if (Float.isNaN(speed) || speed <= 0f) {
+            throw new IllegalArgumentException("speed must be positive");
+        }
+        ponyDefinition.actions[index].speed = speed;
+    }
+    
     public String getActionImage(int index, String direction) {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
         if (!ponyDefinition.actions[index].images.containsKey(direction)) throw new IndexOutOfBoundsException();
@@ -325,6 +338,7 @@ public class PonyEditor {
                 try {
                     int index = addAction(action.name);
                     setActionSpecial(index, action.specialType);
+                    setActionSpeed(index, action.speed);
                     loadActionSprite(index, "left", action.leftImage);
                     loadActionSprite(index, "right", action.rightImage);
                     setActionNext(index, "waiting", action.nextWaiting);
