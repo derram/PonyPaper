@@ -29,6 +29,54 @@ public class AllPonies {
     private AllPonies() {
     }
     
+    /** Discrete gait factors (formerly global chooseGait constants). */
+    private static final float SPEED_STROLL = 0.5f;
+    private static final float SPEED_WALK = 0.7f;
+    
+    /**
+     * Same sprites as {@code source}, different {@link PonyAction#speed}.
+     * Used for stroll/walk/trot and slow/fast idle variants without reloading bitmaps.
+     */
+    private static PonyAction alias(PonyAction source, float speed) {
+        return new PonyAction(source, speed);
+    }
+    
+    /**
+     * Historical chooseGait weights: stroll 1/5, walk 3/5, full 1/5.
+     * {@code fullSpeedMove} should already be at speed 1.
+     */
+    private static PonyAction[] defaultGaits(PonyAction fullSpeedMove) {
+        return new PonyAction[] {
+            alias(fullSpeedMove, SPEED_STROLL),
+            alias(fullSpeedMove, SPEED_WALK),
+            alias(fullSpeedMove, SPEED_WALK),
+            alias(fullSpeedMove, SPEED_WALK),
+            fullSpeedMove
+        };
+    }
+    
+    /**
+     * Historical idle 50/50 full-rate vs walk-rate animation.
+     * {@code fullSpeedStand} should already be at speed 1.
+     */
+    private static PonyAction[] defaultIdles(PonyAction fullSpeedStand) {
+        return new PonyAction[] {
+            fullSpeedStand,
+            alias(fullSpeedStand, SPEED_WALK)
+        };
+    }
+    
+    private static PonyAction[] concat(PonyAction[] a, PonyAction[] b) {
+        PonyAction[] out = new PonyAction[a.length + b.length];
+        System.arraycopy(a, 0, out, 0, a.length);
+        System.arraycopy(b, 0, out, a.length, b.length);
+        return out;
+    }
+    
+    private static PonyAction[] concat(PonyAction[] a, PonyAction[] b, PonyAction[] c) {
+        return concat(concat(a, b), c);
+    }
+    
     /**
      * Returns the complete list of ponies.
      * 
@@ -87,21 +135,18 @@ public class AllPonies {
     private static Pony makeDefaultPony(Resources res, int standId, int trotId) {
         PonyAction stand = new PonyAction(res, standId);
         PonyAction trot = new PonyAction(res, trotId);
-        
-        PonyAction[] all = {stand, trot};
-        PonyAction[] justStand = {stand};
+        PonyAction[] waitStates = defaultIdles(stand);
+        PonyAction[] moveStates = defaultGaits(trot);
         PonyAction[] justTrot = {trot};
+        PonyAction[] all = concat(waitStates, moveStates);
         
-        stand.setNextWaiting(justStand);
-        trot.setNextWaiting(justStand);
+        for (int i = 0; i < all.length; i++) {
+            all[i].setNextWaiting(waitStates);
+            all[i].setNextMoving(moveStates);
+            all[i].setNextDrag(justTrot);
+        }
         
-        stand.setNextMoving(justTrot);
-        trot.setNextMoving(justTrot);
-        
-        stand.setNextDrag(justTrot);
-        trot.setNextDrag(justTrot);
-        
-        return new Pony(all, justTrot);
+        return new Pony(all, moveStates);
     }
     
     private static Pony makeDefaultFlyer(Resources res, int standId, int trotId, int flyId) {
@@ -109,24 +154,31 @@ public class AllPonies {
         PonyAction trot = new PonyAction(res, trotId);
         PonyAction fly = new PonyAction(res, flyId);
         
-        PonyAction[] all = {stand, trot, fly};
-        PonyAction[] justStand = {stand};
-        PonyAction[] justTrot = {trot};
+        PonyAction[] waitIdles = defaultIdles(stand);
+        // Hover stays available as a wait; landings pick stand variants.
+        PonyAction[] waitFromFly = concat(waitIdles, new PonyAction[] {fly});
+        PonyAction[] groundGaits = defaultGaits(trot);
+        // Keep roughly equal chance of ground vs air (5 gait slots + 5 fly).
+        PonyAction[] moveStates = concat(groundGaits,
+                new PonyAction[] {fly, fly, fly, fly, fly});
         PonyAction[] justFly = {fly};
-        PonyAction[] waitStates = {stand, fly};
-        PonyAction[] moveStates = {trot, fly};
+        PonyAction[] justTrot = {trot};
+        PonyAction[] all = concat(waitIdles, groundGaits, justFly);
         
-        stand.setNextWaiting(justStand);
-        trot.setNextWaiting(justStand);
-        fly.setNextWaiting(waitStates);
-        
-        stand.setNextMoving(moveStates);
-        trot.setNextMoving(moveStates);
+        for (int i = 0; i < waitIdles.length; i++) {
+            waitIdles[i].setNextWaiting(waitIdles);
+            waitIdles[i].setNextMoving(moveStates);
+            waitIdles[i].setNextDrag(justTrot);
+        }
+        for (int i = 0; i < groundGaits.length; i++) {
+            groundGaits[i].setNextWaiting(waitIdles);
+            groundGaits[i].setNextMoving(moveStates);
+            groundGaits[i].setNextDrag(justTrot);
+        }
+        // Once airborne, keep flying until a wait picks stand/hover.
+        fly.setNextWaiting(waitFromFly);
         fly.setNextMoving(justFly);
-        
         // Ground gait while held: fly sheets read as airborne and lift the body.
-        stand.setNextDrag(justTrot);
-        trot.setNextDrag(justTrot);
         fly.setNextDrag(justTrot);
         
         return new Pony(all, moveStates);
@@ -141,24 +193,18 @@ public class AllPonies {
         PonyAction trot = new PonyAction(res, R.array.aj_trot);
         PonyAction drag = new PonyAction(res, R.array.aj_drag);
         
-        PonyAction[] all = {stand, trot, drag};
-        PonyAction[] justStand = {stand};
-        PonyAction[] justTrot = {trot};
+        PonyAction[] waitStates = defaultIdles(stand);
+        PonyAction[] moveStates = defaultGaits(trot);
         PonyAction[] justDrag = {drag};
+        PonyAction[] all = concat(waitStates, moveStates, justDrag);
         
-        stand.setNextWaiting(justStand);
-        trot.setNextWaiting(justStand);
-        drag.setNextWaiting(justStand);
+        for (int i = 0; i < all.length; i++) {
+            all[i].setNextWaiting(waitStates);
+            all[i].setNextMoving(moveStates);
+            all[i].setNextDrag(justDrag);
+        }
         
-        stand.setNextMoving(justTrot);
-        trot.setNextMoving(justTrot);
-        drag.setNextMoving(justTrot);
-        
-        stand.setNextDrag(justDrag);
-        trot.setNextDrag(justDrag);
-        drag.setNextDrag(justDrag);
-        
-        return new Pony(all, justTrot);
+        return new Pony(all, moveStates);
     }
     
     private static Pony makeBabsSeed(Resources res) {
@@ -169,26 +215,21 @@ public class AllPonies {
         PonyAction stand = new PonyAction(res, R.array.bp_stand);
         PonyAction trot = new PonyAction(res, R.array.bp_trot);
         PonyAction standdrunk = new PonyAction(res, R.array.bp_standdrunk);
-        PonyAction trotdrunk = new PonyAction(res, R.array.bp_trotdrunk);
+        // Drunk locomotion is deliberately slower than sober gaits.
+        PonyAction trotdrunk = new PonyAction(res, R.array.bp_trotdrunk, SPEED_STROLL);
         
-        PonyAction[] all = {stand, trot, standdrunk, trotdrunk};
-        PonyAction[] waitStates = {stand, standdrunk};
-        PonyAction[] moveStates = {trot, trotdrunk};
+        PonyAction[] soberWait = defaultIdles(stand);
+        PonyAction[] drunkWait = defaultIdles(standdrunk);
+        PonyAction[] waitStates = concat(soberWait, drunkWait);
+        PonyAction[] soberGaits = defaultGaits(trot);
+        PonyAction[] moveStates = concat(soberGaits, new PonyAction[] {trotdrunk, trotdrunk});
+        PonyAction[] all = concat(waitStates, soberGaits, new PonyAction[] {trotdrunk});
         
-        stand.setNextWaiting(waitStates);
-        trot.setNextWaiting(waitStates);
-        standdrunk.setNextWaiting(waitStates);
-        trotdrunk.setNextWaiting(waitStates);
-        
-        stand.setNextMoving(moveStates);
-        trot.setNextMoving(moveStates);
-        standdrunk.setNextMoving(moveStates);
-        trotdrunk.setNextMoving(moveStates);
-        
-        stand.setNextDrag(moveStates);
-        trot.setNextDrag(moveStates);
-        standdrunk.setNextDrag(moveStates);
-        trotdrunk.setNextDrag(moveStates);
+        for (int i = 0; i < all.length; i++) {
+            all[i].setNextWaiting(waitStates);
+            all[i].setNextMoving(moveStates);
+            all[i].setNextDrag(moveStates);
+        }
         
         return new Pony(all, moveStates);
     }
@@ -206,34 +247,40 @@ public class AllPonies {
         PonyAction flyud = new PonyAction(res, R.array.derpy_flyud);
         PonyAction drag = new PonyAction(res, R.array.derpy_drag);
         
-        PonyAction[] all = {stand, trot, hover, hoverud, fly, flyud, drag};
-        PonyAction[] justStand = {stand};
+        PonyAction[] waitIdles = defaultIdles(stand);
+        PonyAction[] groundGaits = defaultGaits(trot);
         PonyAction[] justFly = {fly};
         PonyAction[] justFlyud = {flyud};
         PonyAction[] justDrag = {drag};
-        PonyAction[] waitStatesnorm = {stand, hover};
-        PonyAction[] waitStatesud = {stand, hoverud};
-        PonyAction[] waitStates = {stand, hover, hoverud};
-        PonyAction[] moveStates = {trot, fly, flyud};
+        PonyAction[] waitStatesnorm = concat(waitIdles, new PonyAction[] {hover});
+        PonyAction[] waitStatesud = concat(waitIdles, new PonyAction[] {hoverud});
+        PonyAction[] waitStates = concat(waitIdles, new PonyAction[] {hover, hoverud});
+        PonyAction[] moveStates = concat(groundGaits, new PonyAction[] {fly, flyud});
+        PonyAction[] all = concat(concat(waitIdles, groundGaits),
+                new PonyAction[] {hover, hoverud, fly, flyud, drag});
         
-        stand.setNextWaiting(justStand);
-        trot.setNextWaiting(justStand);
+        for (int i = 0; i < waitIdles.length; i++) {
+            waitIdles[i].setNextWaiting(waitIdles);
+            waitIdles[i].setNextMoving(moveStates);
+            waitIdles[i].setNextDrag(justDrag);
+        }
+        for (int i = 0; i < groundGaits.length; i++) {
+            groundGaits[i].setNextWaiting(waitIdles);
+            groundGaits[i].setNextMoving(moveStates);
+            groundGaits[i].setNextDrag(justDrag);
+        }
         hover.setNextWaiting(waitStatesnorm);
         hoverud.setNextWaiting(waitStatesud);
         fly.setNextWaiting(waitStatesnorm);
         flyud.setNextWaiting(waitStatesud);
         drag.setNextWaiting(waitStates);
         
-        stand.setNextMoving(moveStates);
-        trot.setNextMoving(moveStates);
         hover.setNextMoving(justFly);
         hoverud.setNextMoving(justFlyud);
         fly.setNextMoving(justFly);
         flyud.setNextMoving(justFlyud);
         drag.setNextMoving(moveStates);
         
-        stand.setNextDrag(justDrag);
-        trot.setNextDrag(justDrag);
         hover.setNextDrag(justDrag);
         hoverud.setNextDrag(justDrag);
         fly.setNextDrag(justDrag);
@@ -251,18 +298,18 @@ public class AllPonies {
         PonyAction stand = new PonyAction(res, R.array.ember_stand);
         PonyAction fly = new PonyAction(res, R.array.ember_fly);
         
-        PonyAction[] all = {stand, fly};
-        PonyAction[] justStand = {stand};
+        PonyAction[] waitIdles = defaultIdles(stand);
         PonyAction[] justFly = {fly};
-        PonyAction[] waitStates = {stand, fly};
+        PonyAction[] waitStates = concat(waitIdles, justFly);
+        PonyAction[] all = concat(waitIdles, justFly);
         
-        stand.setNextWaiting(justStand);
+        for (int i = 0; i < waitIdles.length; i++) {
+            waitIdles[i].setNextWaiting(waitIdles);
+            waitIdles[i].setNextMoving(justFly);
+            waitIdles[i].setNextDrag(justFly);
+        }
         fly.setNextWaiting(waitStates);
-        
-        stand.setNextMoving(justFly);
         fly.setNextMoving(justFly);
-        
-        stand.setNextDrag(justFly);
         fly.setNextDrag(justFly);
         
         return new Pony(all, justFly);
@@ -270,30 +317,36 @@ public class AllPonies {
     
     private static Pony makeFluttershy(Resources res) {
         PonyAction stand = new PonyAction(res, R.array.fs_stand);
-        PonyAction trot = new PonyAction(res, R.array.fs_trot);
-        PonyAction fly = new PonyAction(res, R.array.fs_fly);
+        // Fluttershy prefers a gentler ground pace; full trot is rarer.
+        PonyAction trot = new PonyAction(res, R.array.fs_trot, SPEED_WALK);
+        PonyAction fly = new PonyAction(res, R.array.fs_fly, SPEED_WALK);
         PonyAction drag = new PonyAction(res, R.array.fs_drag);
         
-        PonyAction[] all = {stand, trot, fly, drag};
-        PonyAction[] justStand = {stand};
+        PonyAction[] waitIdles = defaultIdles(stand);
+        PonyAction stroll = alias(trot, SPEED_STROLL);
+        PonyAction[] groundGaits = new PonyAction[] {stroll, stroll, trot, trot, trot};
         PonyAction[] justFly = {fly};
         PonyAction[] justDrag = {drag};
-        PonyAction[] waitStates = {stand, stand, stand, fly};
-        PonyAction[] moveStates = {trot, trot, trot, fly};
+        // Prefer standing; fly less often (historical 3:1 stand:fly on wait from air).
+        PonyAction[] waitStates = concat(concat(waitIdles, waitIdles), justFly);
+        PonyAction[] moveStates = concat(groundGaits, groundGaits, justFly);
+        PonyAction[] all = concat(waitIdles, groundGaits, new PonyAction[] {fly, drag});
         
-        stand.setNextWaiting(justStand);
-        trot.setNextWaiting(justStand);
+        for (int i = 0; i < waitIdles.length; i++) {
+            waitIdles[i].setNextWaiting(waitIdles);
+            waitIdles[i].setNextMoving(moveStates);
+            waitIdles[i].setNextDrag(justDrag);
+        }
+        for (int i = 0; i < groundGaits.length; i++) {
+            groundGaits[i].setNextWaiting(waitIdles);
+            groundGaits[i].setNextMoving(moveStates);
+            groundGaits[i].setNextDrag(justDrag);
+        }
         fly.setNextWaiting(waitStates);
-        drag.setNextWaiting(waitStates);
-        
-        stand.setNextMoving(moveStates);
-        trot.setNextMoving(moveStates);
         fly.setNextMoving(justFly);
-        drag.setNextMoving(moveStates);
-        
-        stand.setNextDrag(justDrag);
-        trot.setNextDrag(justDrag);
         fly.setNextDrag(justDrag);
+        drag.setNextWaiting(waitStates);
+        drag.setNextMoving(moveStates);
         drag.setNextDrag(justDrag);
         
         return new Pony(all, moveStates);
@@ -312,23 +365,20 @@ public class AllPonies {
         PonyAction stand = new PonyAction(res, R.array.lyra_stand);
         PonyAction trot = new PonyAction(res, R.array.lyra_trot);
         
-        PonyAction[] all = {sit, stand, trot};
+        PonyAction[] waitIdles = defaultIdles(stand);
+        PonyAction[] moveStates = defaultGaits(trot);
         PonyAction[] justTrot = {trot};
-        PonyAction[] waitStates = {stand, stand, stand, sit};
+        // Prefer standing; occasional sit (historical 3:1).
+        PonyAction[] waitStates = concat(concat(waitIdles, waitIdles), new PonyAction[] {sit});
+        PonyAction[] all = concat(waitIdles, moveStates, new PonyAction[] {sit});
         
-        sit.setNextWaiting(waitStates);
-        stand.setNextWaiting(waitStates);
-        trot.setNextWaiting(waitStates);
+        for (int i = 0; i < all.length; i++) {
+            all[i].setNextWaiting(waitStates);
+            all[i].setNextMoving(moveStates);
+            all[i].setNextDrag(justTrot);
+        }
         
-        sit.setNextMoving(justTrot);
-        stand.setNextMoving(justTrot);
-        trot.setNextMoving(justTrot);
-        
-        sit.setNextDrag(justTrot);
-        stand.setNextDrag(justTrot);
-        trot.setNextDrag(justTrot);
-        
-        return new Pony(all, justTrot);
+        return new Pony(all, moveStates);
     }
     
     private static Pony makeMinuette(Resources res) {
@@ -346,28 +396,21 @@ public class AllPonies {
     private static Pony makePinkiePie(Resources res) {
         PonyAction stand = new PonyAction(res, R.array.pp_stand);
         PonyAction trot = new PonyAction(res, R.array.pp_trot);
+        // Bounce is energetic — full ceiling speed.
         PonyAction bounce = new PonyAction(res, R.array.pp_bounce);
         PonyAction drag = new PonyAction(res, R.array.pp_drag);
         
-        PonyAction[] all = {stand, trot, bounce, drag};
-        PonyAction[] justStand = {stand};
+        PonyAction[] waitStates = defaultIdles(stand);
+        PonyAction[] groundGaits = defaultGaits(trot);
+        PonyAction[] moveStates = concat(groundGaits, new PonyAction[] {bounce, bounce});
         PonyAction[] justDrag = {drag};
-        PonyAction[] moveStates = {trot, bounce};
+        PonyAction[] all = concat(waitStates, groundGaits, new PonyAction[] {bounce, drag});
         
-        stand.setNextWaiting(justStand);
-        trot.setNextWaiting(justStand);
-        bounce.setNextWaiting(justStand);
-        drag.setNextWaiting(justStand);
-        
-        stand.setNextMoving(moveStates);
-        trot.setNextMoving(moveStates);
-        bounce.setNextMoving(moveStates);
-        drag.setNextMoving(moveStates);
-        
-        stand.setNextDrag(justDrag);
-        trot.setNextDrag(justDrag);
-        bounce.setNextDrag(justDrag);
-        drag.setNextDrag(justDrag);
+        for (int i = 0; i < all.length; i++) {
+            all[i].setNextWaiting(waitStates);
+            all[i].setNextMoving(moveStates);
+            all[i].setNextDrag(justDrag);
+        }
         
         return new Pony(all, moveStates);
     }
@@ -390,26 +433,30 @@ public class AllPonies {
         PonyAction fly = new PonyAction(res, R.array.rd_fly);
         PonyAction drag = new PonyAction(res, R.array.rd_drag);
         
-        PonyAction[] all = {stand, trot, fly, drag};
-        PonyAction[] justStand = {stand};
+        PonyAction[] waitIdles = defaultIdles(stand);
+        PonyAction[] groundGaits = defaultGaits(trot);
         PonyAction[] justFly = {fly};
         PonyAction[] justDrag = {drag};
-        PonyAction[] waitStates = {stand, fly, fly, fly};
-        PonyAction[] moveStates = {trot, fly, fly, fly};
+        // Prefers air time (historical wait/move weighted toward fly).
+        PonyAction[] waitStates = concat(waitIdles, new PonyAction[] {fly, fly, fly});
+        PonyAction[] moveStates = concat(groundGaits, new PonyAction[] {fly, fly, fly, fly, fly, fly, fly, fly, fly});
+        PonyAction[] all = concat(waitIdles, groundGaits, new PonyAction[] {fly, drag});
         
-        stand.setNextWaiting(justStand);
-        trot.setNextWaiting(justStand);
+        for (int i = 0; i < waitIdles.length; i++) {
+            waitIdles[i].setNextWaiting(waitIdles);
+            waitIdles[i].setNextMoving(moveStates);
+            waitIdles[i].setNextDrag(justDrag);
+        }
+        for (int i = 0; i < groundGaits.length; i++) {
+            groundGaits[i].setNextWaiting(waitIdles);
+            groundGaits[i].setNextMoving(moveStates);
+            groundGaits[i].setNextDrag(justDrag);
+        }
         fly.setNextWaiting(waitStates);
-        drag.setNextWaiting(waitStates);
-        
-        stand.setNextMoving(moveStates);
-        trot.setNextMoving(moveStates);
         fly.setNextMoving(justFly);
-        drag.setNextMoving(moveStates);
-        
-        stand.setNextDrag(justDrag);
-        trot.setNextDrag(justDrag);
         fly.setNextDrag(justDrag);
+        drag.setNextWaiting(waitStates);
+        drag.setNextMoving(moveStates);
         drag.setNextDrag(justDrag);
         
         return new Pony(all, moveStates);
@@ -420,24 +467,18 @@ public class AllPonies {
         PonyAction trot = new PonyAction(res, R.array.rarity_trot);
         PonyAction drag = new PonyAction(res, R.array.rarity_drag);
         
-        PonyAction[] all = {stand, trot, drag};
-        PonyAction[] justStand = {stand};
-        PonyAction[] justTrot = {trot};
+        PonyAction[] waitStates = defaultIdles(stand);
+        PonyAction[] moveStates = defaultGaits(trot);
         PonyAction[] justDrag = {drag};
+        PonyAction[] all = concat(waitStates, moveStates, justDrag);
         
-        stand.setNextWaiting(justStand);
-        trot.setNextWaiting(justStand);
-        drag.setNextWaiting(justStand);
+        for (int i = 0; i < all.length; i++) {
+            all[i].setNextWaiting(waitStates);
+            all[i].setNextMoving(moveStates);
+            all[i].setNextDrag(justDrag);
+        }
         
-        stand.setNextMoving(justTrot);
-        trot.setNextMoving(justTrot);
-        drag.setNextMoving(justTrot);
-        
-        stand.setNextDrag(justDrag);
-        trot.setNextDrag(justDrag);
-        drag.setNextDrag(justDrag);
-        
-        return new Pony(all, justTrot);
+        return new Pony(all, moveStates);
     }
     
     private static Pony makeSandbar(Resources res) {
@@ -482,24 +523,27 @@ public class AllPonies {
         PonyAction teleportOut = new PonyAction(res, R.array.ss_teleportout, PonyAction.PORT_O);
         PonyAction teleportIn = new PonyAction(res, R.array.ss_teleportin, PonyAction.PORT_I);
         
-        PonyAction[] all = {stand, trot, teleportOut, teleportIn};
-        PonyAction[] justStand = {stand};
+        PonyAction[] waitStates = defaultIdles(stand);
+        PonyAction[] groundGaits = defaultGaits(trot);
         PonyAction[] justTrot = {trot};
-        PonyAction[] moveStates = {trot, trot, trot, teleportOut};
+        PonyAction[] moveStates = concat(groundGaits, groundGaits, new PonyAction[] {teleportOut});
+        PonyAction[] all = concat(waitStates, groundGaits, new PonyAction[] {teleportOut, teleportIn});
         
-        stand.setNextWaiting(justStand);
-        trot.setNextWaiting(justStand);
-        teleportOut.setNextWaiting(justStand);
-        teleportIn.setNextWaiting(justStand);
-        
-        stand.setNextMoving(moveStates);
-        trot.setNextMoving(moveStates);
+        for (int i = 0; i < waitStates.length; i++) {
+            waitStates[i].setNextWaiting(waitStates);
+            waitStates[i].setNextMoving(moveStates);
+            waitStates[i].setNextDrag(justTrot);
+        }
+        for (int i = 0; i < groundGaits.length; i++) {
+            groundGaits[i].setNextWaiting(waitStates);
+            groundGaits[i].setNextMoving(moveStates);
+            groundGaits[i].setNextDrag(justTrot);
+        }
+        teleportOut.setNextWaiting(waitStates);
         teleportOut.setNextMoving(new PonyAction[] {teleportIn});
-        teleportIn.setNextMoving(moveStates);
-        
-        stand.setNextDrag(justTrot);
-        trot.setNextDrag(justTrot);
         teleportOut.setNextDrag(justTrot);
+        teleportIn.setNextWaiting(waitStates);
+        teleportIn.setNextMoving(moveStates);
         teleportIn.setNextDrag(justTrot);
         
         return new Pony(all, moveStates);
@@ -533,78 +577,85 @@ public class AllPonies {
         PonyAction teleportInU = new PonyAction(res, R.array.ts_teleportin, PonyAction.PORT_I);
         PonyAction dragU = new PonyAction(res, R.array.ts_drag);
         
-        PonyAction[] justStandA = {standA};
+        PonyAction[] waitIdlesA = defaultIdles(standA);
+        PonyAction[] groundGaitsA = defaultGaits(trotA);
         PonyAction[] justTrotA = {trotA};
         PonyAction[] justFlyA = {flyA};
-        PonyAction[] waitStatesA = {standA, standA, standA, flyA};
-        PonyAction[] moveStatesA = {trotA, trotA, flyA, teleportOutA};
-        PonyAction[] justStandU = {standU};
+        PonyAction[] waitStatesA = concat(concat(waitIdlesA, waitIdlesA), justFlyA);
+        PonyAction[] moveStatesA = concat(groundGaitsA, new PonyAction[] {flyA, teleportOutA});
+        
+        PonyAction[] waitIdlesU = defaultIdles(standU);
+        PonyAction[] groundGaitsU = defaultGaits(trotU);
         PonyAction[] justDragU = {dragU};
-        PonyAction[] moveStatesU = {trotU, trotU, trotU, teleportOutU};
+        PonyAction[] moveStatesU = concat(groundGaitsU, groundGaitsU, new PonyAction[] {teleportOutU});
         
-        standA.setNextWaiting(justStandA);
-        trotA.setNextWaiting(justStandA);
+        for (int i = 0; i < waitIdlesA.length; i++) {
+            waitIdlesA[i].setNextWaiting(waitIdlesA);
+            waitIdlesA[i].setNextMoving(moveStatesA);
+            waitIdlesA[i].setNextDrag(justTrotA);
+        }
+        for (int i = 0; i < groundGaitsA.length; i++) {
+            groundGaitsA[i].setNextWaiting(waitIdlesA);
+            groundGaitsA[i].setNextMoving(moveStatesA);
+            groundGaitsA[i].setNextDrag(justTrotA);
+        }
         flyA.setNextWaiting(waitStatesA);
-        teleportOutA.setNextWaiting(justStandA);
-        teleportInA.setNextWaiting(justStandA);
-        standU.setNextWaiting(justStandU);
-        trotU.setNextWaiting(justStandU);
-        teleportOutU.setNextWaiting(justStandU);
-        teleportInU.setNextWaiting(justStandU);
-        dragU.setNextWaiting(justStandU);
-        
-        standA.setNextMoving(moveStatesA);
-        trotA.setNextMoving(moveStatesA);
         flyA.setNextMoving(justFlyA);
-        teleportOutA.setNextMoving(new PonyAction[] {teleportInA});
-        teleportInA.setNextMoving(moveStatesA);
-        standU.setNextMoving(moveStatesU);
-        trotU.setNextMoving(moveStatesU);
-        teleportOutU.setNextMoving(new PonyAction[] {teleportInU});
-        teleportInU.setNextMoving(moveStatesU);
-        dragU.setNextMoving(moveStatesU);
-        
-        // Alicorn has no drag sheet; use trot (not fly) so drag stays grounded.
-        standA.setNextDrag(justTrotA);
-        trotA.setNextDrag(justTrotA);
         flyA.setNextDrag(justTrotA);
+        teleportOutA.setNextWaiting(waitIdlesA);
+        teleportOutA.setNextMoving(new PonyAction[] {teleportInA});
         teleportOutA.setNextDrag(justTrotA);
+        teleportInA.setNextWaiting(waitIdlesA);
+        teleportInA.setNextMoving(moveStatesA);
         teleportInA.setNextDrag(justTrotA);
-        standU.setNextDrag(justDragU);
-        trotU.setNextDrag(justDragU);
+        
+        for (int i = 0; i < waitIdlesU.length; i++) {
+            waitIdlesU[i].setNextWaiting(waitIdlesU);
+            waitIdlesU[i].setNextMoving(moveStatesU);
+            waitIdlesU[i].setNextDrag(justDragU);
+        }
+        for (int i = 0; i < groundGaitsU.length; i++) {
+            groundGaitsU[i].setNextWaiting(waitIdlesU);
+            groundGaitsU[i].setNextMoving(moveStatesU);
+            groundGaitsU[i].setNextDrag(justDragU);
+        }
+        teleportOutU.setNextWaiting(waitIdlesU);
+        teleportOutU.setNextMoving(new PonyAction[] {teleportInU});
         teleportOutU.setNextDrag(justDragU);
+        teleportInU.setNextWaiting(waitIdlesU);
+        teleportInU.setNextMoving(moveStatesU);
         teleportInU.setNextDrag(justDragU);
+        dragU.setNextWaiting(waitIdlesU);
+        dragU.setNextMoving(moveStatesU);
         dragU.setNextDrag(justDragU);
         
-        return new Pony(new PonyAction[] {standA, trotA, flyA, teleportOutA, teleportInA, standU, trotU, teleportOutU, teleportInU, dragU},
-                        new PonyAction[] {trotA, trotA, flyA, teleportOutA, trotU, trotU, trotU, teleportOutU});
+        PonyAction[] all = concat(
+                concat(waitIdlesA, groundGaitsA, new PonyAction[] {flyA, teleportOutA, teleportInA}),
+                concat(waitIdlesU, groundGaitsU, new PonyAction[] {teleportOutU, teleportInU, dragU}));
+        PonyAction[] start = concat(moveStatesA, moveStatesU);
+        
+        return new Pony(all, start);
     }
     
     private static Pony makeVinylScratch(Resources res) {
         PonyAction stand = new PonyAction(res, R.array.vinyl_stand);
         PonyAction trot = new PonyAction(res, R.array.vinyl_trot);
         PonyAction dance = new PonyAction(res, R.array.vinyl_dance);
-        PonyAction moonwalk = new PonyAction(res, R.array.vinyl_moonwalk);
+        // Moonwalk is a slower, showy travel.
+        PonyAction moonwalk = new PonyAction(res, R.array.vinyl_moonwalk, SPEED_WALK);
         
-        PonyAction[] all = {stand, trot, dance, moonwalk};
+        PonyAction[] waitIdles = defaultIdles(stand);
+        PonyAction[] groundGaits = defaultGaits(trot);
         PonyAction[] justTrot = {trot};
-        PonyAction[] waitStates = {stand, dance};
-        PonyAction[] moveStates = {trot, trot, trot, moonwalk};
+        PonyAction[] waitStates = concat(waitIdles, new PonyAction[] {dance});
+        PonyAction[] moveStates = concat(groundGaits, groundGaits, new PonyAction[] {moonwalk});
+        PonyAction[] all = concat(waitIdles, groundGaits, new PonyAction[] {dance, moonwalk});
         
-        stand.setNextWaiting(waitStates);
-        trot.setNextWaiting(waitStates);
-        dance.setNextWaiting(waitStates);
-        moonwalk.setNextWaiting(waitStates);
-        
-        stand.setNextMoving(moveStates);
-        trot.setNextMoving(moveStates);
-        dance.setNextMoving(moveStates);
-        moonwalk.setNextMoving(moveStates);
-        
-        stand.setNextDrag(justTrot);
-        trot.setNextDrag(justTrot);
-        dance.setNextDrag(justTrot);
-        moonwalk.setNextDrag(justTrot);
+        for (int i = 0; i < all.length; i++) {
+            all[i].setNextWaiting(waitStates);
+            all[i].setNextMoving(moveStates);
+            all[i].setNextDrag(justTrot);
+        }
         
         return new Pony(all, moveStates);
     }

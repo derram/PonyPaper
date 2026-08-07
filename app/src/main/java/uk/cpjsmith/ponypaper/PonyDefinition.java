@@ -29,6 +29,11 @@ public class PonyDefinition {
         
         public String name;
         public String specialType;
+        /**
+         * Travel / animation speed factor. Defaults to 1. Missing or invalid
+         * XML values become 1 at parse time.
+         */
+        public float speed;
         public final Map<String, String> images = new HashMap<String, String>();
         public final Map<String, String> timings = new HashMap<String, String>();
         public final Map<String, String> nextActions = new HashMap<String, String>();
@@ -36,6 +41,7 @@ public class PonyDefinition {
         public Action() {
             name = "";
             specialType = "";
+            speed = 1.0f;
             images.put("left", "");
             timings.put("left", "");
             images.put("right", "");
@@ -53,6 +59,9 @@ public class PonyDefinition {
                 errors.add("An <action> must have a name.");
             }
             
+            // Optional; null means "not set" until defaults after parse.
+            Float parsedSpeed = null;
+            
             for (Node node = element.getFirstChild(); node != null; node = node.getNextSibling()) {
                 switch (node.getNodeType()) {
                     case Node.ELEMENT_NODE:
@@ -60,6 +69,8 @@ public class PonyDefinition {
                         String nodeName = node.getNodeName();
                         if (nodeName.equals("specialtype")) {
                             addSpecialType((Element)node, errors);
+                        } else if (nodeName.equals("speed")) {
+                            parsedSpeed = addSpeed((Element)node, parsedSpeed, errors);
                         } else if (nodeName.equals("image")) {
                             addImage((Element)node, errors);
                         } else if (nodeName.equals("timings")) {
@@ -90,6 +101,7 @@ public class PonyDefinition {
             if (!errors.isEmpty()) throw new InvalidPonyException(errors);
             
             if (specialType == null) specialType = "";
+            speed = parsedSpeed != null ? parsedSpeed.floatValue() : 1.0f;
             if (!images.containsKey("left")) images.put("left", "");
             if (!timings.containsKey("left")) timings.put("left", "");
             if (!images.containsKey("right")) images.put("right", "");
@@ -105,6 +117,28 @@ public class PonyDefinition {
                 return;
             }
             specialType = getContent(element, errors).replaceAll("\\s+", "");
+        }
+        
+        private Float addSpeed(Element element, Float existing, List<String> errors) {
+            if (existing != null) {
+                errors.add("Too many <speed> elements.");
+                return existing;
+            }
+            String text = getContent(element, errors);
+            if (text == null) {
+                return null;
+            }
+            try {
+                float value = Float.parseFloat(text.replaceAll("\\s+", ""));
+                if (Float.isNaN(value) || value <= 0f) {
+                    errors.add("<speed> must be a positive number.");
+                    return null;
+                }
+                return Float.valueOf(value);
+            } catch (NumberFormatException e) {
+                errors.add("Invalid <speed> value.");
+                return null;
+            }
         }
         
         private void addImage(Element element, List<String> errors) {
@@ -284,6 +318,10 @@ public class PonyDefinition {
                 errors.add("Invalid specialtype for " + name + ".");
             }
             
+            if (Float.isNaN(action.speed) || action.speed <= 0f) {
+                errors.add("Invalid speed for " + name + " (must be positive).");
+            }
+            
             if (action.images.get("left").isEmpty()) {
                 errors.add("Missing left image for " + name + ".");
             }
@@ -304,6 +342,14 @@ public class PonyDefinition {
         validateActionList(startActions, "start actions", "", errors);
         
         if (!errors.isEmpty()) throw new InvalidPonyException(errors);
+    }
+    
+    private static String formatSpeed(float speed) {
+        // Avoid ugly binary float tails for common values like 0.5 / 0.7 / 1.
+        if (speed == (int)speed) {
+            return Integer.toString((int)speed);
+        }
+        return Float.toString(speed);
     }
     
     private static void writeAttribute(PrintWriter writer, String name, String value) {
@@ -343,6 +389,11 @@ public class PonyDefinition {
                 writeCharacters(writer, action.specialType);
                 writer.println("</specialtype>");
             }
+            
+            // Always write speed so editors round-trip; 1 is the default.
+            writer.print("        <speed>");
+            writeCharacters(writer, formatSpeed(action.speed));
+            writer.println("</speed>");
             
             writer.println("        <image direction=\"left\">");
             writeSplit(writer, action.images.get("left"), "            ");
