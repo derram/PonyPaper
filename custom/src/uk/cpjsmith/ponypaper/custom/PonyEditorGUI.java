@@ -589,7 +589,18 @@ public class PonyEditorGUI extends JPanel {
                 hasChanges = true;
                 
                 actionListModel.remove(i);
-                actionList.setSelectedIndex(i < editor.getActionCount() ? i : i - 1);
+                int newIndex = i < editor.getActionCount() ? i : i - 1;
+                if (newIndex >= 0) {
+                    actionList.setSelectedIndex(newIndex);
+                    // Force-refresh even when the selected index is unchanged so
+                    // next-action fields drop the deleted name.
+                    actionSettingsPane.setAction(newIndex);
+                } else {
+                    actionList.clearSelection();
+                    actionSettingsPane.setAction(-1);
+                }
+                // Model already scrubbed start actions; keep the field in sync.
+                startActionsField.setText(editor.getStartActions());
             }
         }
     };

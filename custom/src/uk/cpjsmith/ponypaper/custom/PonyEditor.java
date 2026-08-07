@@ -194,7 +194,8 @@ public class PonyEditor {
     }
     
     /**
-     * Removes an action.
+     * Removes an action and strips its name from every next-action list and
+     * from the start-actions list so no dangling references remain.
      * 
      * @param index the index of the action to remove
      * @throws IndexOutOfBoundsException if {@code index < 0 || index >=
@@ -212,6 +213,24 @@ public class PonyEditor {
         for (int i = index; i < newCount; i++) newActions[i] = oldActions[i + 1];
         
         ponyDefinition.actions = newActions;
+        scrubMissingActionReferences();
+    }
+
+    /**
+     * Drops any action names from next/start lists that are not present in the
+     * current action set (e.g. after a delete or a partial import).
+     */
+    private void scrubMissingActionReferences() {
+        java.util.Set<String> present = new java.util.HashSet<String>();
+        for (int i = 0; i < ponyDefinition.actions.length; i++) {
+            present.add(ponyDefinition.actions[i].name);
+        }
+        for (int i = 0; i < ponyDefinition.actions.length; i++) {
+            setActionNext(i, "waiting", filterActionList(getActionNext(i, "waiting"), present));
+            setActionNext(i, "moving", filterActionList(getActionNext(i, "moving"), present));
+            setActionNext(i, "drag", filterActionList(getActionNext(i, "drag"), present));
+        }
+        setStartActions(filterActionList(getStartActions(), present));
     }
     
     public String getActionName(int index) {
@@ -364,18 +383,9 @@ public class PonyEditor {
                 ponyDefinition = previous;
                 throw new GenericException("Import Failed", "No actions could be loaded from " + ponyDir);
             }
-            // Rebuild next/start lists if some actions were dropped, keep importer lists but
-            // validation will warn on missing names — strip references to removed actions.
-            java.util.Set<String> present = new java.util.HashSet<String>();
-            for (int i = 0; i < getActionCount(); i++) {
-                present.add(getActionName(i));
-            }
-            for (int i = 0; i < getActionCount(); i++) {
-                setActionNext(i, "waiting", filterActionList(getActionNext(i, "waiting"), present));
-                setActionNext(i, "moving", filterActionList(getActionNext(i, "moving"), present));
-                setActionNext(i, "drag", filterActionList(getActionNext(i, "drag"), present));
-            }
-            setStartActions(filterActionList(result.startActions, present));
+            // Rebuild next/start lists if some actions were dropped mid-import.
+            setStartActions(result.startActions);
+            scrubMissingActionReferences();
             notes.add(0, "Loaded " + loaded + " action(s) into the editor.");
         } catch (GenericException e) {
             ponyDefinition = previous;
