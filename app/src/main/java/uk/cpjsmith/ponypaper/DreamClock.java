@@ -119,9 +119,7 @@ final class DreamClock {
         if (formatChanged) {
             last24Hour = is24;
             lastLocale = locale;
-            // No seconds — matches Everyday Clock’s calm bedside look.
-            // 12-hour includes am/pm so morning/evening is unambiguous.
-            String timePattern = is24 ? "HH:mm" : "h:mm a";
+            String timePattern = is24 ? "HH:mm" : "h:mm";
             timeFormat = new SimpleDateFormat(timePattern, locale);
             // e.g. "Monday, 3 August"
             dateFormat = new SimpleDateFormat("EEEE, d MMMM", locale);
