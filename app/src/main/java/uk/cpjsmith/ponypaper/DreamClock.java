@@ -47,11 +47,19 @@ final class DreamClock {
     private Locale lastLocale = null;
     private int lastWidth = 0;
     private int lastHeight = 0;
+    /**
+     * Layout offsets computed when type size changes (integer pixels). Fixed so
+     * time and date stay a rigid block as the drift path crosses subpixel
+     * boundaries — independent glyph rounding used to make the date lead, then
+     * snap back under the time.
+     */
+    private float timeBaselineFromCy = 0f;
+    private float dateBaselineOffset = 0f;
 
     DreamClock() {
         timePaint.setColor(TEXT_COLOR);
         timePaint.setTextAlign(Paint.Align.CENTER);
-        timePaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL));
+        timePaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
         timePaint.setShadowLayer(8f, 0f, 3f, SHADOW_COLOR);
 
         datePaint.setColor(TEXT_COLOR);
@@ -87,15 +95,16 @@ final class DreamClock {
         float cy = height * 0.42f
                 + (float) Math.cos(phaseY + Math.PI * 0.25) * height * DRIFT_AMPLITUDE_Y;
 
-        Paint.FontMetrics timeFm = timePaint.getFontMetrics();
-        float timeBaseline = cy - (timeFm.ascent + timeFm.descent) * 0.5f;
-        canvas.drawText(timeText, cx, timeBaseline, timePaint);
+        // Pixel-align the shared origin so time and date stay a rigid block.
+        // Without this, different type sizes round subpixel positions independently
+        // and the date appears to lead the drift, then snap back.
+        float cxPx = Math.round(cx);
+        float timeBaseline = Math.round(cy + timeBaselineFromCy);
+
+        canvas.drawText(timeText, cxPx, timeBaseline, timePaint);
 
         if (dateText != null) {
-            Paint.FontMetrics dateFm = datePaint.getFontMetrics();
-            float gap = height * 0.02f;
-            float dateBaseline = timeBaseline + timeFm.descent - dateFm.ascent + gap;
-            canvas.drawText(dateText, cx, dateBaseline, datePaint);
+            canvas.drawText(dateText, cxPx, timeBaseline + dateBaselineOffset, datePaint);
         }
     }
 
@@ -146,6 +155,14 @@ final class DreamClock {
                 timePaint.setTextSize(timeSize * scale);
                 datePaint.setTextSize(dateSize * scale);
             }
+            // Cache integer layout offsets (time centred on cy; date under time).
+            Paint.FontMetrics timeFm = timePaint.getFontMetrics();
+            Paint.FontMetrics dateFm = datePaint.getFontMetrics();
+            timeBaselineFromCy = Math.round(
+                    -(timeFm.ascent + timeFm.descent) * 0.5f);
+            float gap = height * 0.02f;
+            dateBaselineOffset = Math.round(
+                    timeFm.descent - dateFm.ascent + gap);
         }
     }
 }
