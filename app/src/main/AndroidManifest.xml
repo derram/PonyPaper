@@ -10,7 +10,8 @@
 
     <application
         android:label="@string/app_name"
-        android:icon="@drawable/thumb"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="true"
         android:supportsRtl="true">
 
@@ -45,7 +46,12 @@
             android:name=".Settings"
             android:label="@string/app_settings_name"
             android:exported="true"
-            android:theme="@android:style/Theme.DeviceDefault.Light" />
+            android:theme="@android:style/Theme.DeviceDefault.Light">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
         <!-- Dream user-exit trampoline: requestDismissKeyguard needs an Activity. -->
         <activity
