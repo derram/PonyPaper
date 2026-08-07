@@ -551,7 +551,8 @@ public class PonyEditorGUI extends JPanel {
         public void actionPerformed(ActionEvent e) {
             fc.setFileFilter(new FileNameExtensionFilter("XML Files", "xml"));
             if (fc.showSaveDialog(PonyEditorGUI.this) == JFileChooser.APPROVE_OPTION) {
-                savePony(ensureXmlExtension(fc.getSelectedFile()));
+                // Always confirm overwrite when the user picked a path via Save As.
+                savePony(ensureXmlExtension(fc.getSelectedFile()), true);
             }
             fc.resetChoosableFileFilters();
         }
@@ -794,16 +795,12 @@ public class PonyEditorGUI extends JPanel {
     }
     
     /**
-     * Asks before overwriting a file that already exists on disk, unless it is
-     * the file currently open in the editor (plain Save should not nag).
+     * Asks before overwriting a file that already exists on disk.
      *
      * @return {@code true} if saving may proceed
      */
-    private boolean confirmOverwriteIfNeeded(File file) {
+    private boolean confirmOverwrite(File file) {
         if (file == null || !file.exists()) {
-            return true;
-        }
-        if (currentFile != null && file.getAbsoluteFile().equals(currentFile.getAbsoluteFile())) {
             return true;
         }
         int choice = JOptionPane.showConfirmDialog(
@@ -815,9 +812,15 @@ public class PonyEditorGUI extends JPanel {
         return choice == JOptionPane.YES_OPTION;
     }
 
-    private boolean savePony(File file) {
+    /**
+     * @param confirmOverwrite when {@code true}, prompt if the target path
+     *                         already exists (Save As / first Save with a chooser).
+     *                         When {@code false}, write without asking (plain Save
+     *                         of the already-open file).
+     */
+    private boolean savePony(File file, boolean confirmOverwrite) {
         file = ensureXmlExtension(file);
-        if (!confirmOverwriteIfNeeded(file)) {
+        if (confirmOverwrite && !confirmOverwrite(file)) {
             return false;
         }
         try {
@@ -849,16 +852,19 @@ public class PonyEditorGUI extends JPanel {
      */
     private boolean defaultSave() {
         File file = currentFile;
+        boolean pickedPath = false;
         if (file == null) {
             fc.setFileFilter(new FileNameExtensionFilter("XML Files", "xml"));
             if (fc.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
                 file = ensureXmlExtension(fc.getSelectedFile());
+                pickedPath = true;
             }
             fc.resetChoosableFileFilters();
         }
         
         if (file != null) {
-            return savePony(file);
+            // Confirm only when the user just chose a path; re-saving the open file never asks.
+            return savePony(file, pickedPath);
         } else {
             return false;
         }
