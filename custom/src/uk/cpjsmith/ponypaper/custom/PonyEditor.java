@@ -165,7 +165,7 @@ public class PonyEditor {
      */
     public int findAction(String name) {
         for (int i = 0; i < ponyDefinition.actions.length; i++) {
-            if (ponyDefinition.actions[i].name == name) {
+            if (ponyDefinition.actions[i].name.equals(name)) {
                 return i;
             }
         }
@@ -238,9 +238,62 @@ public class PonyEditor {
         return ponyDefinition.actions[index].name;
     }
     
+    /**
+     * Renames an action and rewrites every next-action list and the start
+     * actions list so references to the old name point at the new one.
+     *
+     * @param index the index of the action to rename
+     * @param name  the new name (must be non-empty and not used by another action)
+     * @throws IndexOutOfBoundsException if {@code index} is out of range
+     * @throws IllegalArgumentException if {@code name} is empty or already used
+     */
     public void setActionName(int index, String name) {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        if (name == null || name.isEmpty()) {
+            throw new IllegalArgumentException("Action name must not be empty");
+        }
+        String oldName = ponyDefinition.actions[index].name;
+        if (oldName.equals(name)) {
+            return;
+        }
+        for (int i = 0; i < ponyDefinition.actions.length; i++) {
+            if (i != index && ponyDefinition.actions[i].name.equals(name)) {
+                throw new IllegalArgumentException("Action name already in use: " + name);
+            }
+        }
         ponyDefinition.actions[index].name = name;
+        renameActionReferences(oldName, name);
+    }
+
+    /**
+     * Replaces {@code oldName} with {@code newName} in every next/start list.
+     * Duplicate weighted entries are all rewritten.
+     */
+    private void renameActionReferences(String oldName, String newName) {
+        for (int i = 0; i < ponyDefinition.actions.length; i++) {
+            setActionNext(i, "waiting", renameInActionList(getActionNext(i, "waiting"), oldName, newName));
+            setActionNext(i, "moving", renameInActionList(getActionNext(i, "moving"), oldName, newName));
+            setActionNext(i, "drag", renameInActionList(getActionNext(i, "drag"), oldName, newName));
+        }
+        setStartActions(renameInActionList(getStartActions(), oldName, newName));
+    }
+
+    private static String renameInActionList(String list, String oldName, String newName) {
+        if (list == null || list.isEmpty()) {
+            return list == null ? "" : list;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String part : list.split(",")) {
+            String token = part.trim();
+            if (token.isEmpty()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            sb.append(token.equals(oldName) ? newName : token);
+        }
+        return sb.toString();
     }
     
     public String getActionSpecial(int index) {

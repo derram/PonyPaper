@@ -8,6 +8,8 @@ import java.awt.Image;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowListener;
 import java.awt.event.WindowEvent;
@@ -604,6 +606,12 @@ public class PonyEditorGUI extends JPanel {
             }
         }
     };
+
+    private ActionListener renameActionListener = new ActionListener() {
+        public void actionPerformed(ActionEvent e) {
+            renameSelectedAction();
+        }
+    };
     
     private DocumentListener startActionsListener = new MyDocumentListener() {
         public void update(DocumentEvent e) {
@@ -862,6 +870,44 @@ public class PonyEditorGUI extends JPanel {
         return result;
     }
     
+    /**
+     * Prompts for a new name for the selected action and rewrites all
+     * next/start references to match.
+     */
+    private void renameSelectedAction() {
+        int i = actionList.getSelectedIndex();
+        if (i < 0) {
+            return;
+        }
+        String current = editor.getActionName(i);
+        String actionName = (String)JOptionPane.showInputDialog(
+                this,
+                "Enter a new name for the action:",
+                "Rename Action",
+                JOptionPane.PLAIN_MESSAGE,
+                null,
+                null,
+                current);
+        if (actionName == null) {
+            return;
+        }
+        actionName = actionName.trim();
+        if (actionName.isEmpty() || actionName.equals(current)) {
+            return;
+        }
+        try {
+            editor.setActionName(i, actionName);
+        } catch (IllegalArgumentException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Rename Failed", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        hasChanges = true;
+        actionListModel.set(i, actionName);
+        // Refresh next-action fields and start actions so rewritten names show.
+        actionSettingsPane.setAction(i);
+        startActionsField.setText(editor.getStartActions());
+    }
+
     private JComponent createActionListPane() {
         JPanel result = new JPanel(new GridBagLayout());
         
@@ -872,21 +918,35 @@ public class PonyEditorGUI extends JPanel {
         actionList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         actionList.setVisibleRowCount(-1);
         actionList.getSelectionModel().addListSelectionListener(actionListSelectionListener);
+        actionList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2 && actionList.locationToIndex(e.getPoint()) >= 0) {
+                    renameSelectedAction();
+                }
+            }
+        });
         JScrollPane actionListScroller = new JScrollPane(actionList);
         c = getConstraints(0, 0);
         c.fill = GridBagConstraints.BOTH;
         c.weighty = 1.0;
-        c.gridwidth = 2;
+        c.gridwidth = 3;
         result.add(actionListScroller, c);
         
         JButton newAction = new JButton("New action");
         newAction.addActionListener(newActionListener);
         c = getConstraints(0, 1);
         result.add(newAction, c);
+
+        JButton renameAction = new JButton("Rename");
+        renameAction.setToolTipText("Rename the selected action and update all references");
+        renameAction.addActionListener(renameActionListener);
+        c = getConstraints(1, 1);
+        result.add(renameAction, c);
         
         JButton deleteAction = new JButton("Delete action");
         deleteAction.addActionListener(deleteActionListener);
-        c = getConstraints(1, 1);
+        c = getConstraints(2, 1);
         result.add(deleteAction, c);
         
         return result;
