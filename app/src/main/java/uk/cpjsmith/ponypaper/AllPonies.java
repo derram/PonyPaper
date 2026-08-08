@@ -732,6 +732,77 @@ public class AllPonies {
         return result;
     }
     
+    /**
+     * Expands a comma-separated action list, substituting each name that has a
+     * gait bag with that bag's weighted entries.
+     */
+    private static PonyAction[] expandActionList(String list, HashMap<String, PonyAction[]> bags) {
+        if (list == null || list.isEmpty()) {
+            return new PonyAction[0];
+        }
+        String[] names = list.split(",");
+        ArrayList<PonyAction> out = new ArrayList<PonyAction>();
+        for (int i = 0; i < names.length; i++) {
+            String name = names[i].trim();
+            if (name.isEmpty()) {
+                continue;
+            }
+            PonyAction[] bag = bags.get(name);
+            if (bag != null) {
+                for (int j = 0; j < bag.length; j++) {
+                    out.add(bag[j]);
+                }
+            }
+        }
+        return out.toArray(new PonyAction[out.size()]);
+    }
+    
+    /**
+     * Builds the weighted gait bag for one named action. Entries matching the
+     * base action's speed reuse that instance; other speeds become aliases that
+     * share the base's sprites (resolved through any spritesfrom chain owner).
+     */
+    private static PonyAction[] buildGaitBag(PonyAction base, String gaitsSpec,
+                                               ArrayList<PonyAction> extras) {
+        java.util.List<PonyDefinition.GaitEntry> entries =
+                PonyDefinition.parseGaits(gaitsSpec, null);
+        if (entries.isEmpty()) {
+            return new PonyAction[] {base};
+        }
+        // One PonyAction per distinct speed; weights repeat references.
+        HashMap<String, PonyAction> bySpeed = new HashMap<String, PonyAction>();
+        bySpeed.put(speedKey(base.speed), base);
+        
+        ArrayList<PonyAction> bag = new ArrayList<PonyAction>();
+        for (int i = 0; i < entries.size(); i++) {
+            PonyDefinition.GaitEntry entry = entries.get(i);
+            String key = speedKey(entry.speed);
+            PonyAction action = bySpeed.get(key);
+            if (action == null) {
+                // Prefer exact match on base.speed for float formatting quirks.
+                if (PonyDefinition.sameSpeed(entry.speed, base.speed)) {
+                    action = base;
+                } else {
+                    action = new PonyAction(base, entry.speed);
+                    extras.add(action);
+                }
+                bySpeed.put(key, action);
+            }
+            for (int w = 0; w < entry.weight; w++) {
+                bag.add(action);
+            }
+        }
+        return bag.toArray(new PonyAction[bag.size()]);
+    }
+    
+    private static String speedKey(float speed) {
+        // Stable key so 0.7 and 0.70 collapse; formatSpeed-like for ints.
+        if (speed == (int)speed) {
+            return Integer.toString((int)speed);
+        }
+        return Float.toString(speed);
+    }
+    
     private static void loadCustomPonies(Context context, SharedPreferences prefs, ArrayList<Pony> ponies) {
         File dir = context.getExternalFilesDir(null);
         if (dir == null) return; // External storage is unavailable, so we can't load any custom ponies.
@@ -760,25 +831,86 @@ public class AllPonies {
         }
     }
     
+    /**
+     * Builds a runtime {@link Pony} from a custom XML definition. Supports
+     * {@code <spritesfrom>} aliases (shared bitmaps, different speed) and
+     * {@code <gaits>} bags (weighted speed variants expanded into next/start lists).
+     */
     private static Pony makeCustomPony(PonyDefinition definition) {
         HashMap<String, PonyAction> actions = new HashMap<String, PonyAction>();
-        
         final int actionCount = definition.actions.length;
         
+        // Pass 1: sprite owners (no spritesfrom) own the bitmaps.
         for (int i = 0; i < actionCount; i++) {
-            actions.put(definition.actions[i].name, new PonyAction(definition.actions[i]));
+            PonyDefinition.Action def = definition.actions[i];
+            if (def.spritesFrom == null) {
+                def.spritesFrom = "";
+            }
+            if (def.gaits == null) {
+                def.gaits = "";
+            }
+            if (!def.isAlias()) {
+                actions.put(def.name, new PonyAction(def));
+            }
         }
         
+        // Pass 2: named aliases that share an owner's sprites at a different speed.
         for (int i = 0; i < actionCount; i++) {
-            PonyDefinition.Action actionDef = definition.actions[i];
-            PonyAction action = actions.get(actionDef.name);
-            action.setNextWaiting(getActions(actions, actionDef.nextActions.get("waiting").split(",")));
-            action.setNextMoving(getActions(actions, actionDef.nextActions.get("moving").split(",")));
-            action.setNextDrag(getActions(actions, actionDef.nextActions.get("drag").split(",")));
+            PonyDefinition.Action def = definition.actions[i];
+            if (def.isAlias()) {
+                PonyAction owner = actions.get(def.spritesFrom);
+                if (owner == null) {
+                    // validate() should have caught this; skip rather than NPE.
+                    continue;
+                }
+                actions.put(def.name, new PonyAction(owner, def.speed));
+            }
         }
         
-        return new Pony(actions.values().toArray(new PonyAction[actions.size()]),
-                        getActions(actions, definition.startActions.split(",")));
+        // Pass 3: expand optional <gaits> into weighted bags (may add extra aliases).
+        HashMap<String, PonyAction[]> bags = new HashMap<String, PonyAction[]>();
+        ArrayList<PonyAction> gaitExtras = new ArrayList<PonyAction>();
+        for (int i = 0; i < actionCount; i++) {
+            PonyDefinition.Action def = definition.actions[i];
+            PonyAction base = actions.get(def.name);
+            if (base == null) {
+                continue;
+            }
+            if (def.gaits.isEmpty()) {
+                bags.put(def.name, new PonyAction[] {base});
+            } else {
+                bags.put(def.name, buildGaitBag(base, def.gaits, gaitExtras));
+            }
+        }
+        
+        // Pass 4: wire next/start lists with gait expansion; copy graph onto bag variants.
+        for (int i = 0; i < actionCount; i++) {
+            PonyDefinition.Action def = definition.actions[i];
+            PonyAction[] bag = bags.get(def.name);
+            if (bag == null) {
+                continue;
+            }
+            PonyAction[] nextWaiting = expandActionList(def.nextActions.get("waiting"), bags);
+            PonyAction[] nextMoving = expandActionList(def.nextActions.get("moving"), bags);
+            PonyAction[] nextDrag = expandActionList(def.nextActions.get("drag"), bags);
+            for (int j = 0; j < bag.length; j++) {
+                bag[j].setNextWaiting(nextWaiting);
+                bag[j].setNextMoving(nextMoving);
+                bag[j].setNextDrag(nextDrag);
+            }
+        }
+        
+        // Collect every distinct action for load/unload (owners, aliases, gait variants).
+        java.util.LinkedHashSet<PonyAction> all = new java.util.LinkedHashSet<PonyAction>();
+        for (PonyAction a : actions.values()) {
+            all.add(a);
+        }
+        for (int i = 0; i < gaitExtras.size(); i++) {
+            all.add(gaitExtras.get(i));
+        }
+        
+        PonyAction[] start = expandActionList(definition.startActions, bags);
+        return new Pony(all.toArray(new PonyAction[all.size()]), start);
     }
     
 }

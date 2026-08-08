@@ -25,6 +25,91 @@ public class PonyDefinition {
         
     }
     
+    /**
+     * One entry in a {@code <gaits>} list: a speed factor and how many weighted
+     * slots it occupies when the owning action is selected for travel/wait.
+     */
+    public static class GaitEntry {
+        public final float speed;
+        public final int weight;
+        
+        public GaitEntry(float speed, int weight) {
+            this.speed = speed;
+            this.weight = weight;
+        }
+    }
+    
+    /**
+     * Built-in ground gait bag: stroll 1/5, walk 3/5, full 1/5
+     * ({@code 0.5:1,0.7:3,1:1}).
+     */
+    public static final String DEFAULT_GAITS = "0.5:1,0.7:3,1:1";
+    
+    /**
+     * Built-in idle bag: full vs walk-rate 50/50 ({@code 1:1,0.7:1}).
+     */
+    public static final String DEFAULT_IDLE_GAITS = "1:1,0.7:1";
+    
+    /**
+     * Parses a gaits specification such as {@code 0.5:1,0.7:3,1} (weight
+     * defaults to 1 when omitted). On error, messages are appended to
+     * {@code errors} when non-null and an empty list is returned.
+     */
+    public static List<GaitEntry> parseGaits(String value, List<String> errors) {
+        List<GaitEntry> result = new ArrayList<GaitEntry>();
+        if (value == null || value.trim().isEmpty()) {
+            return result;
+        }
+        String[] parts = value.split(",");
+        for (int i = 0; i < parts.length; i++) {
+            String part = parts[i].trim();
+            if (part.isEmpty()) {
+                if (errors != null) {
+                    errors.add("Empty entry in <gaits> list.");
+                }
+                continue;
+            }
+            String speedText;
+            String weightText = "1";
+            int colon = part.indexOf(':');
+            if (colon >= 0) {
+                speedText = part.substring(0, colon).trim();
+                weightText = part.substring(colon + 1).trim();
+            } else {
+                speedText = part;
+            }
+            try {
+                float speed = Float.parseFloat(speedText);
+                if (Float.isNaN(speed) || speed <= 0f) {
+                    if (errors != null) {
+                        errors.add("Invalid gait speed \"" + part + "\" (must be positive).");
+                    }
+                    continue;
+                }
+                int weight = Integer.parseInt(weightText);
+                if (weight <= 0) {
+                    if (errors != null) {
+                        errors.add("Invalid gait weight \"" + part + "\" (must be a positive integer).");
+                    }
+                    continue;
+                }
+                result.add(new GaitEntry(speed, weight));
+            } catch (NumberFormatException e) {
+                if (errors != null) {
+                    errors.add("Invalid gait entry \"" + part + "\".");
+                }
+            }
+        }
+        return result;
+    }
+    
+    /**
+     * True when two speed factors should be treated as the same gait slot.
+     */
+    public static boolean sameSpeed(float a, float b) {
+        return Math.abs(a - b) < 1e-4f;
+    }
+    
     public static class Action {
         
         public String name;
@@ -34,6 +119,18 @@ public class PonyDefinition {
          * XML values become 1 at parse time.
          */
         public float speed;
+        /**
+         * When non-empty, this action reuses another action's sprites
+         * ({@code <spritesfrom>ownerName</spritesfrom>}) and only supplies its
+         * own speed / next-action lists. Images and timings must be empty.
+         */
+        public String spritesFrom;
+        /**
+         * Optional load-time gait bag ({@code speed:weight,...}). When set,
+         * every reference to this action in start/next lists is expanded to
+         * weighted speed variants that share this action's sprites.
+         */
+        public String gaits;
         public final Map<String, String> images = new HashMap<String, String>();
         public final Map<String, String> timings = new HashMap<String, String>();
         public final Map<String, String> nextActions = new HashMap<String, String>();
@@ -42,6 +139,8 @@ public class PonyDefinition {
             name = "";
             specialType = "";
             speed = 1.0f;
+            spritesFrom = "";
+            gaits = "";
             images.put("left", "");
             timings.put("left", "");
             images.put("right", "");
@@ -61,6 +160,8 @@ public class PonyDefinition {
             
             // Optional; null means "not set" until defaults after parse.
             Float parsedSpeed = null;
+            String parsedSpritesFrom = null;
+            String parsedGaits = null;
             
             for (Node node = element.getFirstChild(); node != null; node = node.getNextSibling()) {
                 switch (node.getNodeType()) {
@@ -71,6 +172,10 @@ public class PonyDefinition {
                             addSpecialType((Element)node, errors);
                         } else if (nodeName.equals("speed")) {
                             parsedSpeed = addSpeed((Element)node, parsedSpeed, errors);
+                        } else if (nodeName.equals("spritesfrom")) {
+                            parsedSpritesFrom = addSpritesFrom((Element)node, parsedSpritesFrom, errors);
+                        } else if (nodeName.equals("gaits")) {
+                            parsedGaits = addGaits((Element)node, parsedGaits, errors);
                         } else if (nodeName.equals("image")) {
                             addImage((Element)node, errors);
                         } else if (nodeName.equals("timings")) {
@@ -102,6 +207,8 @@ public class PonyDefinition {
             
             if (specialType == null) specialType = "";
             speed = parsedSpeed != null ? parsedSpeed.floatValue() : 1.0f;
+            spritesFrom = parsedSpritesFrom != null ? parsedSpritesFrom : "";
+            gaits = parsedGaits != null ? parsedGaits : "";
             if (!images.containsKey("left")) images.put("left", "");
             if (!timings.containsKey("left")) timings.put("left", "");
             if (!images.containsKey("right")) images.put("right", "");
@@ -109,6 +216,11 @@ public class PonyDefinition {
             if (!nextActions.containsKey("waiting")) nextActions.put("waiting", "");
             if (!nextActions.containsKey("moving")) nextActions.put("moving", "");
             if (!nextActions.containsKey("drag")) nextActions.put("drag", "");
+        }
+        
+        /** @return true if this action reuses another action's bitmaps */
+        public boolean isAlias() {
+            return spritesFrom != null && !spritesFrom.isEmpty();
         }
         
         private void addSpecialType(Element element, List<String> errors) {
@@ -139,6 +251,51 @@ public class PonyDefinition {
                 errors.add("Invalid <speed> value.");
                 return null;
             }
+        }
+        
+        private String addSpritesFrom(Element element, String existing, List<String> errors) {
+            if (existing != null) {
+                errors.add("Too many <spritesfrom> elements.");
+                return existing;
+            }
+            String text = getContent(element, errors);
+            if (text == null) {
+                return null;
+            }
+            text = text.replaceAll("\\s+", "");
+            if (text.isEmpty()) {
+                errors.add("<spritesfrom> must name an action.");
+                return null;
+            }
+            return text;
+        }
+        
+        private String addGaits(Element element, String existing, List<String> errors) {
+            if (existing != null) {
+                errors.add("Too many <gaits> elements.");
+                return existing;
+            }
+            String text = getContent(element, errors);
+            if (text == null) {
+                return null;
+            }
+            text = text.replaceAll("\\s+", "");
+            if (text.isEmpty()) {
+                errors.add("<gaits> must not be empty.");
+                return null;
+            }
+            // Syntax check only; full validation runs in validate().
+            List<String> gaitErrors = new ArrayList<String>();
+            List<GaitEntry> entries = parseGaits(text, gaitErrors);
+            if (!gaitErrors.isEmpty()) {
+                errors.addAll(gaitErrors);
+                return null;
+            }
+            if (entries.isEmpty()) {
+                errors.add("<gaits> must list at least one speed.");
+                return null;
+            }
+            return text;
         }
         
         private void addImage(Element element, List<String> errors) {
@@ -322,17 +479,56 @@ public class PonyDefinition {
                 errors.add("Invalid speed for " + name + " (must be positive).");
             }
             
-            if (action.images.get("left").isEmpty()) {
-                errors.add("Missing left image for " + name + ".");
+            if (action.spritesFrom == null) {
+                action.spritesFrom = "";
+            }
+            if (action.gaits == null) {
+                action.gaits = "";
             }
             
-            validateIntegerList(action.timings.get("left"), "left timings for ", name, errors);
-            
-            if (action.images.get("right").isEmpty()) {
-                errors.add("Missing right image for " + name + ".");
+            boolean alias = action.isAlias();
+            if (alias) {
+                if (action.spritesFrom.equals(name)) {
+                    errors.add("Action " + name + " cannot use spritesfrom itself.");
+                } else if (!hasAction(action.spritesFrom)) {
+                    errors.add("Action " + name + " spritesfrom \"" + action.spritesFrom + "\" not defined.");
+                } else {
+                    Action owner = findAction(action.spritesFrom);
+                    if (owner != null && owner.isAlias()) {
+                        errors.add("Action " + name + " spritesfrom \"" + action.spritesFrom
+                                + "\" is itself an alias (chains are not allowed).");
+                    }
+                }
+                if (!action.images.get("left").isEmpty() || !action.images.get("right").isEmpty()) {
+                    errors.add("Alias action " + name + " must not define images (inherited from "
+                            + action.spritesFrom + ").");
+                }
+                if (!action.timings.get("left").isEmpty() || !action.timings.get("right").isEmpty()) {
+                    errors.add("Alias action " + name + " must not define timings (inherited from "
+                            + action.spritesFrom + ").");
+                }
+            } else {
+                if (action.images.get("left").isEmpty()) {
+                    errors.add("Missing left image for " + name + ".");
+                }
+                validateIntegerList(action.timings.get("left"), "left timings for ", name, errors);
+                if (action.images.get("right").isEmpty()) {
+                    errors.add("Missing right image for " + name + ".");
+                }
+                validateIntegerList(action.timings.get("right"), "right timings for ", name, errors);
             }
             
-            validateIntegerList(action.timings.get("right"), "right timings for ", name, errors);
+            if (!action.gaits.isEmpty()) {
+                List<String> gaitErrors = new ArrayList<String>();
+                List<GaitEntry> entries = parseGaits(action.gaits, gaitErrors);
+                if (!gaitErrors.isEmpty()) {
+                    for (int g = 0; g < gaitErrors.size(); g++) {
+                        errors.add("Action " + name + ": " + gaitErrors.get(g));
+                    }
+                } else if (entries.isEmpty()) {
+                    errors.add("Action " + name + " has empty <gaits>.");
+                }
+            }
             
             validateActionList(action.nextActions.get("waiting"), "waiting actions for ", name, errors);
             validateActionList(action.nextActions.get("moving"), "moving actions for ", name, errors);
@@ -342,6 +538,15 @@ public class PonyDefinition {
         validateActionList(startActions, "start actions", "", errors);
         
         if (!errors.isEmpty()) throw new InvalidPonyException(errors);
+    }
+    
+    private Action findAction(String name) {
+        for (int i = 0; i < actions.length; i++) {
+            if (actions[i].name.equals(name)) {
+                return actions[i];
+            }
+        }
+        return null;
     }
     
     private static String formatSpeed(float speed) {
@@ -379,6 +584,12 @@ public class PonyDefinition {
         
         for (int i = 0; i < actions.length; i++) {
             Action action = actions[i];
+            if (action.spritesFrom == null) {
+                action.spritesFrom = "";
+            }
+            if (action.gaits == null) {
+                action.gaits = "";
+            }
             
             writer.print("    <action");
             writeAttribute(writer, "name", action.name);
@@ -395,21 +606,33 @@ public class PonyDefinition {
             writeCharacters(writer, formatSpeed(action.speed));
             writer.println("</speed>");
             
-            writer.println("        <image direction=\"left\">");
-            writeSplit(writer, action.images.get("left"), "            ");
-            writer.println("        </image>");
+            if (action.isAlias()) {
+                writer.print("        <spritesfrom>");
+                writeCharacters(writer, action.spritesFrom);
+                writer.println("</spritesfrom>");
+            } else {
+                writer.println("        <image direction=\"left\">");
+                writeSplit(writer, action.images.get("left"), "            ");
+                writer.println("        </image>");
+                
+                writer.print("        <timings direction=\"left\">");
+                writeCharacters(writer, action.timings.get("left"));
+                writer.println("</timings>");
+                
+                writer.println("        <image direction=\"right\">");
+                writeSplit(writer, action.images.get("right"), "            ");
+                writer.println("        </image>");
+                
+                writer.print("        <timings direction=\"right\">");
+                writeCharacters(writer, action.timings.get("right"));
+                writer.println("</timings>");
+            }
             
-            writer.print("        <timings direction=\"left\">");
-            writeCharacters(writer, action.timings.get("left"));
-            writer.println("</timings>");
-            
-            writer.println("        <image direction=\"right\">");
-            writeSplit(writer, action.images.get("right"), "            ");
-            writer.println("        </image>");
-            
-            writer.print("        <timings direction=\"right\">");
-            writeCharacters(writer, action.timings.get("right"));
-            writer.println("</timings>");
+            if (!action.gaits.isEmpty()) {
+                writer.print("        <gaits>");
+                writeCharacters(writer, action.gaits);
+                writer.println("</gaits>");
+            }
             
             writer.print("        <nextactions type=\"waiting\">");
             writeCharacters(writer, action.nextActions.get("waiting"));
