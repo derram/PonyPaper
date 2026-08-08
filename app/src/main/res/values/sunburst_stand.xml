@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <integer-array name="sunburst_stand_l">
+        <item>90</item>
+        <item>4</item>
+        <item>4</item>
+        <item>10</item>
+        <item>4</item>
+        <item>4</item>
+        <item>4</item>
+        <item>10</item>
+        <item>10</item>
+        <item>410</item>
+        <item>4</item>
+        <item>4</item>
+        <item>10</item>
+        <item>4</item>
+        <item>4</item>
+        <item>4</item>
+        <item>410</item>
+    </integer-array>
+    <integer-array name="sunburst_stand_r">
+        <item>90</item>
+        <item>4</item>
+        <item>4</item>
+        <item>10</item>
+        <item>4</item>
+        <item>4</item>
+        <item>4</item>
+        <item>10</item>
+        <item>10</item>
+        <item>410</item>
+        <item>4</item>
+        <item>4</item>
+        <item>10</item>
+        <item>4</item>
+        <item>4</item>
+        <item>4</item>
+        <item>410</item>
+    </integer-array>
+    <array name="sunburst_stand">
+        <item>@drawable/sunburst_stand_l</item>
+        <item>@array/sunburst_stand_l</item>
+        <item>@drawable/sunburst_stand_r</item>
+        <item>@array/sunburst_stand_r</item>
+    </array>
+</resources>

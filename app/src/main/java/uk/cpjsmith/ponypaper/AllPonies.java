@@ -108,7 +108,9 @@ public class AllPonies {
         if (prefs.getBoolean("pref_celestia", true)) result.add(makePrincessCelestia(res).withPrefKey("pref_celestia"));
         if (prefs.getBoolean("pref_luna", true)) result.add(makePrincessLuna(res).withPrefKey("pref_luna"));
         if (prefs.getBoolean("pref_rd", true)) result.add(makeRainbowDash(res).withPrefKey("pref_rd"));
+        if (prefs.getBoolean("pref_rainbowshine", true)) result.add(makeRainbowshine(res).withPrefKey("pref_rainbowshine"));
         if (prefs.getBoolean("pref_rarity", true)) result.add(makeRarity(res).withPrefKey("pref_rarity"));
+        if (prefs.getBoolean("pref_roseluck", true)) result.add(makeRoseluck(res).withPrefKey("pref_roseluck"));
         if (prefs.getBoolean("pref_sandbar", true)) result.add(makeSandbar(res).withPrefKey("pref_sandbar"));
         if (prefs.getBoolean("pref_scootaloo", true)) result.add(makeScootaloo(res).withPrefKey("pref_scootaloo"));
         if (prefs.getBoolean("pref_sa", true)) result.add(makeShiningArmor(res).withPrefKey("pref_sa"));
@@ -119,6 +121,7 @@ public class AllPonies {
         if (prefs.getBoolean("pref_spitfire", true)) result.add(makeSpitfire(res).withPrefKey("pref_spitfire"));
         if (prefs.getBoolean("pref_sg", true)) result.add(makeStarlightGlimmer(res).withPrefKey("pref_sg"));
         if (prefs.getBoolean("pref_ss", true)) result.add(makeSunsetShimmer(res).withPrefKey("pref_ss"));
+        if (prefs.getBoolean("pref_sunburst", true)) result.add(makeSunburst(res).withPrefKey("pref_sunburst"));
         if (prefs.getBoolean("pref_sb", true)) result.add(makeSweetieBelle(res).withPrefKey("pref_sb"));
         if (prefs.getBoolean("pref_sd", true)) result.add(makeSweetieDrops(res).withPrefKey("pref_sd"));
         if (prefs.getBoolean("pref_thorax", true)) result.add(makeThorax(res).withPrefKey("pref_thorax"));
@@ -461,6 +464,9 @@ public class AllPonies {
         
         return new Pony(all, moveStates);
     }
+    private static Pony makeRainbowshine(Resources res) {
+        return makeDefaultFlyer(res, R.array.rainbowshine_stand, R.array.rainbowshine_trot, R.array.rainbowshine_fly);
+    }
     
     private static Pony makeRarity(Resources res) {
         PonyAction stand = new PonyAction(res, R.array.rarity_stand);
@@ -479,6 +485,9 @@ public class AllPonies {
         }
         
         return new Pony(all, moveStates);
+    }
+    private static Pony makeRoseluck(Resources res) {
+        return makeDefaultPony(res, R.array.roseluck_stand, R.array.roseluck_trot);
     }
     
     private static Pony makeSandbar(Resources res) {
@@ -547,6 +556,53 @@ public class AllPonies {
         teleportIn.setNextDrag(justTrot);
         
         return new Pony(all, moveStates);
+    }
+    
+    /**
+     * Sunburst: two appearance modes (cape / no cape) that do not mix after
+     * spawn. Start weights favour cape (cape_trot, cape_trot, trot). Non-cape
+     * trot uses walk-rate travel to match the editor definition.
+     */
+    private static Pony makeSunburst(Resources res) {
+        PonyAction capeStand = new PonyAction(res, R.array.sunburst_cape_stand);
+        PonyAction capeTrot = new PonyAction(res, R.array.sunburst_cape_trot);
+        PonyAction stand = new PonyAction(res, R.array.sunburst_stand);
+        // Editor speed 0.7 for non-cape trot.
+        PonyAction trot = new PonyAction(res, R.array.sunburst_trot, SPEED_WALK);
+        
+        PonyAction[] capeWait = defaultIdles(capeStand);
+        PonyAction[] capeMove = defaultGaits(capeTrot);
+        PonyAction[] justCapeTrot = {capeTrot};
+        PonyAction[] noCapeWait = defaultIdles(stand);
+        PonyAction[] noCapeMove = defaultGaits(trot);
+        PonyAction[] justTrot = {trot};
+        
+        for (int i = 0; i < capeWait.length; i++) {
+            capeWait[i].setNextWaiting(capeWait);
+            capeWait[i].setNextMoving(capeMove);
+            capeWait[i].setNextDrag(justCapeTrot);
+        }
+        for (int i = 0; i < capeMove.length; i++) {
+            capeMove[i].setNextWaiting(capeWait);
+            capeMove[i].setNextMoving(capeMove);
+            capeMove[i].setNextDrag(justCapeTrot);
+        }
+        for (int i = 0; i < noCapeWait.length; i++) {
+            noCapeWait[i].setNextWaiting(noCapeWait);
+            noCapeWait[i].setNextMoving(noCapeMove);
+            noCapeWait[i].setNextDrag(justTrot);
+        }
+        for (int i = 0; i < noCapeMove.length; i++) {
+            noCapeMove[i].setNextWaiting(noCapeWait);
+            noCapeMove[i].setNextMoving(noCapeMove);
+            noCapeMove[i].setNextDrag(justTrot);
+        }
+        
+        PonyAction[] all = concat(concat(capeWait, capeMove), concat(noCapeWait, noCapeMove));
+        // Historical startactions: cape_trot,cape_trot,trot
+        PonyAction[] start = concat(capeMove, capeMove, noCapeMove);
+        
+        return new Pony(all, start);
     }
     
     private static Pony makeSweetieBelle(Resources res) {

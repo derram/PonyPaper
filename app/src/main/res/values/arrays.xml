@@ -35,7 +35,9 @@
         <item>Princess Celestia</item>
         <item>Princess Luna</item>
         <item>Rainbow Dash</item>
+        <item>Rainbowshine</item>
         <item>Rarity</item>
+        <item>Roseluck</item>
         <item>Sandbar</item>
         <item>Scootaloo</item>
         <item>Shining Armor</item>
@@ -46,6 +48,7 @@
         <item>Spitfire</item>
         <item>Starlight Glimmer</item>
         <item>Sunset Shimmer</item>
+        <item>Sunburst</item>
         <item>Sweetie Belle</item>
         <item>Sweetie Drops</item>
         <item>Thorax</item>
@@ -77,7 +80,9 @@
         <item>pref_celestia</item>
         <item>pref_luna</item>
         <item>pref_rd</item>
+        <item>pref_rainbowshine</item>
         <item>pref_rarity</item>
+        <item>pref_roseluck</item>
         <item>pref_sandbar</item>
         <item>pref_scootaloo</item>
         <item>pref_sa</item>
@@ -88,6 +93,7 @@
         <item>pref_spitfire</item>
         <item>pref_sg</item>
         <item>pref_ss</item>
+        <item>pref_sunburst</item>
         <item>pref_sb</item>
         <item>pref_sd</item>
         <item>pref_thorax</item>
