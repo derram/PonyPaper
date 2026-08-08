@@ -27,6 +27,10 @@ final class DreamClock {
     private static final int TEXT_COLOR = 0xE6FFFFFF;
     private static final int SHADOW_COLOR = 0x99000000;
 
+    /** Lexend faces under {@code assets/font/}. */
+    private static final String TIME_FONT_ASSET = "font/Lexend-SemiBold.ttf";
+    private static final String DATE_FONT_ASSET = "font/Lexend-Medium.ttf";
+
     /**
      * Horizontal drift period. Incommensurate with {@link #DRIFT_PERIOD_Y_MS}
      * so the path does not retrace a simple line or small loop.
@@ -47,6 +51,7 @@ final class DreamClock {
     private Locale lastLocale = null;
     private int lastWidth = 0;
     private int lastHeight = 0;
+    private boolean typefacesLoaded = false;
     /**
      * Layout offsets computed when type size changes (integer pixels). Fixed so
      * time and date stay a rigid block as the drift path crosses subpixel
@@ -59,6 +64,7 @@ final class DreamClock {
     DreamClock() {
         timePaint.setColor(TEXT_COLOR);
         timePaint.setTextAlign(Paint.Align.CENTER);
+        // System faces until Lexend is loaded from assets on first draw.
         timePaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
         timePaint.setShadowLayer(8f, 0f, 3f, SHADOW_COLOR);
 
@@ -78,6 +84,7 @@ final class DreamClock {
         int height = canvas.getHeight();
         if (width <= 0 || height <= 0) return;
 
+        ensureTypefaces(context);
         ensureFormats(context, width, height);
 
         calendar.setTimeInMillis(System.currentTimeMillis());
@@ -108,6 +115,31 @@ final class DreamClock {
         }
     }
 
+    /**
+     * Loads Lexend from assets once. Falls back to the constructor’s system
+     * sans-serif faces if a file is missing or unreadable.
+     */
+    private void ensureTypefaces(Context context) {
+        if (typefacesLoaded) return;
+        typefacesLoaded = true;
+        Typeface timeFace = loadAssetTypeface(context, TIME_FONT_ASSET);
+        if (timeFace != null) {
+            timePaint.setTypeface(timeFace);
+        }
+        Typeface dateFace = loadAssetTypeface(context, DATE_FONT_ASSET);
+        if (dateFace != null) {
+            datePaint.setTypeface(dateFace);
+        }
+    }
+
+    private static Typeface loadAssetTypeface(Context context, String assetPath) {
+        try {
+            return Typeface.createFromAsset(context.getAssets(), assetPath);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
     private void ensureFormats(Context context, int width, int height) {
         boolean is24 = DateFormat.is24HourFormat(context);
         Locale locale = Locale.getDefault();
@@ -119,7 +151,7 @@ final class DreamClock {
         if (formatChanged) {
             last24Hour = is24;
             lastLocale = locale;
-            String timePattern = is24 ? "HH:mm" : "h:mm";
+            String timePattern = is24 ? "HH:mm" : "hh:mm";
             timeFormat = new SimpleDateFormat(timePattern, locale);
             // e.g. "Monday, 3 August"
             dateFormat = new SimpleDateFormat("EEEE, d MMMM", locale);
