@@ -222,11 +222,8 @@
                             android:title="Zecora"
                             android:defaultValue="true" />
     </PreferenceCategory>
-    <PreferenceCategory android:key="pref_custom"
-                        android:title="Custom ponies">
-        <Preference android:key="pref_add_custom"
-                    android:title="Add custom pony" />
-    </PreferenceCategory>
+    <!-- About sits above Custom ponies: checkboxes are appended to the custom
+         category at runtime, and that section was always the list footer. -->
     <PreferenceCategory android:key="pref_about"
                         android:title="@string/pref_about_category">
         <Preference android:key="pref_about_app"
@@ -278,5 +275,10 @@
                             android:summary="@string/pref_license_lexend_summary" />
             </PreferenceCategory>
         </PreferenceScreen>
+    </PreferenceCategory>
+    <PreferenceCategory android:key="pref_custom"
+                        android:title="Custom ponies">
+        <Preference android:key="pref_add_custom"
+                    android:title="Add custom pony" />
     </PreferenceCategory>
 </PreferenceScreen>
