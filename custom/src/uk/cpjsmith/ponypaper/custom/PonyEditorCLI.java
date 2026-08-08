@@ -144,6 +144,59 @@ public class PonyEditorCLI {
                         }
                         break;
                     }
+
+                    case "-spritesfrom":
+                    {
+                        checkArgument(args, i);
+                        if (currentAction < 0) throw new PonyEditor.GenericException("", "No current action for " + args[i]);
+                        try {
+                            editor.setActionSpritesFrom(currentAction, args[++i]);
+                            guiDirty = true;
+                        } catch (IllegalArgumentException e) {
+                            throw new PonyEditor.GenericException("", e.getMessage());
+                        }
+                        break;
+                    }
+
+                    case "-gaits":
+                    {
+                        checkArgument(args, i);
+                        if (currentAction < 0) throw new PonyEditor.GenericException("", "No current action for " + args[i]);
+                        try {
+                            String value = args[++i];
+                            if ("default".equalsIgnoreCase(value) || "builtin".equalsIgnoreCase(value)) {
+                                editor.applyDefaultGaits(currentAction);
+                            } else if ("idle".equalsIgnoreCase(value)) {
+                                editor.applyDefaultIdleGaits(currentAction);
+                            } else if ("none".equalsIgnoreCase(value) || "clear".equalsIgnoreCase(value) || "-".equals(value)) {
+                                editor.setActionGaits(currentAction, "");
+                            } else {
+                                editor.setActionGaits(currentAction, value);
+                            }
+                            guiDirty = true;
+                        } catch (IllegalArgumentException e) {
+                            throw new PonyEditor.GenericException("", e.getMessage());
+                        }
+                        break;
+                    }
+
+                    case "-clone-gait":
+                    {
+                        checkArgument(args, i, 2);
+                        if (currentAction < 0) throw new PonyEditor.GenericException("", "No current action for " + args[i]);
+                        String newName = args[++i];
+                        String speedText = args[++i];
+                        try {
+                            float speed = Float.parseFloat(speedText);
+                            currentAction = editor.cloneActionAsGait(currentAction, newName, speed);
+                            guiDirty = true;
+                        } catch (NumberFormatException e) {
+                            throw new PonyEditor.GenericException("", "Invalid speed: " + speedText);
+                        } catch (IllegalArgumentException e) {
+                            throw new PonyEditor.GenericException("", e.getMessage());
+                        }
+                        break;
+                    }
                         
                     case "-sprite":
                     {
@@ -195,6 +248,17 @@ public class PonyEditorCLI {
         System.out.println("    Set the current action's special type.");
         System.out.println("-speed VALUE");
         System.out.println("    Set the current action's travel/animation speed factor (positive float).");
+        System.out.println("    Typical gaits: 0.5 stroll, 0.7 walk, 1.0 trot.");
+        System.out.println("-spritesfrom NAME");
+        System.out.println("    Reuse another action's sprites (empty string clears). Alias actions");
+        System.out.println("    only need speed + next lists; images come from NAME.");
+        System.out.println("-gaits SPEC");
+        System.out.println("    Set load-time gait bag as speed:weight list (e.g. 0.5:1,0.7:3,1:1).");
+        System.out.println("    Use 'default' for built-in ground bag, 'idle' for stand bag,");
+        System.out.println("    'none' to clear.");
+        System.out.println("-clone-gait NAME SPEED");
+        System.out.println("    Create NAME as a spritesfrom-alias of the current action at SPEED,");
+        System.out.println("    then select the new action.");
         System.out.println("-sprite DIRECTION FILE");
         System.out.println("    Set the current action's sprite for the given direction.");
     }

@@ -108,13 +108,70 @@ If the working directory is the PonyPaper repo root (or next to a `Desktop-Ponie
 
 On the left side of the editor is the list of actions. You can create a new action or delete the selected action using the buttons underneath the list. Selecting an action in this list allows its properties to be edited on the right. These properties are:
 * Special type: This field should usually be left blank. the only current exceptions to this rule are actions related to teleporting; see the section on 'Teleporting', below.
-* Left/right sprite: The text field simply states whether an image has been loaded or not. You can use the 'Preview' button to display the image and the 'Import image' button to load a new one. Once you have entered the timings, moving the cursor over the preview will highlight the frames, allowing you to verify that the correct number of times have been entered.
+* Speed: Travel and animation rate for this action (positive float; default `1`). While the pony is moving with this action, both how fast it crosses the screen and how fast the sheet plays are multiplied by this factor. While waiting, only animation rate is affected. Typical values match the built-in gaits: **`0.5` stroll**, **`0.7` walk**, **`1.0` trot** (full historical rate). Values above `1` are allowed for very fast characters.
+* Sprites from: When set to another action’s name, this action is an **alias**: it reuses that action’s left/right bitmaps and timings, and only stores its own speed and next-action lists. Use this for stroll/walk variants of one trot sheet without embedding the PNG three times. The owner must not itself be an alias (no chains). Leave empty when this action owns its sprites. **Clone as gait…** creates a named alias in one step.
+* Gaits: Optional load-time bag of `speed:weight` entries (e.g. `0.5:1,0.7:3,1:1`). When set, every reference to this action in start/next lists is expanded into weighted speed variants that share this action’s sprites—the same idea as built-in discrete gaits, without listing separate actions. Use the **Ground** button for the built-in ground bag (stroll 1/5, walk 3/5, full 1/5) or **Idle** for a 50/50 full vs walk-rate stand bag. Leave empty for a single fixed speed.
+* Left/right sprite: The text field simply states whether an image has been loaded or not. You can use the 'Preview' button to display the image and the 'Import image' button to load a new one. Once you have entered the timings, moving the cursor over the preview will highlight the frames, allowing you to verify that the correct number of times have been entered. Aliases show the owner’s image; importing on an alias detaches it into a full owner.
 * Left/right timings: The list of durations for each frame of the animation. These are represented in hundredths of a second and seperated by commas. Note: if you import a GIF animation, this field will be filled in automatically.
 * Next moving/waiting/drag actions: The comma-seperated list of possible actions the pony can transition to when it decides to move/wait or is dragged by the user. Note that the same action can be used for more than one of these three states; for example, many pegasi reuse the same flying action for both movement and hovering in-place.
 
 At the bottom is the list of 'Start actions', the ways the pony can choose to initially enter the scene.
 
 In the action lists (either 'Start actions' or 'Next [whatever] actions') the same action can be repeated multiple times to make it more likely to be selected. For example, the built-in Rainbow Dash has a start action list of `trot,fly,fly,fly`, so she will choose the 'fly' action three-quarters of the time. Fluttershy, who prefers to keep her hooves on the ground, has a start action list of `trot,trot,trot,fly`.
+
+## Speed, aliases, and gaits
+
+Built-in ponies do not pick a continuous random speed. They pick among **discrete** stroll / walk / trot (and slow/full idle) actions that share one spritesheet. Custom ponies can match that in two ways:
+
+### 1. Named aliases (`<spritesfrom>`)
+
+Define one full action with images, then alias variants:
+
+```xml
+<action name="trot">
+    <speed>1</speed>
+    <image direction="left">…</image>
+    <timings direction="left">…</timings>
+    <image direction="right">…</image>
+    <timings direction="right">…</timings>
+    <nextactions type="waiting">stand</nextactions>
+    <nextactions type="moving">stroll,walk,walk,walk,trot</nextactions>
+    <nextactions type="drag">trot</nextactions>
+</action>
+<action name="walk">
+    <speed>0.7</speed>
+    <spritesfrom>trot</spritesfrom>
+    <nextactions type="waiting">stand</nextactions>
+    <nextactions type="moving">stroll,walk,walk,walk,trot</nextactions>
+    <nextactions type="drag">trot</nextactions>
+</action>
+<action name="stroll">
+    <speed>0.5</speed>
+    <spritesfrom>trot</spritesfrom>
+    <!-- same next lists as walk/trot -->
+</action>
+```
+
+CLI helpers: `-spritesfrom trot`, `-clone-gait walk 0.7`, `-speed 0.5`.
+
+### 2. Load-time gait bag (`<gaits>`)
+
+Keep a single action and expand weights at wallpaper load time:
+
+```xml
+<action name="trot">
+    <speed>1</speed>
+    <!-- images… -->
+    <gaits>0.5:1,0.7:3,1:1</gaits>
+    <nextactions type="waiting">stand</nextactions>
+    <nextactions type="moving">trot</nextactions>
+    <nextactions type="drag">trot</nextactions>
+</action>
+```
+
+Whenever `trot` appears in a start or next list, the runtime substitutes five weighted slots (stroll, walk×3, full)—the same distribution as built-in ground ponies. CLI: `-gaits default` (or `idle` / `none` / a custom `speed:weight` list).
+
+Prefer **aliases** when you want different next graphs per gait; prefer **`<gaits>`** when one sheet and one graph should behave like the built-in bag.
 
 ## Teleporting
 Normally, when a pony selects a moving action, it loops the animation while gradually moving towards its destination. To enable teleporting requires special handling.

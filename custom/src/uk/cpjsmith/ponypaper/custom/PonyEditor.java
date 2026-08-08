@@ -187,6 +187,9 @@ public class PonyEditor {
         
         newActions[oldCount] = new PonyDefinition.Action();
         newActions[oldCount].name = name;
+        // Ensure new fields are non-null for older code paths.
+        newActions[oldCount].spritesFrom = "";
+        newActions[oldCount].gaits = "";
         
         ponyDefinition.actions = newActions;
         
@@ -218,7 +221,8 @@ public class PonyEditor {
 
     /**
      * Drops any action names from next/start lists that are not present in the
-     * current action set (e.g. after a delete or a partial import).
+     * current action set (e.g. after a delete or a partial import). Also clears
+     * {@code spritesfrom} when the owner was removed.
      */
     private void scrubMissingActionReferences() {
         java.util.Set<String> present = new java.util.HashSet<String>();
@@ -229,6 +233,10 @@ public class PonyEditor {
             setActionNext(i, "waiting", filterActionList(getActionNext(i, "waiting"), present));
             setActionNext(i, "moving", filterActionList(getActionNext(i, "moving"), present));
             setActionNext(i, "drag", filterActionList(getActionNext(i, "drag"), present));
+            String from = ponyDefinition.actions[i].spritesFrom;
+            if (from != null && !from.isEmpty() && !present.contains(from)) {
+                ponyDefinition.actions[i].spritesFrom = "";
+            }
         }
         setStartActions(filterActionList(getStartActions(), present));
     }
@@ -266,14 +274,17 @@ public class PonyEditor {
     }
 
     /**
-     * Replaces {@code oldName} with {@code newName} in every next/start list.
-     * Duplicate weighted entries are all rewritten.
+     * Replaces {@code oldName} with {@code newName} in every next/start list
+     * and in {@code spritesfrom} references. Duplicate weighted entries are all rewritten.
      */
     private void renameActionReferences(String oldName, String newName) {
         for (int i = 0; i < ponyDefinition.actions.length; i++) {
             setActionNext(i, "waiting", renameInActionList(getActionNext(i, "waiting"), oldName, newName));
             setActionNext(i, "moving", renameInActionList(getActionNext(i, "moving"), oldName, newName));
             setActionNext(i, "drag", renameInActionList(getActionNext(i, "drag"), oldName, newName));
+            if (oldName.equals(ponyDefinition.actions[i].spritesFrom)) {
+                ponyDefinition.actions[i].spritesFrom = newName;
+            }
         }
         setStartActions(renameInActionList(getStartActions(), oldName, newName));
     }
@@ -319,22 +330,198 @@ public class PonyEditor {
         ponyDefinition.actions[index].speed = speed;
     }
     
+    /**
+     * @return the action whose sprites this action reuses, or empty if this
+     *         action owns its own images
+     */
+    public String getActionSpritesFrom(int index) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        String s = ponyDefinition.actions[index].spritesFrom;
+        return s != null ? s : "";
+    }
+    
+    /**
+     * Makes this action an alias of {@code ownerName} (shared sprites). Clears
+     * local images/timings. Pass empty to become a sprite owner again.
+     *
+     * @param index     action to modify
+     * @param ownerName name of the action that owns the bitmaps, or empty
+     */
+    public void setActionSpritesFrom(int index, String ownerName) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        if (ownerName == null) {
+            ownerName = "";
+        }
+        ownerName = ownerName.trim();
+        PonyDefinition.Action action = ponyDefinition.actions[index];
+        if (ownerName.isEmpty()) {
+            action.spritesFrom = "";
+            return;
+        }
+        if (ownerName.equals(action.name)) {
+            throw new IllegalArgumentException("Action cannot use spritesfrom itself");
+        }
+        int ownerIndex = findAction(ownerName);
+        if (ownerIndex < 0) {
+            throw new IllegalArgumentException("Unknown action: " + ownerName);
+        }
+        if (ponyDefinition.actions[ownerIndex].isAlias()) {
+            throw new IllegalArgumentException("Cannot alias an alias: " + ownerName);
+        }
+        action.spritesFrom = ownerName;
+        // Aliases must not carry their own images/timings.
+        action.images.put("left", "");
+        action.images.put("right", "");
+        action.timings.put("left", "");
+        action.timings.put("right", "");
+    }
+    
+    /**
+     * @return the gaits specification (e.g. {@code 0.5:1,0.7:3,1:1}), or empty
+     */
+    public String getActionGaits(int index) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        String g = ponyDefinition.actions[index].gaits;
+        return g != null ? g : "";
+    }
+    
+    /**
+     * Sets the load-time gait bag for this action. Empty clears expansion.
+     * Value must parse as {@code speed[:weight],...} with positive speeds.
+     */
+    public void setActionGaits(int index, String gaits) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        if (gaits == null) {
+            gaits = "";
+        }
+        gaits = gaits.replaceAll("\\s+", "");
+        if (gaits.isEmpty()) {
+            ponyDefinition.actions[index].gaits = "";
+            return;
+        }
+        java.util.List<String> errors = new java.util.ArrayList<String>();
+        java.util.List<PonyDefinition.GaitEntry> entries = PonyDefinition.parseGaits(gaits, errors);
+        if (!errors.isEmpty()) {
+            throw new IllegalArgumentException(errors.get(0));
+        }
+        if (entries.isEmpty()) {
+            throw new IllegalArgumentException("gaits must list at least one speed");
+        }
+        ponyDefinition.actions[index].gaits = gaits;
+    }
+    
+    /**
+     * Applies the built-in ground gait bag ({@link PonyDefinition#DEFAULT_GAITS})
+     * to this action (typically a full-speed trot sheet).
+     */
+    public void applyDefaultGaits(int index) {
+        setActionGaits(index, PonyDefinition.DEFAULT_GAITS);
+    }
+    
+    /**
+     * Applies the built-in idle gait bag ({@link PonyDefinition#DEFAULT_IDLE_GAITS})
+     * to this action (typically a stand sheet).
+     */
+    public void applyDefaultIdleGaits(int index) {
+        setActionGaits(index, PonyDefinition.DEFAULT_IDLE_GAITS);
+    }
+    
+    /**
+     * Creates a new named action that reuses {@code sourceIndex}'s sprites at
+     * the given speed (or reuses the source's owner if the source is already
+     * an alias). Copies next-action lists from the source. Does not rewrite
+     * any lists to include the new name.
+     *
+     * @return index of the new alias action
+     */
+    public int cloneActionAsGait(int sourceIndex, String newName, float speed) {
+        if (sourceIndex < 0 || sourceIndex >= ponyDefinition.actions.length) {
+            throw new IndexOutOfBoundsException();
+        }
+        if (newName == null || newName.trim().isEmpty()) {
+            throw new IllegalArgumentException("Action name must not be empty");
+        }
+        newName = newName.trim();
+        if (findAction(newName) >= 0) {
+            throw new IllegalArgumentException("Action name already in use: " + newName);
+        }
+        if (Float.isNaN(speed) || speed <= 0f) {
+            throw new IllegalArgumentException("speed must be positive");
+        }
+        PonyDefinition.Action source = ponyDefinition.actions[sourceIndex];
+        String ownerName = source.isAlias() ? source.spritesFrom : source.name;
+        // Ensure owner is a real sprite owner.
+        int ownerIndex = findAction(ownerName);
+        if (ownerIndex < 0 || ponyDefinition.actions[ownerIndex].isAlias()) {
+            throw new IllegalArgumentException("Cannot resolve sprite owner for clone");
+        }
+        int index = addAction(newName);
+        setActionSpeed(index, speed);
+        setActionSpritesFrom(index, ownerName);
+        setActionSpecial(index, source.specialType);
+        setActionNext(index, "waiting", getActionNext(sourceIndex, "waiting"));
+        setActionNext(index, "moving", getActionNext(sourceIndex, "moving"));
+        setActionNext(index, "drag", getActionNext(sourceIndex, "drag"));
+        // Aliases typically do not expand their own gaits; clear if addAction defaulted.
+        ponyDefinition.actions[index].gaits = "";
+        return index;
+    }
+    
     public String getActionImage(int index, String direction) {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
         if (!ponyDefinition.actions[index].images.containsKey(direction)) throw new IndexOutOfBoundsException();
+        // Aliases inherit images from the owner for preview.
+        if (ponyDefinition.actions[index].isAlias()) {
+            int owner = findAction(ponyDefinition.actions[index].spritesFrom);
+            if (owner >= 0) {
+                return ponyDefinition.actions[owner].images.get(direction);
+            }
+        }
         return ponyDefinition.actions[index].images.get(direction);
     }
     
     public String getActionTimings(int index, String direction) {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
         if (!ponyDefinition.actions[index].timings.containsKey(direction)) throw new IndexOutOfBoundsException();
+        // Aliases inherit timings from the owner for preview / bulk edit display.
+        if (ponyDefinition.actions[index].isAlias()) {
+            int owner = findAction(ponyDefinition.actions[index].spritesFrom);
+            if (owner >= 0) {
+                return ponyDefinition.actions[owner].timings.get(direction);
+            }
+        }
         return ponyDefinition.actions[index].timings.get(direction);
     }
     
     public void setActionTimings(int index, String direction, String timings) {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
         if (!ponyDefinition.actions[index].timings.containsKey(direction)) throw new IndexOutOfBoundsException();
+        // Editing timings on an alias converts it to an owner for that side only is messy;
+        // clear spritesfrom so the action owns its sheets going forward.
+        if (ponyDefinition.actions[index].isAlias()) {
+            detachAliasCopyingSprites(index);
+        }
         ponyDefinition.actions[index].timings.put(direction, timings);
+    }
+    
+    /**
+     * If the action is an alias, copy the owner's images/timings into it and
+     * clear {@code spritesFrom} so it becomes a full owner. No-op if already owner.
+     */
+    private void detachAliasCopyingSprites(int index) {
+        PonyDefinition.Action action = ponyDefinition.actions[index];
+        if (!action.isAlias()) {
+            return;
+        }
+        int owner = findAction(action.spritesFrom);
+        if (owner >= 0) {
+            PonyDefinition.Action o = ponyDefinition.actions[owner];
+            action.images.put("left", o.images.get("left"));
+            action.images.put("right", o.images.get("right"));
+            action.timings.put("left", o.timings.get("left"));
+            action.timings.put("right", o.timings.get("right"));
+        }
+        action.spritesFrom = "";
     }
     
     /**
@@ -354,6 +541,11 @@ public class PonyEditor {
     public void loadActionSprite(int index, String direction, File spriteFile) throws GenericException {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
         if (!ponyDefinition.actions[index].images.containsKey(direction)) throw new IndexOutOfBoundsException();
+        
+        // Importing art on an alias detaches it so the new sprites are stored here.
+        if (ponyDefinition.actions[index].isAlias()) {
+            detachAliasCopyingSprites(index);
+        }
         
         try {
             ImageImport imported = ImageImport.load(spriteFile);
