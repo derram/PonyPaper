@@ -636,15 +636,16 @@ public class PonyEditorGUI extends JPanel {
     private boolean hasChanges;
     
     private PonyEditorGUI(JFrame parentFrame) {
-        this(parentFrame, null, false);
+        this(parentFrame, null, null, false);
     }
 
     /**
      * @param parentFrame host frame for dialogs and the window title
      * @param existing    pre-populated editor model, or {@code null} for a blank pony
+     * @param initialFile path for title/Save when opened via {@code -load}, or {@code null}
      * @param dirty       whether to treat the model as having unsaved changes
      */
-    private PonyEditorGUI(JFrame parentFrame, PonyEditor existing, boolean dirty) {
+    private PonyEditorGUI(JFrame parentFrame, PonyEditor existing, File initialFile, boolean dirty) {
         super(new GridBagLayout());
         
         this.parentFrame = parentFrame;
@@ -673,7 +674,7 @@ public class PonyEditorGUI extends JPanel {
         add(startActionsPane, c);
         
         editor = existing != null ? existing : new PonyEditor();
-        setFile(null);
+        setFile(initialFile);
         hasChanges = dirty;
         if (existing != null) {
             setUIFromPony();
@@ -1044,13 +1045,13 @@ public class PonyEditorGUI extends JPanel {
         return result;
     }
     
-    private static void createAndShowGUI(PonyEditor existing, boolean dirty) {
+    private static void createAndShowGUI(PonyEditor existing, File initialFile, boolean dirty) {
         JFrame frame = new JFrame();
         frame.setMinimumSize(new Dimension(600, 450));
         frame.setPreferredSize(new Dimension(800, 600));
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         
-        PonyEditorGUI contentPane = new PonyEditorGUI(frame, existing, dirty);
+        PonyEditorGUI contentPane = new PonyEditorGUI(frame, existing, initialFile, dirty);
         contentPane.setOpaque(true);
         frame.setContentPane(contentPane);
         frame.addWindowListener(contentPane.windowListener);
@@ -1063,17 +1064,18 @@ public class PonyEditorGUI extends JPanel {
     }
     
     public static void start() {
-        start(null, false);
+        start(null, null, false);
     }
 
     /**
      * Starts the GUI, optionally with a pre-filled {@link PonyEditor} (e.g. after
-     * {@code -import-dp} without {@code -save}).
+     * {@code -load} or {@code -import-dp} without {@code -save}).
      *
-     * @param existing pre-populated model, or {@code null} for a blank pony
-     * @param dirty    whether the model should be treated as unsaved
+     * @param existing    pre-populated model, or {@code null} for a blank pony
+     * @param initialFile path for title/Save when opened via {@code -load}, or {@code null}
+     * @param dirty       whether the model should be treated as unsaved
      */
-    public static void start(PonyEditor existing, boolean dirty) {
+    public static void start(PonyEditor existing, File initialFile, boolean dirty) {
         try {
             for (UIManager.LookAndFeelInfo info : UIManager.getInstalledLookAndFeels()) {
                 if (info.getName().equals("Nimbus")) {
@@ -1086,7 +1088,7 @@ public class PonyEditorGUI extends JPanel {
         SwingUtilities.invokeLater(new Runnable() {
             @Override
             public void run() {
-                createAndShowGUI(existing, dirty);
+                createAndShowGUI(existing, initialFile, dirty);
             }
         });
     }

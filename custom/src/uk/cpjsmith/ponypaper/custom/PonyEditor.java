@@ -492,8 +492,8 @@ public class PonyEditor {
             PonyEditorCLI cli = new PonyEditorCLI();
             cli.processArguments(args);
             if (cli.shouldOpenGui()) {
-                // Import filled the model; open the editor so the user can review/save.
-                PonyEditorGUI.start(cli.getEditor(), true);
+                // -load or -import-dp filled the model; open the editor so the user can review/save.
+                PonyEditorGUI.start(cli.getEditor(), cli.getLoadedFile(), cli.isGuiDirty());
             }
         }
     }

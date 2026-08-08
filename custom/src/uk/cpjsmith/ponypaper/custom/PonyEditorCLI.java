@@ -5,9 +5,14 @@ import java.io.File;
 public class PonyEditorCLI {
     
     private final PonyEditor editor;
+    private boolean usedLoad;
     private boolean usedImportDp;
     private boolean usedSave;
     private boolean hadError;
+    /** Unsaved changes for the GUI: true after import or CLI mutations; false after a pure load. */
+    private boolean guiDirty;
+    /** Path from the most recent {@code -load}, or {@code null} after import. */
+    private File loadedFile;
     
     public PonyEditorCLI() {
         editor = new PonyEditor();
@@ -18,11 +23,27 @@ public class PonyEditorCLI {
     }
 
     /**
+     * File associated with a successful {@code -load}, for the GUI title and Save target.
+     * {@code null} after {@code -import-dp} (unsaved import) or when no load was used.
+     */
+    public File getLoadedFile() {
+        return loadedFile;
+    }
+
+    /**
+     * Whether the model should be treated as having unsaved changes when opening the GUI.
+     * Pure {@code -load} is clean; imports and CLI mutations are dirty.
+     */
+    public boolean isGuiDirty() {
+        return guiDirty;
+    }
+
+    /**
      * @return {@code true} if the GUI should open with the current editor state
-     *         (Desktop-Ponies import succeeded and no {@code -save} was given)
+     *         ({@code -load} or {@code -import-dp} succeeded and no {@code -save} was given)
      */
     public boolean shouldOpenGui() {
-        return usedImportDp && !usedSave && !hadError;
+        return (usedLoad || usedImportDp) && !usedSave && !hadError;
     }
     
     private static void checkArgument(String[] args, int i) throws PonyEditor.GenericException {
@@ -46,13 +67,20 @@ public class PonyEditorCLI {
                         currentAction = editor.findAction(actionName);
                         if (currentAction < 0) {
                             currentAction = editor.addAction(actionName);
+                            guiDirty = true;
                         }
                         break;
                     }
                     case "-load":
+                    {
                         checkArgument(args, i);
-                        editor.load(new File(args[++i]));
+                        File file = new File(args[++i]);
+                        editor.load(file);
+                        usedLoad = true;
+                        loadedFile = file;
+                        guiDirty = false;
                         break;
+                    }
 
                     case "-import-dp":
                     {
@@ -60,6 +88,8 @@ public class PonyEditorCLI {
                         File ponyDir = new File(args[++i]);
                         String[] notes = editor.importDesktopPonies(ponyDir);
                         usedImportDp = true;
+                        loadedFile = null;
+                        guiDirty = true;
                         for (String note : notes) {
                             System.err.println(note);
                         }
@@ -74,6 +104,7 @@ public class PonyEditorCLI {
                         String actionNames = args[++i];
                         try {
                             editor.setActionNext(currentAction, actionType, actionNames);
+                            guiDirty = true;
                         } catch (IndexOutOfBoundsException e) {
                             throw new PonyEditor.GenericException("", "Can't set next actions for type " + actionType);
                         }
@@ -94,6 +125,7 @@ public class PonyEditorCLI {
                         checkArgument(args, i);
                         if (currentAction < 0) throw new PonyEditor.GenericException("", "No current action for " + args[i]);
                         editor.setActionSpecial(currentAction, args[++i]);
+                        guiDirty = true;
                         break;
 
                     case "-speed":
@@ -104,6 +136,7 @@ public class PonyEditorCLI {
                         try {
                             float speed = Float.parseFloat(speedText);
                             editor.setActionSpeed(currentAction, speed);
+                            guiDirty = true;
                         } catch (NumberFormatException e) {
                             throw new PonyEditor.GenericException("", "Invalid speed: " + speedText);
                         } catch (IllegalArgumentException e) {
@@ -120,6 +153,7 @@ public class PonyEditorCLI {
                         String spritePath = args[++i];
                         try {
                             editor.loadActionSprite(currentAction, spriteDir, new File(spritePath));
+                            guiDirty = true;
                         } catch (IndexOutOfBoundsException e) {
                             throw new PonyEditor.GenericException("", "Can't set sprite for direction " + spriteDir);
                         }
@@ -128,6 +162,7 @@ public class PonyEditorCLI {
                     case "-start":
                         checkArgument(args, i);
                         editor.setStartActions(args[++i]);
+                        guiDirty = true;
                         break;
                         
                     default:
@@ -143,6 +178,7 @@ public class PonyEditorCLI {
     public static void showArguments() {
         System.out.println("-load FILE");
         System.out.println("    Load a pony definition from the given file path.");
+        System.out.println("    Without -save, opens the GUI with that pony loaded.");
         System.out.println("-import-dp DIR");
         System.out.println("    Import a Desktop Ponies character folder (pony.ini + GIFs),");
         System.out.println("    replacing the current pony. Notes are printed to stderr.");

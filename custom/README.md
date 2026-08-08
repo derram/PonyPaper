@@ -71,6 +71,10 @@ Effects, speech, interactions, non-zero behavior groups, and most `Skip=True` st
 From the command line:
 
 ```bash
+# Open an existing pony XML in the GUI
+java -jar custom/build/libs/customponies.jar \
+  -load twilight-sparkle.xml
+
 # Import and open the GUI with fields filled (review, then Save)
 java -jar custom/build/libs/customponies.jar \
   -import-dp ../Desktop-Ponies/Content/Ponies/Ace
