@@ -3,6 +3,8 @@
     <string name="app_name">Pony Paper</string>
     <string name="description">Cartoon ponies wander across your screen.</string>
     <string name="app_settings_name">Pony Paper settings</string>
+    <string name="pref_open_live_wallpaper_title">Live wallpaper settings</string>
+    <string name="pref_open_live_wallpaper_summary">Open the system picker to set Pony Paper as your live wallpaper</string>
     <string name="pref_open_screensaver_title">Screen saver settings</string>
     <string name="pref_open_screensaver_summary">Choose Pony Paper as the system screen saver (same ponies and options as the wallpaper)</string>
     <string name="pref_screensaver_category">Screen saver</string>

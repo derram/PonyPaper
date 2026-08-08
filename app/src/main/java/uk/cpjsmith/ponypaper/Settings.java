@@ -1,6 +1,8 @@
 package uk.cpjsmith.ponypaper;
 
 import android.app.AlertDialog;
+import android.app.WallpaperManager;
+import android.content.ComponentName;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -99,6 +101,16 @@ public class Settings extends PreferenceActivity {
             }
         });
 
+        Preference openLiveWallpaper = findPreference("pref_open_live_wallpaper");
+        if (openLiveWallpaper != null) {
+            openLiveWallpaper.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    openSystemLiveWallpaperSettings();
+                    return true;
+                }
+            });
+        }
+
         Preference openScreensaver = findPreference("pref_open_screensaver");
         if (openScreensaver != null) {
             openScreensaver.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
@@ -108,6 +120,32 @@ public class Settings extends PreferenceActivity {
                 }
             });
         }
+    }
+
+    /**
+     * Opens the system live wallpaper picker, preferring a direct preview for
+     * {@link PonyWallpaper}. Path and availability vary by OEM; fall back to a
+     * short notice if no known intent can be resolved.
+     */
+    private void openSystemLiveWallpaperSettings() {
+        Intent change = new Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER);
+        change.putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                new ComponentName(this, PonyWallpaper.class));
+        try {
+            startActivity(change);
+            return;
+        } catch (Exception ignored) {
+        }
+
+        Intent chooser = new Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER);
+        try {
+            startActivity(chooser);
+            return;
+        } catch (Exception ignored) {
+        }
+
+        showAlertDialog("Live wallpaper settings",
+                "Open system Settings → Wallpaper (or Display → Wallpaper; wording varies by device) and choose Pony Paper as a live wallpaper.");
     }
 
     /**

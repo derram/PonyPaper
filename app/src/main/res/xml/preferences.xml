@@ -47,6 +47,9 @@
                 android:defaultValue="4" />
         <CheckBoxPreference android:key="pref_drunk_mode"
                             android:title="Berry Punch mode" />
+        <Preference android:key="pref_open_live_wallpaper"
+                    android:title="@string/pref_open_live_wallpaper_title"
+                    android:summary="@string/pref_open_live_wallpaper_summary" />
         <Preference android:key="pref_open_screensaver"
                     android:title="@string/pref_open_screensaver_title"
                     android:summary="@string/pref_open_screensaver_summary" />
@@ -185,6 +188,12 @@
         <CheckBoxPreference android:key="pref_octavia"
                             android:title="Octavia"
                             android:defaultValue="true" />
+        <CheckBoxPreference android:key="pref_rainbowshine"
+                            android:title="Rainbowshine"
+                            android:defaultValue="true" />
+        <CheckBoxPreference android:key="pref_roseluck"
+                            android:title="Roseluck"
+                            android:defaultValue="true" />
         <CheckBoxPreference android:key="pref_soarin"
                             android:title="Soarin"
                             android:defaultValue="true" />
@@ -196,6 +205,9 @@
                             android:defaultValue="true" />
         <CheckBoxPreference android:key="pref_ss"
                             android:title="Sunset Shimmer"
+                            android:defaultValue="true" />
+        <CheckBoxPreference android:key="pref_sunburst"
+                            android:title="Sunburst"
                             android:defaultValue="true" />
         <CheckBoxPreference android:key="pref_sd"
                             android:title="Sweetie Drops"
