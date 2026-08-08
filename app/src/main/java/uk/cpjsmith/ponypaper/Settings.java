@@ -2,10 +2,15 @@ package uk.cpjsmith.ponypaper;
 
 import android.app.AlertDialog;
 import android.app.WallpaperManager;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
@@ -16,11 +21,16 @@ import android.preference.PreferenceActivity;
 import android.preference.PreferenceCategory;
 import android.preference.PreferenceManager;
 import android.provider.OpenableColumns;
+import android.util.TypedValue;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -33,6 +43,17 @@ public class Settings extends PreferenceActivity {
     
     static final int SELECT_BACKGROUND = 0;
     static final int SELECT_CUSTOM = 1;
+
+    private static final String URL_THIS_FORK = "https://github.com/derram/PonyPaper";
+    private static final String URL_RELEASES = "https://github.com/derram/PonyPaper/releases";
+    private static final String URL_UPSTREAM = "https://github.com/Smithers888/PonyPaper";
+    private static final String URL_AUTHOR = "http://cpjsmith.uk";
+    private static final String URL_DESKTOP_PONIES = "https://github.com/RoosterDragon/Desktop-Ponies";
+    private static final String URL_DP_TEAM = "http://desktop-pony-team.deviantart.com/";
+    private static final String URL_LEXEND = "https://github.com/googlefonts/lexend";
+    private static final String URL_OFL_SITE = "https://openfontlicense.org";
+    private static final String URL_CC_BY_NC_SA = "http://creativecommons.org/licenses/by-nc-sa/3.0/";
+    private static final String OFL_ASSET_PATH = "font/OFL.txt";
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -120,6 +141,161 @@ public class Settings extends PreferenceActivity {
                 }
             });
         }
+
+        setupAboutAndLicenses();
+    }
+
+    /**
+     * Wires About / Licenses preferences: app blurb, version line, project
+     * URLs (browser with clipboard fallback), and scrollable license text.
+     */
+    private void setupAboutAndLicenses() {
+        Preference aboutApp = findPreference("pref_about_app");
+        if (aboutApp != null) {
+            aboutApp.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    showScrollableTextDialog(
+                            getString(R.string.about_app_title),
+                            getString(R.string.about_app_message));
+                    return true;
+                }
+            });
+        }
+
+        Preference versionPref = findPreference("pref_about_version");
+        if (versionPref != null) {
+            versionPref.setSummary(getAppVersionLabel());
+        }
+
+        bindUrlPreference("pref_link_this_fork", URL_THIS_FORK);
+        bindUrlPreference("pref_link_releases", URL_RELEASES);
+        bindUrlPreference("pref_link_upstream", URL_UPSTREAM);
+        bindUrlPreference("pref_link_author", URL_AUTHOR);
+        bindUrlPreference("pref_link_desktop_ponies", URL_DESKTOP_PONIES);
+        bindUrlPreference("pref_link_dp_team", URL_DP_TEAM);
+        bindUrlPreference("pref_link_lexend", URL_LEXEND);
+        bindUrlPreference("pref_link_ofl_site", URL_OFL_SITE);
+        bindUrlPreference("pref_link_cc", URL_CC_BY_NC_SA);
+
+        Preference artLicense = findPreference("pref_license_art");
+        if (artLicense != null) {
+            artLicense.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    showScrollableTextDialog(
+                            getString(R.string.license_art_title),
+                            getString(R.string.license_art_message));
+                    return true;
+                }
+            });
+        }
+
+        Preference lexendLicense = findPreference("pref_license_lexend");
+        if (lexendLicense != null) {
+            lexendLicense.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    showLexendOflDialog();
+                    return true;
+                }
+            });
+        }
+    }
+
+    private void bindUrlPreference(String key, final String url) {
+        Preference pref = findPreference(key);
+        if (pref == null) return;
+        pref.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+            public boolean onPreferenceClick(Preference preference) {
+                openUrlOrCopy(url);
+                return true;
+            }
+        });
+    }
+
+    /**
+     * Opens {@code url} in a browser. If no activity can handle the intent,
+     * copies the URL to the clipboard and shows a short notice.
+     */
+    private void openUrlOrCopy(String url) {
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+        try {
+            startActivity(intent);
+            return;
+        } catch (Exception ignored) {
+        }
+        copyTextToClipboard("url", url);
+        showAlertDialog(
+                getString(R.string.url_copied_title),
+                getString(R.string.url_copied_message, url));
+    }
+
+    private void copyTextToClipboard(String label, String text) {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(ClipData.newPlainText(label, text));
+        }
+    }
+
+    private void showLexendOflDialog() {
+        try {
+            String ofl = readAssetText(OFL_ASSET_PATH);
+            showScrollableTextDialog(
+                    getString(R.string.pref_license_lexend_title),
+                    getString(R.string.license_lexend_header) + ofl);
+        } catch (IOException e) {
+            showAlertDialog(
+                    getString(R.string.license_load_error_title),
+                    getString(R.string.license_load_error_message));
+        }
+    }
+
+    private String readAssetText(String assetPath) throws IOException {
+        InputStream in = getAssets().open(assetPath);
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int n;
+            while ((n = in.read(buffer)) >= 0) {
+                out.write(buffer, 0, n);
+            }
+            // OFL.txt is plain ASCII; UTF-8 is a safe superset.
+            return new String(out.toByteArray(), Charset.forName("UTF-8"));
+        } finally {
+            in.close();
+        }
+    }
+
+    private String getAppVersionLabel() {
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            String name = info.versionName != null ? info.versionName : "?";
+            return name + " (" + info.versionCode + ")";
+        } catch (PackageManager.NameNotFoundException e) {
+            return "?";
+        }
+    }
+
+    private void showScrollableTextDialog(String title, String message) {
+        int pad = (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, 16f, getResources().getDisplayMetrics());
+        TextView textView = new TextView(this);
+        textView.setText(message);
+        textView.setTextIsSelectable(true);
+        textView.setPadding(pad, pad, pad, pad);
+        textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
+
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.addView(textView);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(title);
+        builder.setView(scrollView);
+        builder.setCancelable(true);
+        builder.setPositiveButton(R.string.dialog_ok, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                dialog.cancel();
+            }
+        });
+        builder.create().show();
     }
 
     /**

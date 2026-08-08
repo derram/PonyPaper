@@ -12,4 +12,52 @@
     <string name="pref_dream_show_clock_summary">Large digital clock over the herd (12/24-hour follows system setting)</string>
     <string name="pref_dream_show_date_title">Show date</string>
     <string name="pref_dream_show_date_summary">Weekday and full date under the time</string>
+
+    <!-- About / licenses -->
+    <string name="pref_about_category">About</string>
+    <string name="pref_about_app_title">About Pony Paper</string>
+    <string name="pref_about_app_summary">What this app is and where it comes from</string>
+    <string name="pref_about_version_title">Version</string>
+    <string name="pref_licenses_title">Licenses &amp; credits</string>
+    <string name="pref_licenses_summary">Artwork, fonts, and open-source projects</string>
+
+    <string name="pref_credits_projects_category">Projects</string>
+    <string name="pref_link_this_fork_title">This fork (GitHub)</string>
+    <string name="pref_link_this_fork_summary">derram/PonyPaper — modern Gradle fork</string>
+    <string name="pref_link_releases_title">Releases</string>
+    <string name="pref_link_releases_summary">Download APKs and the custom pony editor</string>
+    <string name="pref_link_upstream_title">Original Pony Paper</string>
+    <string name="pref_link_upstream_summary">Smithers888/PonyPaper on GitHub</string>
+    <string name="pref_link_author_title">Original author</string>
+    <string name="pref_link_author_summary">Smithers888 / cpjsmith.uk</string>
+    <string name="pref_link_desktop_ponies_title">Desktop Ponies</string>
+    <string name="pref_link_desktop_ponies_summary">RoosterDragon/Desktop-Ponies — sprite source</string>
+    <string name="pref_link_dp_team_title">Desktop Ponies team</string>
+    <string name="pref_link_dp_team_summary">Artwork contributors on DeviantArt</string>
+    <string name="pref_link_lexend_title">Lexend font</string>
+    <string name="pref_link_lexend_summary">googlefonts/lexend — screensaver clock typeface</string>
+    <string name="pref_link_ofl_site_title">SIL Open Font License</string>
+    <string name="pref_link_ofl_site_summary">openfontlicense.org — license and FAQ</string>
+    <string name="pref_link_cc_title">CC BY-NC-SA 3.0</string>
+    <string name="pref_link_cc_summary">Creative Commons deed for the artwork license</string>
+
+    <string name="pref_credits_licenses_category">Licenses</string>
+    <string name="pref_license_art_title">Artwork &amp; original source</string>
+    <string name="pref_license_art_summary">CC BY-NC-SA 3.0 — Desktop Ponies team</string>
+    <string name="pref_license_lexend_title">Lexend (SIL OFL 1.1)</string>
+    <string name="pref_license_lexend_summary">View copyright notice and full license text</string>
+
+    <string name="about_app_title">About Pony Paper</string>
+    <string name="about_app_message">Pony Paper is a live wallpaper (and optional screen saver) using pixel-art sprites of characters from My Little Pony: Friendship is Magic.\n\nThis is a modernization fork of Smithers888/PonyPaper for current Android (Gradle, modern SDK levels). It installs under application id io.github.derram.ponypaper and does not replace the original app.\n\nFork features include target frame rate, Battery Saver and on-battery options, hold-to-drag ponies, optional screensaver clock (Lexend), custom pony import, and stability fixes.\n\nOpen Licenses &amp; credits for project links and full license texts.</string>
+
+    <string name="license_art_title">Artwork &amp; original source</string>
+    <string name="license_art_message">All artwork was created by contributors to the Desktop Ponies team (DeviantArt and the Desktop-Ponies source repository). Artwork and the original source are licensed under Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported (CC BY-NC-SA 3.0).\n\nOriginal Android source: Smithers888 / Smithers888/PonyPaper.\n\nYou may share and modify this project under the same terms: credit, non-commercial use, and share-alike.\n\nUse the project links on the previous screen for Desktop Ponies, the art team, upstream Pony Paper, and the full CC deed.</string>
+
+    <string name="license_lexend_header">Lexend is used for the optional screensaver clock (Lexend Medium and Lexend SemiBold, bundled under assets/font/).\n\nCopyright 2018 The Lexend Project Authors (https://github.com/googlefonts/lexend), with Reserved Font Name \u201cRevReading Lexend\u201d.\n\nThis Font Software is licensed under the SIL Open Font License, Version 1.1. Full license text follows.\n\n</string>
+
+    <string name="url_copied_title">Link copied</string>
+    <string name="url_copied_message">No browser was available to open the link. It has been copied to the clipboard:\n\n%1$s</string>
+    <string name="license_load_error_title">Could not load license</string>
+    <string name="license_load_error_message">The OFL text could not be read from app assets. See https://openfontlicense.org for the SIL Open Font License.</string>
+    <string name="dialog_ok">OK</string>
 </resources>
