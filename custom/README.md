@@ -52,6 +52,25 @@ java -jar custom/build/libs/customponies.jar
 
 The Ant `build.xml` in this directory is deprecated and will refuse to run; use Gradle as above.
 
+### GIF → spritesheet converter (standalone)
+
+Same conversion the editor uses when you import a Desktop Ponies GIF (`ImageImport`: coalesce frames, half-scale, pack left-to-right, emit timings in hundredths of a second):
+
+```bash
+# Via the editor JAR
+java -jar custom/build/libs/customponies.jar \
+  -gif-to-sheet walk_left.gif walk_left.png
+
+# Or by main class
+java -cp custom/build/libs/customponies.jar \
+  uk.cpjsmith.ponypaper.custom.GifToSpritesheet walk_left.gif
+
+# Options: -q (quiet), -t timings.txt (write timings file), -h (help)
+# Timings (comma-separated cs) are always printed to stdout.
+```
+
+If the output path is omitted, the converter writes `INPUT` with a `.png` extension beside the input.
+
 ### Using the GUI
 
 It can be started by launching the JAR from the file manager (if `.jar` is associated with Java) or from the command line with `java -jar …`.

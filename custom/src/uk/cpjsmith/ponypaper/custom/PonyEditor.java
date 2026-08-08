@@ -488,6 +488,17 @@ public class PonyEditor {
             System.out.println("With other arguments, process them in turn as follows:");
             System.out.println("");
             PonyEditorCLI.showArguments();
+            System.out.println("-gif-to-sheet [options] INPUT.gif [OUTPUT.png]");
+            System.out.println("    Convert a GIF to a PonyPaper spritesheet (standalone; ignores other options).");
+            System.out.println("    Same ImageImport path as Import image / Desktop-Ponies import.");
+            System.out.println("    Run with -gif-to-sheet -help for converter options.");
+        } else if ("-gif-to-sheet".equals(args[0])) {
+            String[] converterArgs = new String[args.length - 1];
+            System.arraycopy(args, 1, converterArgs, 0, converterArgs.length);
+            int status = GifToSpritesheet.run(converterArgs);
+            if (status != 0) {
+                System.exit(status);
+            }
         } else {
             PonyEditorCLI cli = new PonyEditorCLI();
             cli.processArguments(args);
