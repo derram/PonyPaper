@@ -46,7 +46,10 @@
             android:name=".Settings"
             android:label="@string/app_settings_name"
             android:exported="true"
-            android:theme="@android:style/Theme.DeviceDefault.Light">
+            android:theme="@android:style/Theme.DeviceDefault.Light"
+            android:clearTaskOnLaunch="true"
+            android:finishOnTaskLaunch="true"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
