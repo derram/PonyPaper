@@ -511,20 +511,47 @@ public class Pony {
     }
     
     /**
-     * Chooses a random point on the screen.
+     * Largest unscaled frame height among this pony's loaded actions. Used so
+     * on-screen wander targets keep the full sprite below the top edge under
+     * bottom-center (feet) anchoring.
+     */
+    private int maxUnscaledFrameHeight() {
+        int maxH = 0;
+        for (int i = 0; i < allActions.length; i++) {
+            for (int dir = PonyAction.LEFT; dir <= PonyAction.RIGHT; dir++) {
+                int h = allActions[i].getFrameSize(dir)[1];
+                if (h > maxH) {
+                    maxH = h;
+                }
+            }
+        }
+        // ~median sheet height if nothing is loaded yet (should not happen after init).
+        return maxH > 0 ? maxH : 50;
+    }
+    
+    /**
+     * Chooses a random point on the screen. Logical position is feet
+     * (bottom-center), so the top inset is a full sprite height plus a small
+     * pad rather than the historical symmetric center-anchor margin.
+     * Off-screen enter/exit targets intentionally keep the older taller band
+     * so approach angles stay varied.
      * 
      * @return the chosen point
      */
     private Point randomOnScreen() {
-        int s = (int)(30 * getScale());
-        int usableW = screenBounds.width() - 2 * s;
-        int usableH = screenBounds.height() - 2 * s;
+        float scale = getScale();
+        int side = (int)(30 * scale);
+        // Goal A: whole sprite stays on-screen at the top; feet may sit near bottom.
+        int top = (int)(maxUnscaledFrameHeight() * scale) + (int)(8 * scale);
+        int bottom = (int)(8 * scale);
+        int usableW = screenBounds.width() - 2 * side;
+        int usableH = screenBounds.height() - top - bottom;
         // Transient zero-size surfaces would make nextInt throw IllegalArgumentException.
         if (usableW < 1 || usableH < 1) {
             return new Point(screenBounds.centerX(), screenBounds.centerY());
         }
-        return new Point(screenBounds.left + s + random.nextInt(usableW),
-                         screenBounds.top + s + random.nextInt(usableH));
+        return new Point(screenBounds.left + side + random.nextInt(usableW),
+                         screenBounds.top + top + random.nextInt(usableH));
     }
     
     /**
