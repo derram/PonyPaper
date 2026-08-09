@@ -170,6 +170,12 @@ public class PonyEditorGUI extends JPanel {
                 importImage("left");
             }
         };
+
+        ActionListener exportLeftListener = new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                exportSpritesheet("left");
+            }
+        };
         
         DocumentListener timingsLeftListener = new MyDocumentListener() {
             public void update(DocumentEvent e) {
@@ -193,6 +199,12 @@ public class PonyEditorGUI extends JPanel {
         ActionListener importRightListener = new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 importImage("right");
+            }
+        };
+
+        ActionListener exportRightListener = new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                exportSpritesheet("right");
             }
         };
         
@@ -248,12 +260,14 @@ public class PonyEditorGUI extends JPanel {
         JTextField imageLeftField;
         JButton imageLeftPreview;
         JButton imageLeftImport;
+        JButton imageLeftExport;
         JTextField timingsLeftField;
         JButton timingsLeftMinus;
         JButton timingsLeftPlus;
         JTextField imageRightField;
         JButton imageRightPreview;
         JButton imageRightImport;
+        JButton imageRightExport;
         JTextField timingsRightField;
         JButton timingsRightMinus;
         JButton timingsRightPlus;
@@ -418,11 +432,14 @@ public class PonyEditorGUI extends JPanel {
             
             imageLeftImport = new JButton("Import image");
             imageLeftImport.addActionListener(importLeftListener);
+            imageLeftExport = new JButton("Export Spritesheet");
+            imageLeftExport.setToolTipText("Save the left spritesheet as a PNG file.");
+            imageLeftExport.addActionListener(exportLeftListener);
             c = getConstraints(1, 9);
             c.weighty = 0.5;
             c.anchor = GridBagConstraints.NORTH;
             c.fill = GridBagConstraints.HORIZONTAL;
-            add(imageLeftImport, c);
+            add(wrapImportExportButtons(imageLeftImport, imageLeftExport), c);
             
             JLabel timingsLeftLabel = new JLabel("Left timings:");
             c = getConstraints(0, 10);
@@ -469,11 +486,14 @@ public class PonyEditorGUI extends JPanel {
             
             imageRightImport = new JButton("Import image");
             imageRightImport.addActionListener(importRightListener);
+            imageRightExport = new JButton("Export Spritesheet");
+            imageRightExport.setToolTipText("Save the right spritesheet as a PNG file.");
+            imageRightExport.addActionListener(exportRightListener);
             c = getConstraints(1, 13);
             c.weighty = 0.5;
             c.anchor = GridBagConstraints.NORTH;
             c.fill = GridBagConstraints.HORIZONTAL;
-            add(imageRightImport, c);
+            add(wrapImportExportButtons(imageRightImport, imageRightExport), c);
             
             JLabel timingsRightLabel = new JLabel("Right timings:");
             c = getConstraints(0, 14);
@@ -691,6 +711,13 @@ public class PonyEditorGUI extends JPanel {
             return button;
         }
 
+        private static JPanel wrapImportExportButtons(JButton importButton, JButton exportButton) {
+            JPanel row = new JPanel(new java.awt.GridLayout(1, 2, 4, 0));
+            row.add(importButton);
+            row.add(exportButton);
+            return row;
+        }
+
         private static JPanel wrapTimingsField(JTextField field, JButton minus, JButton plus) {
             JPanel buttons = new JPanel();
             buttons.setLayout(new BoxLayout(buttons, BoxLayout.X_AXIS));
@@ -751,6 +778,66 @@ public class PonyEditorGUI extends JPanel {
             }
             fc.resetChoosableFileFilters();
         }
+
+        /**
+         * Saves the current action's spritesheet for {@code direction} as a PNG file.
+         * Aliases export the owner's sheet. Empty or undecodable images are rejected.
+         */
+        void exportSpritesheet(String direction) {
+            if (currentIndex < 0) {
+                return;
+            }
+            String b64Image = editor.getActionImage(currentIndex, direction);
+            if (b64Image == null || b64Image.isEmpty()) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "No " + direction + " spritesheet is loaded for this action.",
+                        "Export Spritesheet",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            byte[] rawImage;
+            try {
+                rawImage = Base64.getDecoder().decode(b64Image);
+            } catch (IllegalArgumentException e) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "The image could not be decoded. Please load a new image.",
+                        "Export Spritesheet",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            String suggestedName = editor.getActionName(currentIndex) + "_" + direction + ".png";
+            File previous = fc.getSelectedFile();
+            fc.setSelectedFile(new File(fc.getCurrentDirectory(), suggestedName));
+            fc.setFileFilter(new FileNameExtensionFilter("PNG Images", "png"));
+            int result = fc.showSaveDialog(this);
+            File chosen = result == JFileChooser.APPROVE_OPTION ? fc.getSelectedFile() : null;
+            // Restore previous selection so open/save of XML keeps its last path.
+            if (previous != null) {
+                fc.setSelectedFile(previous);
+            }
+            fc.resetChoosableFileFilters();
+            if (chosen == null) {
+                return;
+            }
+
+            File file = ensurePngExtension(chosen);
+            if (!confirmOverwrite(file)) {
+                return;
+            }
+            try {
+                Files.write(file.toPath(), rawImage);
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Failed to write " + file.getName() + ": " + e.getMessage(),
+                        "Export Spritesheet",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        }
         
         @Override
         public void setEnabled(boolean enabled) {
@@ -769,12 +856,14 @@ public class PonyEditorGUI extends JPanel {
             imageLeftField.setEnabled(enabled);
             imageLeftPreview.setEnabled(enabled);
             imageLeftImport.setEnabled(enabled);
+            imageLeftExport.setEnabled(enabled);
             timingsLeftField.setEnabled(enabled);
             timingsLeftMinus.setEnabled(enabled);
             timingsLeftPlus.setEnabled(enabled);
             imageRightField.setEnabled(enabled);
             imageRightPreview.setEnabled(enabled);
             imageRightImport.setEnabled(enabled);
+            imageRightExport.setEnabled(enabled);
             timingsRightField.setEnabled(enabled);
             timingsRightMinus.setEnabled(enabled);
             timingsRightPlus.setEnabled(enabled);
@@ -979,6 +1068,24 @@ public class PonyEditorGUI extends JPanel {
         if (!name.toLowerCase(java.util.Locale.ROOT).endsWith(".xml")) {
             File parent = file.getParentFile();
             return parent != null ? new File(parent, name + ".xml") : new File(name + ".xml");
+        }
+        return file;
+    }
+
+    /**
+     * Ensures a save path ends with {@code .png} when the user omits the extension.
+     */
+    static File ensurePngExtension(File file) {
+        if (file == null) {
+            return null;
+        }
+        String name = file.getName();
+        if (name.isEmpty()) {
+            return file;
+        }
+        if (!name.toLowerCase(java.util.Locale.ROOT).endsWith(".png")) {
+            File parent = file.getParentFile();
+            return parent != null ? new File(parent, name + ".png") : new File(name + ".png");
         }
         return file;
     }
