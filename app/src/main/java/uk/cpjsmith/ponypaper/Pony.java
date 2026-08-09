@@ -223,10 +223,10 @@ public class Pony {
     }
     
     /**
-     * Returns the y-coordinate of the pony's position. This can be used to
-     * sort ponies that are higher up the screen as being further away.
+     * Returns the y-coordinate of the pony's feet (bottom-center anchor). This
+     * is used to sort ponies that are higher up the screen as being further away.
      * 
-     * @return the screen y-coordinate
+     * @return the screen y-coordinate of ground contact
      */
     public int getY() {
         return Math.round(posY);
@@ -234,20 +234,28 @@ public class Pony {
     
     /**
      * Tests whether a click at the given screen point should be considered to
-     * be a click on the pony.
+     * be a click on the pony. Matches {@link PonyAction#drawOn}'s bottom-center
+     * sprite bounds (logical position is feet), with a small pad for touch.
      * 
      * @param x the x-coordinate of the click
      * @param y the y-coordinate of the click
      * @return {@code true} iff the point is on top of this pony
      */
     public boolean testHitPoint(float x, float y) {
-        float ponySize = 30 * getScale();
-        
-        float dX = x - posX;
-        float dY = y - posY;
-        float d2 = dX * dX + dY * dY;
-        
-        return d2 < ponySize * ponySize;
+        if (currentAction == null) {
+            return false;
+        }
+        float scale = getScale();
+        int[] size = currentAction.getFrameSize(direction);
+        float dW = size[0] * scale;
+        float dH = size[1] * scale;
+        // Same pad idea as the old radius (~30 unscaled px), applied outward.
+        float pad = 8 * scale;
+        float left = posX - dW / 2 - pad;
+        float right = posX + dW / 2 + pad;
+        float top = posY - dH - pad;
+        float bottom = posY + pad;
+        return x >= left && x < right && y >= top && y < bottom;
     }
     
     /**

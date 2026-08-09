@@ -283,6 +283,18 @@ public class PonyAction {
         return sprites[dir].totalTime;
     }
     
+    /**
+     * Unscaled frame size for the given facing. Used for hit-testing and layout
+     * that must match {@link #drawOn}'s bottom-center anchoring.
+     *
+     * @param dir {@link #LEFT} or {@link #RIGHT}
+     * @return {@code int[]{frameWidth, frameHeight}} in source pixels
+     */
+    public int[] getFrameSize(int dir) {
+        SpriteSheet sprite = sprites[dir];
+        return new int[] { sprite.frameWidth, sprite.frameHeight };
+    }
+    
     public void drawOn(Canvas c, int dir, int time, Point p, float scale, boolean dragged) {
         SpriteSheet sprite = sprites[dir];
         
@@ -293,11 +305,14 @@ public class PonyAction {
         
         if (dragged) {
             p = new Point(p);
-            // Hang above the finger so the sprite stays visible under the touch.
-            p.y -= dH/2 + 20 * scale;
+            // Logical position is feet (bottom-center). Lift so the whole sprite
+            // hangs above the finger instead of sitting under it.
+            p.y -= (int)(20 * scale);
         }
         
-        RectF dstRect = new RectF(p.x - dW/2, p.y - dH/2, p.x + dW/2, p.y + dH/2);
+        // Bottom-center anchor: (p.x, p.y) is ground contact / feet, so a taller
+        // sheet grows upward and action transitions do not pop vertically.
+        RectF dstRect = new RectF(p.x - dW / 2, p.y - dH, p.x + dW / 2, p.y);
         
         c.drawBitmap(sprite.bitmap, sprite.getRect(time), dstRect, null);
     }
