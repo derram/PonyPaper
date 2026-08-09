@@ -62,6 +62,14 @@ public class PonyAction {
      */
     public final float speed;
     
+    /**
+     * When true, the animation wraps while this action is active. When false,
+     * one full play advances via the next-action list for the current motion
+     * context (see {@link Pony}). Built-in actions always loop; custom XML
+     * may set {@code <loop>false</loop>} for transition clips.
+     */
+    public final boolean loops;
+    
     /* To create the sprite sheets for a built-in pony. */
     private Resources res;
     private int arrayId;
@@ -129,16 +137,30 @@ public class PonyAction {
         this.arrayId = arrayId;
         this.type = type;
         this.speed = sanitizeSpeed(speed);
+        this.loops = true;
     }
     
     /**
      * Constructs an action that shares another action's sprite sheets but uses
      * a different speed factor (stroll/walk/trot or slow/fast idle variants).
+     * Inherits the source's {@link #loops} flag (gait bags expand a base action).
      * 
      * @param spriteSource action that owns the bitmaps (must not itself be an alias)
      * @param speed        travel / animation speed factor for this variant
      */
     public PonyAction(PonyAction spriteSource, float speed) {
+        this(spriteSource, speed, spriteSource != null ? spriteSource.loops : true);
+    }
+    
+    /**
+     * Constructs an action that shares another action's sprite sheets with an
+     * explicit speed and loop policy (named {@code <spritesfrom>} aliases).
+     * 
+     * @param spriteSource action that owns the bitmaps (must not itself be an alias)
+     * @param speed        travel / animation speed factor for this variant
+     * @param loops        whether this alias loops its animation
+     */
+    public PonyAction(PonyAction spriteSource, float speed, boolean loops) {
         if (spriteSource == null) {
             throw new IllegalArgumentException("spriteSource");
         }
@@ -147,6 +169,7 @@ public class PonyAction {
                 ? spriteSource.spriteSource : spriteSource;
         this.type = spriteSource.type;
         this.speed = sanitizeSpeed(speed);
+        this.loops = loops;
         this.res = this.spriteSource.res;
         this.arrayId = this.spriteSource.arrayId;
         this.definition = this.spriteSource.definition;
@@ -167,6 +190,7 @@ public class PonyAction {
             this.type = NORMAL;
         }
         this.speed = sanitizeSpeed(definition.speed);
+        this.loops = definition.loops;
         // Test the images.
         load();
         unload();
@@ -279,15 +303,30 @@ public class PonyAction {
     }
     
     public void setNextWaiting(PonyAction[] states) {
-        nextWaiting = states;
+        nextWaiting = states != null ? states : new PonyAction[0];
     }
     
     public void setNextMoving(PonyAction[] states) {
-        nextMoving = states;
+        nextMoving = states != null ? states : new PonyAction[0];
     }
     
     public void setNextDrag(PonyAction[] states) {
-        nextDrag = states;
+        nextDrag = states != null ? states : new PonyAction[0];
+    }
+    
+    /** @return true if this action has at least one real next waiting action */
+    public boolean hasNextWaiting() {
+        return nextWaiting != null && nextWaiting.length > 0;
+    }
+    
+    /** @return true if this action has at least one real next moving action */
+    public boolean hasNextMoving() {
+        return nextMoving != null && nextMoving.length > 0;
+    }
+    
+    /** @return true if this action has at least one real next drag action */
+    public boolean hasNextDrag() {
+        return nextDrag != null && nextDrag.length > 0;
     }
     
     public PonyAction getNextWaiting(Random random) {

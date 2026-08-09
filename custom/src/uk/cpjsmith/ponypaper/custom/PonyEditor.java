@@ -179,6 +179,12 @@ public class PonyEditor {
      * @return the index of the newly created action
      */
     public int addAction(String name) {
+        if (name == null || name.isEmpty()) {
+            throw new IllegalArgumentException("Action name must not be empty");
+        }
+        if (PonyDefinition.isNoneToken(name)) {
+            throw new IllegalArgumentException("Action name \"" + name + "\" is reserved");
+        }
         PonyDefinition.Action[] oldActions = ponyDefinition.actions;
         int oldCount = oldActions.length;
         int newCount = oldCount + 1;
@@ -260,6 +266,9 @@ public class PonyEditor {
         if (name == null || name.isEmpty()) {
             throw new IllegalArgumentException("Action name must not be empty");
         }
+        if (PonyDefinition.isNoneToken(name)) {
+            throw new IllegalArgumentException("Action name \"" + name + "\" is reserved");
+        }
         String oldName = ponyDefinition.actions[index].name;
         if (oldName.equals(name)) {
             return;
@@ -328,6 +337,23 @@ public class PonyEditor {
             throw new IllegalArgumentException("speed must be positive");
         }
         ponyDefinition.actions[index].speed = speed;
+    }
+    
+    /**
+     * @return whether this action's animation loops (default true)
+     */
+    public boolean getActionLoops(int index) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        return ponyDefinition.actions[index].loops;
+    }
+    
+    /**
+     * Sets whether the animation loops while this action is active. When false,
+     * one full play advances via the next-action list for the current motion.
+     */
+    public void setActionLoops(int index, boolean loops) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        ponyDefinition.actions[index].loops = loops;
     }
     
     /**
@@ -459,6 +485,7 @@ public class PonyEditor {
         setActionSpeed(index, speed);
         setActionSpritesFrom(index, ownerName);
         setActionSpecial(index, source.specialType);
+        setActionLoops(index, source.loops);
         setActionNext(index, "waiting", getActionNext(sourceIndex, "waiting"));
         setActionNext(index, "moving", getActionNext(sourceIndex, "moving"));
         setActionNext(index, "drag", getActionNext(sourceIndex, "drag"));
@@ -659,7 +686,11 @@ public class PonyEditor {
         StringBuilder sb = new StringBuilder();
         for (String part : list.split(",")) {
             String name = part.trim();
-            if (name.isEmpty() || !present.contains(name)) {
+            // Keep reserved none/- tokens; drop only missing real action names.
+            if (name.isEmpty()) {
+                continue;
+            }
+            if (!PonyDefinition.isNoneToken(name) && !present.contains(name)) {
                 continue;
             }
             if (sb.length() > 0) {

@@ -734,7 +734,8 @@ public class AllPonies {
     
     /**
      * Expands a comma-separated action list, substituting each name that has a
-     * gait bag with that bag's weighted entries.
+     * gait bag with that bag's weighted entries. Reserved {@code none}/{@code -}
+     * tokens are skipped (empty result means no real successor for that axis).
      */
     private static PonyAction[] expandActionList(String list, HashMap<String, PonyAction[]> bags) {
         if (list == null || list.isEmpty()) {
@@ -744,7 +745,7 @@ public class AllPonies {
         ArrayList<PonyAction> out = new ArrayList<PonyAction>();
         for (int i = 0; i < names.length; i++) {
             String name = names[i].trim();
-            if (name.isEmpty()) {
+            if (name.isEmpty() || PonyDefinition.isNoneToken(name)) {
                 continue;
             }
             PonyAction[] bag = bags.get(name);
@@ -863,7 +864,8 @@ public class AllPonies {
                     // validate() should have caught this; skip rather than NPE.
                     continue;
                 }
-                actions.put(def.name, new PonyAction(owner, def.speed));
+                // Alias may set its own <loop> independently of the owner.
+                actions.put(def.name, new PonyAction(owner, def.speed, def.loops));
             }
         }
         

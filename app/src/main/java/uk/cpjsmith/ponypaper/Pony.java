@@ -152,17 +152,30 @@ public class Pony {
                 switch (currentAction.type) {
                     case PonyAction.PORT_O:
                         moveTo(targetPos);
-                        setMoving();
+                        // Teleport-out always continues via next moving (atomic).
+                        if (setMoving()) {
+                            motion = currentAction.type == PonyAction.NORMAL
+                                    ? MOTION_MOVING : MOTION_SPECIAL;
+                        }
                         animTime = currentAction.getAnimationTime(direction);
                         break;
                         
                     case PonyAction.PORT_I:
-                        arriveTarget();
-                        setWaiting();
+                        // Teleport-in lands into waiting when a real waiter exists.
+                        if (!tryLandAndWait()) {
+                            arriveTarget();
+                        }
                         animTime = currentAction.getAnimationTime(direction);
                         break;
                         
                     default:
+                        if (!currentAction.loops) {
+                            // One-shot: advance via next lists for this motion.
+                            // Lists that are only none/- expand empty → fall
+                            // through to the other axis (see advanceOneshot).
+                            advanceOneshot();
+                            animTime = currentAction.getAnimationTime(direction);
+                        }
                         // Looping walk/stand cycles: wrap only.
                         break;
                 }
@@ -173,9 +186,12 @@ public class Pony {
                     waitTimerMs -= deltaMs;
                     if (waitTimerMs <= 0) {
                         waitTimerMs = 0;
-                        setMoving();
-                        motion = currentAction.type == PonyAction.NORMAL ? MOTION_MOVING : MOTION_SPECIAL;
-                        setRandomTarget();
+                        // Only leave idle if a real next moving action exists.
+                        // Otherwise re-roll wait (none/- means "does not start travel").
+                        if (!tryBeginMoving(true)) {
+                            waitTimerMs = WAIT_MIN_MS + random.nextInt(WAIT_EXTRA_MS);
+                            setWaiting();
+                        }
                     }
                     break;
                     
@@ -240,10 +256,12 @@ public class Pony {
      * {@link #moveTo(Point)} until {@link #stopDrag()} is called.
      */
     public void startDrag() {
-        motion = MOTION_DRAGGED;
-        targetPos = null;
-        leavingMode = LM_NORMAL;
-        setDragged();
+        // Only enter drag motion when a real next drag action exists.
+        if (setDragged()) {
+            motion = MOTION_DRAGGED;
+            targetPos = null;
+            leavingMode = LM_NORMAL;
+        }
     }
     
     /**
@@ -257,19 +275,21 @@ public class Pony {
         int y = Math.round(posY);
         
         if (x < screenBounds.left + s) {
-            motion = MOTION_MOVING;
-            leavingMode = LM_GOING;
-            targetPos = new Point(screenBounds.left - s, y);
-            setMoving();
+            if (tryBeginMoving(false)) {
+                leavingMode = LM_GOING;
+                targetPos = new Point(screenBounds.left - s, y);
+            } else {
+                beginWaitingInPlace();
+            }
         } else if (x >= screenBounds.right - s) {
-            motion = MOTION_MOVING;
-            leavingMode = LM_GOING;
-            targetPos = new Point(screenBounds.right + s, y);
-            setMoving();
+            if (tryBeginMoving(false)) {
+                leavingMode = LM_GOING;
+                targetPos = new Point(screenBounds.right + s, y);
+            } else {
+                beginWaitingInPlace();
+            }
         } else {
-            motion = MOTION_WAITING;
-            waitTimerMs = WAIT_MIN_MS + random.nextInt(WAIT_EXTRA_MS);
-            setWaiting();
+            beginWaitingInPlace();
         }
     }
     
@@ -288,16 +308,123 @@ public class Pony {
         return new Point(Math.round(posX), Math.round(posY));
     }
     
-    private void setWaiting() {
+    /**
+     * Picks a next waiting action if the list has real successors.
+     *
+     * @return true if {@link #currentAction} was changed (or re-selected)
+     */
+    private boolean setWaiting() {
+        if (!currentAction.hasNextWaiting()) {
+            return false;
+        }
         changeAction(currentAction.getNextWaiting(random));
+        return true;
     }
     
-    private void setMoving() {
+    /**
+     * Picks a next moving action if the list has real successors.
+     *
+     * @return true if {@link #currentAction} was changed (or re-selected)
+     */
+    private boolean setMoving() {
+        if (!currentAction.hasNextMoving()) {
+            return false;
+        }
         changeAction(currentAction.getNextMoving(random));
+        return true;
     }
     
-    private void setDragged() {
+    /**
+     * Picks a next drag action if the list has real successors.
+     *
+     * @return true if {@link #currentAction} was changed (or re-selected)
+     */
+    private boolean setDragged() {
+        if (!currentAction.hasNextDrag()) {
+            return false;
+        }
         changeAction(currentAction.getNextDrag(random));
+        return true;
+    }
+    
+    /**
+     * Starts travel only when a real next moving action exists. Motion mode is
+     * set together with the action pick so a {@code none} moving list can never
+     * scoot the pony while still playing a waiting sheet.
+     *
+     * @param alwaysNewTarget if true, always assign a new destination; if false,
+     *                        only assign one when {@link #targetPos} is null
+     * @return true if travel began
+     */
+    private boolean tryBeginMoving(boolean alwaysNewTarget) {
+        if (!setMoving()) {
+            return false;
+        }
+        motion = currentAction.type == PonyAction.NORMAL ? MOTION_MOVING : MOTION_SPECIAL;
+        if (alwaysNewTarget || targetPos == null) {
+            setRandomTarget();
+        }
+        return true;
+    }
+    
+    /**
+     * Enters idle waiting with a fresh timer, picking a next waiting action when
+     * available. Used when travel is not possible (e.g. stop-drag with no mover).
+     */
+    private void beginWaitingInPlace() {
+        motion = MOTION_WAITING;
+        targetPos = null;
+        waitTimerMs = WAIT_MIN_MS + random.nextInt(WAIT_EXTRA_MS);
+        setWaiting();
+    }
+    
+    /**
+     * After a non-looping action finishes one play: pick the next action for
+     * the current motion context. If that list has no real successors
+     * ({@code none}/{@code -} only), fall through to the other travel axis
+     * (waiting ↔ moving). Drag with an empty list keeps the current action.
+     * Fall-through also keeps motion and action picks atomic.
+     */
+    private void advanceOneshot() {
+        switch (motion) {
+            case MOTION_WAITING:
+                if (!setWaiting()) {
+                    // No idle hold after this transition — start traveling only
+                    // if a real mover exists (tryBeginMoving is atomic).
+                    tryBeginMoving(false);
+                }
+                break;
+                
+            case MOTION_MOVING:
+                if (!setMoving()) {
+                    // No further travel clip — land only if a real waiter exists.
+                    tryLandAndWait();
+                }
+                break;
+                
+            case MOTION_DRAGGED:
+                setDragged();
+                break;
+                
+            default:
+                break;
+        }
+    }
+    
+    /**
+     * Completes an arrival into idle when a real next waiting action exists.
+     * Used by oneshot fall-through and by {@link #moveTowardsTarget}.
+     *
+     * @return true if waiting began
+     */
+    private boolean tryLandAndWait() {
+        if (!currentAction.hasNextWaiting()) {
+            return false;
+        }
+        // Snapshot next before arriveTarget; setWaiting reads currentAction.
+        arriveTarget();
+        setWaiting();
+        return true;
     }
     
     private void changeAction(PonyAction newAction) {
@@ -307,6 +434,11 @@ public class Pony {
         }
     }
     
+    /**
+     * Snaps into idle-at-destination bookkeeping (timer, clear target, exit flag).
+     * Does not pick a next action — callers must call {@link #setWaiting()} when
+     * a real waiting successor exists.
+     */
     private void arriveTarget() {
         motion = MOTION_WAITING;
         targetPos = null;
@@ -344,8 +476,21 @@ public class Pony {
         if (dist == 0 || speed >= dist) {
             posX = targetPos.x;
             posY = targetPos.y;
+            // Leaving the scene always completes exit bookkeeping.
+            if (leavingMode == LM_GOING) {
+                arriveTarget();
+                setWaiting();
+                return;
+            }
+            // Normal arrive: idle only with a real waiter; else keep traveling.
+            if (tryLandAndWait()) {
+                return;
+            }
+            if (tryBeginMoving(true)) {
+                return;
+            }
+            // No successors either way — stop in place on the current sheet.
             arriveTarget();
-            setWaiting();
         } else {
             float f = speed / dist;
             posX += dX * f;

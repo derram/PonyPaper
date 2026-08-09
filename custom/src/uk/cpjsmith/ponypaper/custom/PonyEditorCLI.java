@@ -145,6 +145,24 @@ public class PonyEditorCLI {
                         break;
                     }
 
+                    case "-loop":
+                    {
+                        checkArgument(args, i);
+                        if (currentAction < 0) throw new PonyEditor.GenericException("", "No current action for " + args[i]);
+                        String loopText = args[++i].trim().toLowerCase();
+                        boolean loops;
+                        if (loopText.equals("true") || loopText.equals("yes") || loopText.equals("1")) {
+                            loops = true;
+                        } else if (loopText.equals("false") || loopText.equals("no") || loopText.equals("0")) {
+                            loops = false;
+                        } else {
+                            throw new PonyEditor.GenericException("", "Invalid -loop value (use true or false): " + loopText);
+                        }
+                        editor.setActionLoops(currentAction, loops);
+                        guiDirty = true;
+                        break;
+                    }
+
                     case "-spritesfrom":
                     {
                         checkArgument(args, i);
@@ -249,6 +267,9 @@ public class PonyEditorCLI {
         System.out.println("-speed VALUE");
         System.out.println("    Set the current action's travel/animation speed factor (positive float).");
         System.out.println("    Typical gaits: 0.5 stroll, 0.7 walk, 1.0 trot.");
+        System.out.println("-loop true|false");
+        System.out.println("    Whether the animation loops (default true). Use false for one-shot");
+        System.out.println("    transition clips that advance via next waiting/moving/drag lists.");
         System.out.println("-spritesfrom NAME");
         System.out.println("    Reuse another action's sprites (empty string clears). Alias actions");
         System.out.println("    only need speed + next lists; images come from NAME.");

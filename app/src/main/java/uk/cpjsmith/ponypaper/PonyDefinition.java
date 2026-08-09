@@ -120,6 +120,14 @@ public class PonyDefinition {
          */
         public float speed;
         /**
+         * When true (default), the sprite sheet wraps and continues while this
+         * action is active. When false, the animation plays once then the pony
+         * advances via the next-action list for the current motion context
+         * (waiting / moving / drag). Use for transition clips (intros, outros,
+         * reactions) that should not loop for the full idle timer.
+         */
+        public boolean loops;
+        /**
          * When non-empty, this action reuses another action's sprites
          * ({@code <spritesfrom>ownerName</spritesfrom>}) and only supplies its
          * own speed / next-action lists. Images and timings must be empty.
@@ -139,6 +147,7 @@ public class PonyDefinition {
             name = "";
             specialType = "";
             speed = 1.0f;
+            loops = true;
             spritesFrom = "";
             gaits = "";
             images.put("left", "");
@@ -160,6 +169,7 @@ public class PonyDefinition {
             
             // Optional; null means "not set" until defaults after parse.
             Float parsedSpeed = null;
+            Boolean parsedLoops = null;
             String parsedSpritesFrom = null;
             String parsedGaits = null;
             
@@ -172,6 +182,8 @@ public class PonyDefinition {
                             addSpecialType((Element)node, errors);
                         } else if (nodeName.equals("speed")) {
                             parsedSpeed = addSpeed((Element)node, parsedSpeed, errors);
+                        } else if (nodeName.equals("loop")) {
+                            parsedLoops = addLoop((Element)node, parsedLoops, errors);
                         } else if (nodeName.equals("spritesfrom")) {
                             parsedSpritesFrom = addSpritesFrom((Element)node, parsedSpritesFrom, errors);
                         } else if (nodeName.equals("gaits")) {
@@ -207,6 +219,7 @@ public class PonyDefinition {
             
             if (specialType == null) specialType = "";
             speed = parsedSpeed != null ? parsedSpeed.floatValue() : 1.0f;
+            loops = parsedLoops != null ? parsedLoops.booleanValue() : true;
             spritesFrom = parsedSpritesFrom != null ? parsedSpritesFrom : "";
             gaits = parsedGaits != null ? parsedGaits : "";
             if (!images.containsKey("left")) images.put("left", "");
@@ -251,6 +264,26 @@ public class PonyDefinition {
                 errors.add("Invalid <speed> value.");
                 return null;
             }
+        }
+        
+        private Boolean addLoop(Element element, Boolean existing, List<String> errors) {
+            if (existing != null) {
+                errors.add("Too many <loop> elements.");
+                return existing;
+            }
+            String text = getContent(element, errors);
+            if (text == null) {
+                return null;
+            }
+            text = text.replaceAll("\\s+", "").toLowerCase();
+            if (text.equals("true") || text.equals("yes") || text.equals("1")) {
+                return Boolean.TRUE;
+            }
+            if (text.equals("false") || text.equals("no") || text.equals("0")) {
+                return Boolean.FALSE;
+            }
+            errors.add("<loop> must be true or false.");
+            return null;
         }
         
         private String addSpritesFrom(Element element, String existing, List<String> errors) {
@@ -429,16 +462,65 @@ public class PonyDefinition {
         return false;
     }
     
-    private void validateActionList(String value, String field1, String field2, List<String> errors) {
-        if (value.length() == 0) {
-            errors.add("Missing " + field1 + field2 + ".");
-        } else {
-            String[] names = value.split(",");
-            for (int i = 0; i < names.length; i++) {
-                if (!hasAction(names[i])) {
-                    errors.add("Action " + names[i] + " not defined.");
-                }
+    /**
+     * Reserved next/start-list tokens meaning "no real successor" ({@code none}
+     * or {@code -}). Skipped at load; one-shot actions may fall through to the
+     * other motion axis when the current list has only these.
+     */
+    public static boolean isNoneToken(String name) {
+        if (name == null) {
+            return false;
+        }
+        String t = name.trim();
+        return t.equals("-") || t.equalsIgnoreCase("none");
+    }
+    
+    /**
+     * @return true if {@code value} lists at least one real action name (not
+     *         empty, not only {@link #isNoneToken none} tokens)
+     */
+    public static boolean actionListHasReal(String value) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+        String[] names = value.split(",");
+        for (int i = 0; i < names.length; i++) {
+            String n = names[i].trim();
+            if (n.isEmpty() || isNoneToken(n)) {
+                continue;
             }
+            return true;
+        }
+        return false;
+    }
+    
+    /**
+     * Validates a comma-separated action list. Allows reserved {@code none}/{@code -}
+     * tokens; other names must be defined actions. Does not require a real
+     * successor (callers enforce that per list / action).
+     */
+    private void validateActionList(String value, String field1, String field2, List<String> errors) {
+        if (value == null || value.length() == 0) {
+            errors.add("Missing " + field1 + field2 + ".");
+            return;
+        }
+        String[] names = value.split(",");
+        boolean anyToken = false;
+        for (int i = 0; i < names.length; i++) {
+            String n = names[i].trim();
+            if (n.isEmpty()) {
+                continue;
+            }
+            anyToken = true;
+            if (isNoneToken(n)) {
+                continue;
+            }
+            if (!hasAction(n)) {
+                errors.add("Action " + n + " not defined.");
+            }
+        }
+        if (!anyToken) {
+            errors.add("Missing " + field1 + field2 + ".");
         }
     }
     
@@ -468,6 +550,10 @@ public class PonyDefinition {
                 if (i != j && name.equals(actions[j].name)) {
                     errors.add("Multiple actions with name " + name);
                 }
+            }
+            
+            if (isNoneToken(name)) {
+                errors.add("Action name \"" + name + "\" is reserved (use it only in next/start lists).");
             }
             
             String specialType = action.specialType;
@@ -533,9 +619,38 @@ public class PonyDefinition {
             validateActionList(action.nextActions.get("waiting"), "waiting actions for ", name, errors);
             validateActionList(action.nextActions.get("moving"), "moving actions for ", name, errors);
             validateActionList(action.nextActions.get("drag"), "drag actions for ", name, errors);
+            
+            boolean hasWait = actionListHasReal(action.nextActions.get("waiting"));
+            boolean hasMove = actionListHasReal(action.nextActions.get("moving"));
+            boolean hasDrag = actionListHasReal(action.nextActions.get("drag"));
+            if (!action.loops) {
+                // One-shots may use none/- on waiting or moving so they fall through
+                // to the other axis; at least one of those two must be real.
+                if (!hasWait && !hasMove) {
+                    errors.add("One-shot action " + name
+                            + " needs a real next waiting or moving action (not only none/-).");
+                }
+                if (!hasDrag) {
+                    errors.add("Action " + name
+                            + " needs a real next drag action (none/- alone is not allowed for drag).");
+                }
+            } else {
+                if (!hasWait) {
+                    errors.add("Looping action " + name + " needs a real next waiting action.");
+                }
+                if (!hasMove) {
+                    errors.add("Looping action " + name + " needs a real next moving action.");
+                }
+                if (!hasDrag) {
+                    errors.add("Looping action " + name + " needs a real next drag action.");
+                }
+            }
         }
         
         validateActionList(startActions, "start actions", "", errors);
+        if (!actionListHasReal(startActions)) {
+            errors.add("Start actions must list at least one real action (not only none/-).");
+        }
         
         if (!errors.isEmpty()) throw new InvalidPonyException(errors);
     }
@@ -605,6 +720,11 @@ public class PonyDefinition {
             writer.print("        <speed>");
             writeCharacters(writer, formatSpeed(action.speed));
             writer.println("</speed>");
+            
+            // Omitted <loop> means true; only write the uncommon non-looping case.
+            if (!action.loops) {
+                writer.println("        <loop>false</loop>");
+            }
             
             if (action.isAlias()) {
                 writer.print("        <spritesfrom>");
