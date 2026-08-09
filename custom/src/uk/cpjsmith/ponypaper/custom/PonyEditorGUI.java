@@ -81,6 +81,28 @@ public class PonyEditorGUI extends JPanel {
             }
         };
 
+        DocumentListener anchorYListener = new MyDocumentListener() {
+            public void update(DocumentEvent e) {
+                if (currentIndex >= 0) {
+                    String text = anchorYField.getText().trim();
+                    if (text.isEmpty()) {
+                        editor.setActionAnchorY(currentIndex, Float.NaN);
+                        hasChanges = true;
+                        return;
+                    }
+                    try {
+                        float anchorY = Float.parseFloat(text);
+                        if (!Float.isNaN(anchorY) && anchorY >= 0f) {
+                            editor.setActionAnchorY(currentIndex, anchorY);
+                            hasChanges = true;
+                        }
+                    } catch (NumberFormatException ex) {
+                        // Leave previous value until the field parses cleanly.
+                    }
+                }
+            }
+        };
+
         DocumentListener speedListener = new MyDocumentListener() {
             public void update(DocumentEvent e) {
                 if (currentIndex >= 0) {
@@ -214,6 +236,7 @@ public class PonyEditorGUI extends JPanel {
         };
         
         JTextField specialTypeField;
+        JTextField anchorYField;
         JTextField speedField;
         JCheckBox loopCheckBox;
         JTextField spritesFromField;
@@ -258,21 +281,36 @@ public class PonyEditorGUI extends JPanel {
             c.fill = GridBagConstraints.HORIZONTAL;
             add(specialTypeField, c);
 
-            JLabel speedLabel = new JLabel("Speed:");
+            JLabel anchorYLabel = new JLabel("Anchor Y:");
             c = getConstraints(0, 1);
+            c.anchor = GridBagConstraints.WEST;
+            add(anchorYLabel, c);
+
+            anchorYField = new JTextField();
+            anchorYField.setToolTipText("Optional. Feet row in pixels from the top of each frame. "
+                    + "Leave empty for bottom-center (normal sheets). Set on tall VFX/teleport sheets "
+                    + "so the body does not jump when switching to stand/walk.");
+            anchorYField.getDocument().addDocumentListener(anchorYListener);
+            c = getConstraints(1, 1);
+            c.weighty = 1.0;
+            c.fill = GridBagConstraints.HORIZONTAL;
+            add(anchorYField, c);
+
+            JLabel speedLabel = new JLabel("Speed:");
+            c = getConstraints(0, 2);
             c.anchor = GridBagConstraints.WEST;
             add(speedLabel, c);
 
             speedField = new JTextField();
             speedField.setToolTipText("Travel/animation factor. Typical gaits: 0.5 stroll, 0.7 walk, 1.0 trot.");
             speedField.getDocument().addDocumentListener(speedListener);
-            c = getConstraints(1, 1);
+            c = getConstraints(1, 2);
             c.weighty = 1.0;
             c.fill = GridBagConstraints.HORIZONTAL;
             add(speedField, c);
 
             JLabel loopLabel = new JLabel("Loop animation:");
-            c = getConstraints(0, 2);
+            c = getConstraints(0, 3);
             c.anchor = GridBagConstraints.WEST;
             add(loopLabel, c);
 
@@ -281,26 +319,26 @@ public class PonyEditorGUI extends JPanel {
             loopCheckBox.setToolTipText("Uncheck for one-shot transitions (intros/outros/reactions). "
                     + "After one play, advances via Next waiting/moving/drag for the current motion.");
             loopCheckBox.addActionListener(loopListener);
-            c = getConstraints(1, 2);
+            c = getConstraints(1, 3);
             c.weighty = 1.0;
             c.anchor = GridBagConstraints.WEST;
             add(loopCheckBox, c);
 
             JLabel spritesFromLabel = new JLabel("Sprites from:");
-            c = getConstraints(0, 3);
+            c = getConstraints(0, 4);
             c.anchor = GridBagConstraints.WEST;
             add(spritesFromLabel, c);
 
             spritesFromField = new JTextField();
             spritesFromField.setToolTipText("Reuse another action's bitmaps (leave empty to own sprites). Alias needs only speed + next lists.");
             spritesFromField.getDocument().addDocumentListener(spritesFromListener);
-            c = getConstraints(1, 3);
+            c = getConstraints(1, 4);
             c.weighty = 1.0;
             c.fill = GridBagConstraints.HORIZONTAL;
             add(spritesFromField, c);
 
             JLabel gaitsLabel = new JLabel("Gaits:");
-            c = getConstraints(0, 4);
+            c = getConstraints(0, 5);
             c.anchor = GridBagConstraints.WEST;
             add(gaitsLabel, c);
 
@@ -343,7 +381,7 @@ public class PonyEditorGUI extends JPanel {
                     }
                 }
             });
-            c = getConstraints(1, 4);
+            c = getConstraints(1, 5);
             c.weighty = 1.0;
             c.fill = GridBagConstraints.HORIZONTAL;
             add(wrapGaitsField(gaitsField, gaitsDefaultButton, gaitsIdleButton, gaitsClearButton), c);
@@ -355,18 +393,18 @@ public class PonyEditorGUI extends JPanel {
                     cloneAsGait();
                 }
             });
-            c = getConstraints(1, 5);
+            c = getConstraints(1, 6);
             c.fill = GridBagConstraints.HORIZONTAL;
             add(cloneGaitButton, c);
             
             JLabel imageLeftLabel = new JLabel("Left sprite:");
-            c = getConstraints(0, 6);
+            c = getConstraints(0, 7);
             c.anchor = GridBagConstraints.SOUTHWEST;
             add(imageLeftLabel, c);
             
             imageLeftField = new JTextField();
             imageLeftField.setEditable(false);
-            c = getConstraints(1, 6);
+            c = getConstraints(1, 7);
             c.weighty = 0.5;
             c.anchor = GridBagConstraints.SOUTH;
             c.fill = GridBagConstraints.HORIZONTAL;
@@ -374,20 +412,20 @@ public class PonyEditorGUI extends JPanel {
             
             imageLeftPreview = new JButton("Preview");
             imageLeftPreview.addActionListener(previewLeftListener);
-            c = getConstraints(1, 7);
+            c = getConstraints(1, 8);
             c.fill = GridBagConstraints.HORIZONTAL;
             add(imageLeftPreview, c);
             
             imageLeftImport = new JButton("Import image");
             imageLeftImport.addActionListener(importLeftListener);
-            c = getConstraints(1, 8);
+            c = getConstraints(1, 9);
             c.weighty = 0.5;
             c.anchor = GridBagConstraints.NORTH;
             c.fill = GridBagConstraints.HORIZONTAL;
             add(imageLeftImport, c);
             
             JLabel timingsLeftLabel = new JLabel("Left timings:");
-            c = getConstraints(0, 9);
+            c = getConstraints(0, 10);
             c.anchor = GridBagConstraints.WEST;
             add(timingsLeftLabel, c);
             
@@ -405,19 +443,19 @@ public class PonyEditorGUI extends JPanel {
                     adjustTimingsField(timingsLeftField, e, 1);
                 }
             });
-            c = getConstraints(1, 9);
+            c = getConstraints(1, 10);
             c.weighty = 1.0;
             c.fill = GridBagConstraints.HORIZONTAL;
             add(wrapTimingsField(timingsLeftField, timingsLeftMinus, timingsLeftPlus), c);
             
             JLabel imageRightLabel = new JLabel("Right sprite:");
-            c = getConstraints(0, 10);
+            c = getConstraints(0, 11);
             c.anchor = GridBagConstraints.SOUTHWEST;
             add(imageRightLabel, c);
             
             imageRightField = new JTextField();
             imageRightField.setEditable(false);
-            c = getConstraints(1, 10);
+            c = getConstraints(1, 11);
             c.weighty = 0.5;
             c.anchor = GridBagConstraints.SOUTH;
             c.fill = GridBagConstraints.HORIZONTAL;
@@ -425,20 +463,20 @@ public class PonyEditorGUI extends JPanel {
             
             imageRightPreview = new JButton("Preview");
             imageRightPreview.addActionListener(previewRightListener);
-            c = getConstraints(1, 11);
+            c = getConstraints(1, 12);
             c.fill = GridBagConstraints.HORIZONTAL;
             add(imageRightPreview, c);
             
             imageRightImport = new JButton("Import image");
             imageRightImport.addActionListener(importRightListener);
-            c = getConstraints(1, 12);
+            c = getConstraints(1, 13);
             c.weighty = 0.5;
             c.anchor = GridBagConstraints.NORTH;
             c.fill = GridBagConstraints.HORIZONTAL;
             add(imageRightImport, c);
             
             JLabel timingsRightLabel = new JLabel("Right timings:");
-            c = getConstraints(0, 13);
+            c = getConstraints(0, 14);
             c.anchor = GridBagConstraints.WEST;
             add(timingsRightLabel, c);
             
@@ -456,13 +494,13 @@ public class PonyEditorGUI extends JPanel {
                     adjustTimingsField(timingsRightField, e, 1);
                 }
             });
-            c = getConstraints(1, 13);
+            c = getConstraints(1, 14);
             c.weighty = 1.0;
             c.fill = GridBagConstraints.HORIZONTAL;
             add(wrapTimingsField(timingsRightField, timingsRightMinus, timingsRightPlus), c);
             
             JLabel nextWaitingLabel = new JLabel("Next waiting actions:");
-            c = getConstraints(0, 14);
+            c = getConstraints(0, 15);
             c.weighty = 1.0;
             c.anchor = GridBagConstraints.WEST;
             add(nextWaitingLabel, c);
@@ -471,12 +509,12 @@ public class PonyEditorGUI extends JPanel {
             nextWaitingField.setToolTipText("Comma-separated actions. Use none or - for no successor "
                     + "(one-shots fall through to next moving).");
             nextWaitingField.getDocument().addDocumentListener(nextWaitingListener);
-            c = getConstraints(1, 14);
+            c = getConstraints(1, 15);
             c.fill = GridBagConstraints.HORIZONTAL;
             add(nextWaitingField, c);
             
             JLabel nextMovingLabel = new JLabel("Next moving actions:");
-            c = getConstraints(0, 15);
+            c = getConstraints(0, 16);
             c.weighty = 1.0;
             c.anchor = GridBagConstraints.WEST;
             add(nextMovingLabel, c);
@@ -485,12 +523,12 @@ public class PonyEditorGUI extends JPanel {
             nextMovingField.setToolTipText("Comma-separated actions. Use none or - for no successor "
                     + "(one-shots fall through to next waiting).");
             nextMovingField.getDocument().addDocumentListener(nextMovingListener);
-            c = getConstraints(1, 15);
+            c = getConstraints(1, 16);
             c.fill = GridBagConstraints.HORIZONTAL;
             add(nextMovingField, c);
             
             JLabel nextDragLabel = new JLabel("Next drag actions:");
-            c = getConstraints(0, 16);
+            c = getConstraints(0, 17);
             c.weighty = 1.0;
             c.anchor = GridBagConstraints.WEST;
             add(nextDragLabel, c);
@@ -498,7 +536,7 @@ public class PonyEditorGUI extends JPanel {
             nextDragField = new JTextField();
             nextDragField.setToolTipText("Comma-separated actions. Must list at least one real action.");
             nextDragField.getDocument().addDocumentListener(nextDragListener);
-            c = getConstraints(1, 16);
+            c = getConstraints(1, 17);
             c.fill = GridBagConstraints.HORIZONTAL;
             add(nextDragField, c);
             
@@ -510,6 +548,7 @@ public class PonyEditorGUI extends JPanel {
             
             if (index >= 0) {
                 specialTypeField.setText(editor.getActionSpecial(index));
+                anchorYField.setText(formatAnchorY(editor.getActionAnchorY(index)));
                 speedField.setText(formatSpeed(editor.getActionSpeed(index)));
                 loopCheckBox.setSelected(editor.getActionLoops(index));
                 spritesFromField.setText(editor.getActionSpritesFrom(index));
@@ -522,6 +561,7 @@ public class PonyEditorGUI extends JPanel {
                 setEnabled(true);
             } else {
                 specialTypeField.setText("");
+                anchorYField.setText("");
                 speedField.setText("");
                 loopCheckBox.setSelected(true);
                 spritesFromField.setText("");
@@ -610,6 +650,14 @@ public class PonyEditorGUI extends JPanel {
                 return Integer.toString((int)speed);
             }
             return Float.toString(speed);
+        }
+
+        /** Empty when unset ({@link Float#NaN}); otherwise same formatting as speed. */
+        private static String formatAnchorY(float anchorY) {
+            if (Float.isNaN(anchorY)) {
+                return "";
+            }
+            return formatSpeed(anchorY);
         }
 
         /**
@@ -709,6 +757,7 @@ public class PonyEditorGUI extends JPanel {
             super.setEnabled(enabled);
             
             specialTypeField.setEnabled(enabled);
+            anchorYField.setEnabled(enabled);
             speedField.setEnabled(enabled);
             loopCheckBox.setEnabled(enabled);
             spritesFromField.setEnabled(enabled);

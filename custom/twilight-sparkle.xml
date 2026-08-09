@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <pony>
     <action name="stand">
+        <speed>1</speed>
         <image direction="left">
             iVBORw0KGgoAAAANSUhEUgAAAt8AAAAoCAYAAAAmApZMAAAImElEQVR42u2dO44kRRCG2+EyrIWEh8MBwASDA2AhhNblBIBWGGCtg4sQ0l5hbTzuwAHgBA3VKFbZ2ZnV
             WVUZkZFRX0mp0c72zMTXEX88sh59uXBwcHBwcHBcXn/5+1VW/n8ffvTy+t6Lz96t/GdggIGD41DAy7/TAF8CfotAYIABBhhgoHGdpWFa7Pjjtz9vS2zK7f76/e9vS74v
@@ -60,6 +61,7 @@
         <nextactions type="drag">drag</nextactions>
     </action>
     <action name="trot">
+        <speed>1</speed>
         <image direction="left">
             iVBORw0KGgoAAAANSUhEUgAAAxAAAAAqCAYAAAAj8L2rAAANmklEQVR42u1dO64lNRB9CZthIiQyEhYAIQQsgAghRMoKACECiCYhRQiJLRCTsQcWACt40CN5ZDx2ucqu
             n/seS60Rj/fu9bl2nVOnyrf76QkDw2C8/PTX5+uS/r7kb7wxvPXio+dyvfvel88nYGjHDAMGBgYG9AH6AH3AwAC5hmH445c/X8+JQ67X79d/kwlDmXe5eniyYijzH2GA
@@ -144,6 +146,8 @@
     </action>
     <action name="winkout">
         <specialtype>teleport-out</specialtype>
+        <speed>1</speed>
+        <anchory>59</anchory>
         <image direction="left">
             iVBORw0KGgoAAAANSUhEUgAACdgAAABICAYAAADvCwUrAAAtZUlEQVR42u2dS4/lSHpYc6M/Y60EeOeNf4C9lBdeauGFYBiGtJMBLaSVPBgYsKTNwAPD2kho2BrJerjH
             Grlrerp7Zrqmn+qeflT1VNf7XZWZ3ZW33nR9zPxufjcySAbJCDKCPAcg8n3z8mSQlzfzZMTeHgAAAAAAAAAAAAAAAAAAAAAABHN04VGFBQAAAAAAAAAAAAAAAAAAAAAA
@@ -398,6 +402,8 @@
     </action>
     <action name="winkin">
         <specialtype>teleport-in</specialtype>
+        <speed>1</speed>
+        <anchory>59</anchory>
         <image direction="left">
             iVBORw0KGgoAAAANSUhEUgAABR8AAABJCAYAAAC0LlGRAAAnPklEQVR42u2d268lx1WH5wXxwBP/AH8AERJIAQkBgQceeCAPIIgABR4iJVKkKCIgkJKgKJIVEIkSJLAj
             EgQokUKsxCJc/JAbjklMQmIc23JMyIxv8S0XPEPG4zkzZ87xabz6zOpZu05VdVV3dXd17+8nlXpfeu+z+7erd1V/Z61a584hhBBavU4uNQ0uIIQQQgghhBBCCCGEikvg
@@ -619,6 +625,7 @@
         <nextactions type="drag">drag</nextactions>
     </action>
     <action name="drag">
+        <speed>1</speed>
         <image direction="left">
             iVBORw0KGgoAAAANSUhEUgAAAD4AAABDCAYAAADEfbZbAAACsElEQVR42u3bvU3GMBAG4DQsAxUSHQ0DQAkFA1AiRMsGIEQBFQ0tQkisQE3HDgwAEwTZ0oXD8S/n8xuL
             RLI++BTy3Dn+SZwwDJ7t/uR5NIV+39g6HKns7J6Pvn35/pINadsDvj292wMSeLp5aYsbCO1L+/ds21p+uX6dDmjQz/1bi/Fi9quNw2yqTVMoABflhXAebI+2xalp+Wra
@@ -646,6 +653,7 @@
         <nextactions type="drag">drag</nextactions>
     </action>
     <action name="alicornstand">
+        <speed>1</speed>
         <image direction="left">
             iVBORw0KGgoAAAANSUhEUgAABJgAAAApCAYAAAB5jZNzAAALPklEQVR42u3djXXjNgzAcc9yK9wKt0JWuBWyglfICp7lVugKXcGNfKZL0aRE2QQIgn+959c2TS78HQSB
             hL5Op2j7+n25Lp/HF358XMPn58/P62mADQMGDBgwYMDAxsbGxsbGxjbnxpzPEOLP5Z+/kPvAwycHCugVHAMGDBgwYMCAwfOEaaLJeW7fSfe3YmwxYMCAAQPNGeZL0xpu
@@ -719,6 +727,7 @@
         <nextactions type="drag">alicornfly</nextactions>
     </action>
     <action name="alicorntrot">
+        <speed>1</speed>
         <image direction="left">
             iVBORw0KGgoAAAANSUhEUgAAAxAAAAAqCAYAAAAj8L2rAAANWElEQVR42u1djXVVOQ9MLbRAC7RAC7RAC7RAC6mFFraFbSHLzYmzjmNbP5Zk+b7xOfcsHx8Bz5M1o5H9
             fJ+eMDAcxu8fzy/XI/3zkp8Jx/Dl+0t5vn79+XIChk+DwICBgYEBfYA+QB8wMECu2zD8ef7n/zkxyPX68x9+JhOGt3mXp4cnK4Yy/yEGiBwGBvQB+gB9gD5ggFxBrhnG
@@ -802,6 +811,7 @@
         <nextactions type="drag">alicornfly</nextactions>
     </action>
     <action name="alicornfly">
+        <speed>1</speed>
         <image direction="left">
             iVBORw0KGgoAAAANSUhEUgAAAyAAAAAvCAYAAAAbzq4gAAAOtElEQVR42u2djXEcNwyFVUtacAtuwS2kBbegFtyCa0kLaSEtKFmNeOHx+AOSAPjIfZi5iZ2R5P3E5fI9
             AOS+vTEYxvHrz98f16f363u+ZwnHHz8+wufbt58f5FgcDY5t4hQOBoPBYDAoeA8QvBtz/PX77/+vSyB4r69/+h40jq9rD58cEzmc5kd0vS8cO83zzTlopBgMBoNBwXua
@@ -893,6 +903,8 @@
     </action>
     <action name="alicornwinkout">
         <specialtype>teleport-out</specialtype>
+        <speed>1</speed>
+        <anchory>44</anchory>
         <image direction="left">
             iVBORw0KGgoAAAANSUhEUgAABSgAAAAsCAYAAABmOFY5AAAhNUlEQVR42u3djXXiOhMG4G3htvC1sC1sC9vCtpAW0kJaSAu0QAu0QAv+GMdjxuMZSTb6s3l1jo4JBG7e
             FeHaT0bSr19oaGhoaGhoaGjV2/B9G1LuQ8O4oWHcMG4YN4wbGhoaGhoaGhoaGhoaWhcXeGgYNzSMGxrGDeOGhoaGhoaGhoaGhoaGi5piec560YZxw7hh3DBuGLdYzivG
@@ -1081,6 +1093,8 @@
     </action>
     <action name="alicornwinkin">
         <specialtype>teleport-in</specialtype>
+        <speed>1</speed>
+        <anchory>45</anchory>
         <image direction="left">
             iVBORw0KGgoAAAANSUhEUgAABNAAAAAtCAYAAABvcZYxAAAhZ0lEQVR42u3djXUivQ4G4LTwtXBb2Ba2hW0hLaSFtEALaYEWaGFaoIW5aDICISTZA5Z/BvkcHwgTWN44
             ya6fle2Pjw1tvrSPaNGiRYsWLVq0aNGiRYsWLVq0aNGiyY0D2t5ALYAwWrRo0YzfkT/TnPNYtBi/aDF+0WL8okWLFi1atPf8S581fIzejp6PZ9lTvmjRokVrNUGMFuMX

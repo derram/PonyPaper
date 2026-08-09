@@ -529,8 +529,11 @@ public class AllPonies {
     private static Pony makeSunsetShimmer(Resources res) {
         PonyAction stand = new PonyAction(res, R.array.ss_stand);
         PonyAction trot = new PonyAction(res, R.array.ss_trot);
-        PonyAction teleportOut = new PonyAction(res, R.array.ss_teleportout, PonyAction.PORT_O);
-        PonyAction teleportIn = new PonyAction(res, R.array.ss_teleportin, PonyAction.PORT_I);
+        // Feet row measured on solid body core (VFX extends below hooves).
+        PonyAction teleportOut = new PonyAction(res, R.array.ss_teleportout, PonyAction.PORT_O)
+                .setAnchorY(61);
+        PonyAction teleportIn = new PonyAction(res, R.array.ss_teleportin, PonyAction.PORT_I)
+                .setAnchorY(61);
         
         PonyAction[] waitStates = defaultIdles(stand);
         PonyAction[] groundGaits = defaultGaits(trot);
@@ -625,12 +628,17 @@ public class AllPonies {
         PonyAction standA = new PonyAction(res, R.array.pts_stand);
         PonyAction trotA = new PonyAction(res, R.array.pts_trot);
         PonyAction flyA = new PonyAction(res, R.array.pts_fly);
-        PonyAction teleportOutA = new PonyAction(res, R.array.pts_teleportout, PonyAction.PORT_O);
-        PonyAction teleportInA = new PonyAction(res, R.array.pts_teleportin, PonyAction.PORT_I);
+        // Feet rows measured on solid body core (VFX may hang below hooves).
+        PonyAction teleportOutA = new PonyAction(res, R.array.pts_teleportout, PonyAction.PORT_O)
+                .setAnchorY(44);
+        PonyAction teleportInA = new PonyAction(res, R.array.pts_teleportin, PonyAction.PORT_I)
+                .setAnchorY(45);
         PonyAction standU = new PonyAction(res, R.array.ts_stand);
         PonyAction trotU = new PonyAction(res, R.array.ts_trot);
-        PonyAction teleportOutU = new PonyAction(res, R.array.ts_teleportout, PonyAction.PORT_O);
-        PonyAction teleportInU = new PonyAction(res, R.array.ts_teleportin, PonyAction.PORT_I);
+        PonyAction teleportOutU = new PonyAction(res, R.array.ts_teleportout, PonyAction.PORT_O)
+                .setAnchorY(59);
+        PonyAction teleportInU = new PonyAction(res, R.array.ts_teleportin, PonyAction.PORT_I)
+                .setAnchorY(59);
         PonyAction dragU = new PonyAction(res, R.array.ts_drag);
         
         PonyAction[] waitIdlesA = defaultIdles(standA);
@@ -865,7 +873,12 @@ public class AllPonies {
                     continue;
                 }
                 // Alias may set its own <loop> independently of the owner.
-                actions.put(def.name, new PonyAction(owner, def.speed, def.loops));
+                PonyAction alias = new PonyAction(owner, def.speed, def.loops);
+                // Optional <anchory> on the alias overrides the inherited owner value.
+                if (!Float.isNaN(def.anchorY) && def.anchorY >= 0f) {
+                    alias.setAnchorY(def.anchorY);
+                }
+                actions.put(def.name, alias);
             }
         }
         

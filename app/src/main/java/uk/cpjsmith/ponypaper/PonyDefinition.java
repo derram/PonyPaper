@@ -139,6 +139,12 @@ public class PonyDefinition {
          * weighted speed variants that share this action's sprites.
          */
         public String gaits;
+        /**
+         * Unscaled feet row within each frame (pixels from the top of the sheet).
+         * {@link Float#NaN} means omit and use bottom-center (default). Used so
+         * tall VFX sheets keep the body on the same ground line as shorter poses.
+         */
+        public float anchorY;
         public final Map<String, String> images = new HashMap<String, String>();
         public final Map<String, String> timings = new HashMap<String, String>();
         public final Map<String, String> nextActions = new HashMap<String, String>();
@@ -150,6 +156,7 @@ public class PonyDefinition {
             loops = true;
             spritesFrom = "";
             gaits = "";
+            anchorY = Float.NaN;
             images.put("left", "");
             timings.put("left", "");
             images.put("right", "");
@@ -172,6 +179,7 @@ public class PonyDefinition {
             Boolean parsedLoops = null;
             String parsedSpritesFrom = null;
             String parsedGaits = null;
+            Float parsedAnchorY = null;
             
             for (Node node = element.getFirstChild(); node != null; node = node.getNextSibling()) {
                 switch (node.getNodeType()) {
@@ -188,6 +196,8 @@ public class PonyDefinition {
                             parsedSpritesFrom = addSpritesFrom((Element)node, parsedSpritesFrom, errors);
                         } else if (nodeName.equals("gaits")) {
                             parsedGaits = addGaits((Element)node, parsedGaits, errors);
+                        } else if (nodeName.equals("anchory")) {
+                            parsedAnchorY = addAnchorY((Element)node, parsedAnchorY, errors);
                         } else if (nodeName.equals("image")) {
                             addImage((Element)node, errors);
                         } else if (nodeName.equals("timings")) {
@@ -222,6 +232,7 @@ public class PonyDefinition {
             loops = parsedLoops != null ? parsedLoops.booleanValue() : true;
             spritesFrom = parsedSpritesFrom != null ? parsedSpritesFrom : "";
             gaits = parsedGaits != null ? parsedGaits : "";
+            anchorY = parsedAnchorY != null ? parsedAnchorY.floatValue() : Float.NaN;
             if (!images.containsKey("left")) images.put("left", "");
             if (!timings.containsKey("left")) timings.put("left", "");
             if (!images.containsKey("right")) images.put("right", "");
@@ -329,6 +340,28 @@ public class PonyDefinition {
                 return null;
             }
             return text;
+        }
+        
+        private Float addAnchorY(Element element, Float existing, List<String> errors) {
+            if (existing != null) {
+                errors.add("Too many <anchory> elements.");
+                return existing;
+            }
+            String text = getContent(element, errors);
+            if (text == null) {
+                return null;
+            }
+            try {
+                float value = Float.parseFloat(text.replaceAll("\\s+", ""));
+                if (Float.isNaN(value) || value < 0f) {
+                    errors.add("<anchory> must be a non-negative number (pixels from top of frame).");
+                    return null;
+                }
+                return Float.valueOf(value);
+            } catch (NumberFormatException e) {
+                errors.add("Invalid <anchory> value.");
+                return null;
+            }
         }
         
         private void addImage(Element element, List<String> errors) {
@@ -565,6 +598,10 @@ public class PonyDefinition {
                 errors.add("Invalid speed for " + name + " (must be positive).");
             }
             
+            if (!Float.isNaN(action.anchorY) && action.anchorY < 0f) {
+                errors.add("Invalid anchory for " + name + " (must be non-negative).");
+            }
+            
             if (action.spritesFrom == null) {
                 action.spritesFrom = "";
             }
@@ -724,6 +761,13 @@ public class PonyDefinition {
             // Omitted <loop> means true; only write the uncommon non-looping case.
             if (!action.loops) {
                 writer.println("        <loop>false</loop>");
+            }
+            
+            // Omitted <anchory> means bottom-center (feet on the bottom of the frame).
+            if (!Float.isNaN(action.anchorY)) {
+                writer.print("        <anchory>");
+                writeCharacters(writer, formatSpeed(action.anchorY));
+                writer.println("</anchory>");
             }
             
             if (action.isAlias()) {

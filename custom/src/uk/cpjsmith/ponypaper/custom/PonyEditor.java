@@ -326,6 +326,29 @@ public class PonyEditor {
         ponyDefinition.actions[index].specialType = specialType;
     }
     
+    /**
+     * Feet row within each frame (pixels from the top of the sheet), or
+     * {@link Float#NaN} when unset (bottom-center default).
+     */
+    public float getActionAnchorY(int index) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        return ponyDefinition.actions[index].anchorY;
+    }
+    
+    /**
+     * Sets the feet hotspot Y for this action. Pass {@link Float#NaN} or a
+     * negative value to clear (use bottom-center). Non-negative values are
+     * unscaled pixels from the top of each frame.
+     */
+    public void setActionAnchorY(int index, float anchorY) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        if (Float.isNaN(anchorY) || anchorY < 0f) {
+            ponyDefinition.actions[index].anchorY = Float.NaN;
+        } else {
+            ponyDefinition.actions[index].anchorY = anchorY;
+        }
+    }
+    
     public float getActionSpeed(int index) {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
         return ponyDefinition.actions[index].speed;
@@ -486,6 +509,7 @@ public class PonyEditor {
         setActionSpritesFrom(index, ownerName);
         setActionSpecial(index, source.specialType);
         setActionLoops(index, source.loops);
+        setActionAnchorY(index, source.anchorY);
         setActionNext(index, "waiting", getActionNext(sourceIndex, "waiting"));
         setActionNext(index, "moving", getActionNext(sourceIndex, "moving"));
         setActionNext(index, "drag", getActionNext(sourceIndex, "drag"));

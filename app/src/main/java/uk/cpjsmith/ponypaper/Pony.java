@@ -3,6 +3,7 @@ package uk.cpjsmith.ponypaper;
 import android.graphics.Canvas;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import java.util.Random;
 
 /**
@@ -58,6 +59,10 @@ public class Pony {
     
     private PonyAction currentAction;
     private float posX;
+    /**
+     * Vertical world position of the pony's feet (ground contact). Sprite sheets
+     * are drawn relative to this via each action's {@link PonyAction#getAnchorY}.
+     */
     private float posY;
     private int direction;
     /** Animation clock in centiseconds (same unit as sprite frame timings). */
@@ -223,8 +228,8 @@ public class Pony {
     }
     
     /**
-     * Returns the y-coordinate of the pony's feet (bottom-center anchor). This
-     * is used to sort ponies that are higher up the screen as being further away.
+     * Returns the y-coordinate of the pony's feet (ground contact). This is used
+     * to sort ponies that are higher up the screen as being further away.
      * 
      * @return the screen y-coordinate of ground contact
      */
@@ -234,8 +239,8 @@ public class Pony {
     
     /**
      * Tests whether a click at the given screen point should be considered to
-     * be a click on the pony. Matches {@link PonyAction#drawOn}'s bottom-center
-     * sprite bounds (logical position is feet), with a small pad for touch.
+     * be a click on the pony. Matches {@link PonyAction#drawOn}'s sprite bounds
+     * (feet at {@link #posY} via the action's anchor), with a small pad for touch.
      * 
      * @param x the x-coordinate of the click
      * @param y the y-coordinate of the click
@@ -246,16 +251,11 @@ public class Pony {
             return false;
         }
         float scale = getScale();
-        int[] size = currentAction.getFrameSize(direction);
-        float dW = size[0] * scale;
-        float dH = size[1] * scale;
+        RectF bounds = currentAction.getDrawBounds(posX, posY, scale, direction);
         // Same pad idea as the old radius (~30 unscaled px), applied outward.
         float pad = 8 * scale;
-        float left = posX - dW / 2 - pad;
-        float right = posX + dW / 2 + pad;
-        float top = posY - dH - pad;
-        float bottom = posY + pad;
-        return x >= left && x < right && y >= top && y < bottom;
+        return x >= bounds.left - pad && x < bounds.right + pad
+                && y >= bounds.top - pad && y < bounds.bottom + pad;
     }
     
     /**
@@ -302,9 +302,10 @@ public class Pony {
     }
     
     /**
-     * Moves the pony to a position.
+     * Moves the pony to a position. {@code pos} is the feet / ground-contact point
+     * (same space as wander targets).
      * 
-     * @param pos the new position for the pony
+     * @param pos the new feet position for the pony
      */
     public void moveTo(Point pos) {
         setDirection(pos);

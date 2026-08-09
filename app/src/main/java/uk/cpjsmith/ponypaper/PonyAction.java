@@ -83,6 +83,14 @@ public class PonyAction {
     
     private SpriteSheet[] sprites;
     
+    /**
+     * Unscaled Y of the feet hotspot within each frame (pixels from the top of
+     * the sheet). When {@link Float#NaN}, {@link #getAnchorY} uses the frame
+     * bottom (bottom-center default). Tall VFX sheets (teleports) set this so
+     * world position stays on the hooves instead of the sheet edge.
+     */
+    private float anchorY = Float.NaN;
+    
     private PonyAction[] nextWaiting;
     private PonyAction[] nextMoving;
     private PonyAction[] nextDrag;
@@ -173,6 +181,8 @@ public class PonyAction {
         this.res = this.spriteSource.res;
         this.arrayId = this.spriteSource.arrayId;
         this.definition = this.spriteSource.definition;
+        // Same sheets → same feet row unless the alias overrides later.
+        this.anchorY = this.spriteSource.anchorY;
     }
     
     /**
@@ -191,9 +201,43 @@ public class PonyAction {
         }
         this.speed = sanitizeSpeed(definition.speed);
         this.loops = definition.loops;
+        if (!Float.isNaN(definition.anchorY) && definition.anchorY >= 0f) {
+            this.anchorY = definition.anchorY;
+        }
         // Test the images.
         load();
         unload();
+    }
+    
+    /**
+     * Sets the unscaled feet row within each frame (pixels from the top of the
+     * sheet). Pass a negative value or {@link Float#NaN} to restore the default
+     * bottom-center behaviour.
+     *
+     * @param anchorY feet Y in source pixels, or {@code NaN}/negative to clear
+     * @return this action (for chaining at construction sites)
+     */
+    public PonyAction setAnchorY(float anchorY) {
+        if (Float.isNaN(anchorY) || anchorY < 0f) {
+            this.anchorY = Float.NaN;
+        } else {
+            this.anchorY = anchorY;
+        }
+        return this;
+    }
+    
+    /**
+     * Feet hotspot Y for drawing and hit-tests. Explicit {@link #setAnchorY}
+     * wins; otherwise the bottom of the loaded frame (bottom-center).
+     *
+     * @param dir {@link #LEFT} or {@link #RIGHT}
+     * @return unscaled pixels from the top of the frame to the feet
+     */
+    public float getAnchorY(int dir) {
+        if (!Float.isNaN(anchorY)) {
+            return anchorY;
+        }
+        return getFrameSize(dir)[1];
     }
     
     private static float sanitizeSpeed(float speed) {
@@ -285,7 +329,7 @@ public class PonyAction {
     
     /**
      * Unscaled frame size for the given facing. Used for hit-testing and layout
-     * that must match {@link #drawOn}'s bottom-center anchoring.
+     * that must match {@link #drawOn}'s anchoring.
      *
      * @param dir {@link #LEFT} or {@link #RIGHT}
      * @return {@code int[]{frameWidth, frameHeight}} in source pixels
@@ -295,24 +339,31 @@ public class PonyAction {
         return new int[] { sprite.frameWidth, sprite.frameHeight };
     }
     
+    /**
+     * Destination rect for drawing (and matching hit-tests) at logical feet
+     * position {@code (x, y)} with the given scale. Horizontal centre of the
+     * frame is on {@code x}; vertical placement uses {@link #getAnchorY} so VFX
+     * can extend below the hooves without shifting the body when actions change.
+     */
+    public RectF getDrawBounds(float x, float y, float scale, int dir) {
+        int[] size = getFrameSize(dir);
+        float dW = size[0] * scale;
+        float dH = size[1] * scale;
+        float ay = getAnchorY(dir) * scale;
+        return new RectF(x - dW / 2, y - ay, x + dW / 2, y - ay + dH);
+    }
+    
     public void drawOn(Canvas c, int dir, int time, Point p, float scale, boolean dragged) {
         SpriteSheet sprite = sprites[dir];
         
-        int sW = sprite.frameWidth;
-        int sH = sprite.frameHeight;
-        float dW = sW * scale;
-        float dH = sH * scale;
-        
         if (dragged) {
             p = new Point(p);
-            // Logical position is feet (bottom-center). Lift so the whole sprite
-            // hangs above the finger instead of sitting under it.
+            // Logical position is feet. Lift so the whole sprite hangs above the
+            // finger instead of sitting under it.
             p.y -= (int)(20 * scale);
         }
         
-        // Bottom-center anchor: (p.x, p.y) is ground contact / feet, so a taller
-        // sheet grows upward and action transitions do not pop vertically.
-        RectF dstRect = new RectF(p.x - dW / 2, p.y - dH, p.x + dW / 2, p.y);
+        RectF dstRect = getDrawBounds(p.x, p.y, scale, dir);
         
         c.drawBitmap(sprite.bitmap, sprite.getRect(time), dstRect, null);
     }
