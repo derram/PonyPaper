@@ -874,7 +874,10 @@ public class AllPonies {
                 }
                 // Alias may set its own <loop> independently of the owner.
                 PonyAction alias = new PonyAction(owner, def.speed, def.loops);
-                // Optional <anchory> on the alias overrides the inherited owner value.
+                // Optional <anchorx>/<anchory> on the alias overrides the inherited owner value.
+                if (!Float.isNaN(def.anchorX) && def.anchorX >= 0f) {
+                    alias.setAnchorX(def.anchorX);
+                }
                 if (!Float.isNaN(def.anchorY) && def.anchorY >= 0f) {
                     alias.setAnchorY(def.anchorY);
                 }

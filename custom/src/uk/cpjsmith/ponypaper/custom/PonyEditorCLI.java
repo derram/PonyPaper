@@ -128,6 +128,33 @@ public class PonyEditorCLI {
                         guiDirty = true;
                         break;
 
+                    case "-anchorx":
+                    {
+                        checkArgument(args, i);
+                        if (currentAction < 0) throw new PonyEditor.GenericException("", "No current action for " + args[i]);
+                        String anchorText = args[++i].trim();
+                        try {
+                            if (anchorText.isEmpty()
+                                    || "none".equalsIgnoreCase(anchorText)
+                                    || "clear".equalsIgnoreCase(anchorText)
+                                    || "-".equals(anchorText)) {
+                                editor.setActionAnchorX(currentAction, Float.NaN);
+                            } else {
+                                float anchorX = Float.parseFloat(anchorText);
+                                if (Float.isNaN(anchorX) || anchorX < 0f) {
+                                    throw new PonyEditor.GenericException("",
+                                            "Invalid anchorx (use non-negative pixels, or none to clear): "
+                                                    + anchorText);
+                                }
+                                editor.setActionAnchorX(currentAction, anchorX);
+                            }
+                            guiDirty = true;
+                        } catch (NumberFormatException e) {
+                            throw new PonyEditor.GenericException("", "Invalid anchorx: " + anchorText);
+                        }
+                        break;
+                    }
+
                     case "-anchory":
                     {
                         checkArgument(args, i);
@@ -291,9 +318,12 @@ public class PonyEditorCLI {
         System.out.println("    Set the current action's next actions of the given type.");
         System.out.println("-special TYPE");
         System.out.println("    Set the current action's special type.");
+        System.out.println("-anchorx PIXELS|none");
+        System.out.println("    Feet column in pixels from the left of each frame (optional).");
+        System.out.println("    Use none/clear/- or empty to restore frame-centre default.");
         System.out.println("-anchory PIXELS|none");
         System.out.println("    Feet row in pixels from the top of each frame (optional).");
-        System.out.println("    Use none/clear/- or empty to restore bottom-center default.");
+        System.out.println("    Use none/clear/- or empty to restore bottom-of-frame default.");
         System.out.println("-speed VALUE");
         System.out.println("    Set the current action's travel/animation speed factor (positive float).");
         System.out.println("    Typical gaits: 0.5 stroll, 0.7 walk, 1.0 trot.");

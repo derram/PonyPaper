@@ -61,7 +61,8 @@ public class Pony {
     private float posX;
     /**
      * Vertical world position of the pony's feet (ground contact). Sprite sheets
-     * are drawn relative to this via each action's {@link PonyAction#getAnchorY}.
+     * are drawn relative to this via each action's anchor (see
+     * {@link PonyAction#getAnchorX} / {@link PonyAction#getAnchorY}).
      */
     private float posY;
     private int direction;

@@ -84,6 +84,14 @@ public class PonyAction {
     private SpriteSheet[] sprites;
     
     /**
+     * Unscaled X of the feet hotspot within each frame (pixels from the left of
+     * the sheet). When {@link Float#NaN}, {@link #getAnchorX} uses the frame
+     * centre (bottom-center default). Asymmetric VFX sheets set this so world
+     * position stays on the body instead of shifting with padding.
+     */
+    private float anchorX = Float.NaN;
+    
+    /**
      * Unscaled Y of the feet hotspot within each frame (pixels from the top of
      * the sheet). When {@link Float#NaN}, {@link #getAnchorY} uses the frame
      * bottom (bottom-center default). Tall VFX sheets (teleports) set this so
@@ -181,7 +189,8 @@ public class PonyAction {
         this.res = this.spriteSource.res;
         this.arrayId = this.spriteSource.arrayId;
         this.definition = this.spriteSource.definition;
-        // Same sheets → same feet row unless the alias overrides later.
+        // Same sheets → same feet hotspot unless the alias overrides later.
+        this.anchorX = this.spriteSource.anchorX;
         this.anchorY = this.spriteSource.anchorY;
     }
     
@@ -201,12 +210,32 @@ public class PonyAction {
         }
         this.speed = sanitizeSpeed(definition.speed);
         this.loops = definition.loops;
+        if (!Float.isNaN(definition.anchorX) && definition.anchorX >= 0f) {
+            this.anchorX = definition.anchorX;
+        }
         if (!Float.isNaN(definition.anchorY) && definition.anchorY >= 0f) {
             this.anchorY = definition.anchorY;
         }
         // Test the images.
         load();
         unload();
+    }
+    
+    /**
+     * Sets the unscaled feet column within each frame (pixels from the left of
+     * the sheet). Pass a negative value or {@link Float#NaN} to restore the
+     * default frame-centre behaviour.
+     *
+     * @param anchorX feet X in source pixels, or {@code NaN}/negative to clear
+     * @return this action (for chaining at construction sites)
+     */
+    public PonyAction setAnchorX(float anchorX) {
+        if (Float.isNaN(anchorX) || anchorX < 0f) {
+            this.anchorX = Float.NaN;
+        } else {
+            this.anchorX = anchorX;
+        }
+        return this;
     }
     
     /**
@@ -224,6 +253,20 @@ public class PonyAction {
             this.anchorY = anchorY;
         }
         return this;
+    }
+    
+    /**
+     * Feet hotspot X for drawing and hit-tests. Explicit {@link #setAnchorX}
+     * wins; otherwise the horizontal centre of the loaded frame (bottom-center).
+     *
+     * @param dir {@link #LEFT} or {@link #RIGHT}
+     * @return unscaled pixels from the left of the frame to the feet
+     */
+    public float getAnchorX(int dir) {
+        if (!Float.isNaN(anchorX)) {
+            return anchorX;
+        }
+        return getFrameSize(dir)[0] / 2f;
     }
     
     /**
@@ -341,16 +384,18 @@ public class PonyAction {
     
     /**
      * Destination rect for drawing (and matching hit-tests) at logical feet
-     * position {@code (x, y)} with the given scale. Horizontal centre of the
-     * frame is on {@code x}; vertical placement uses {@link #getAnchorY} so VFX
-     * can extend below the hooves without shifting the body when actions change.
+     * position {@code (x, y)} with the given scale. Horizontal placement uses
+     * {@link #getAnchorX} (default frame centre); vertical placement uses
+     * {@link #getAnchorY} so VFX can extend past the body without shifting it
+     * when actions change.
      */
     public RectF getDrawBounds(float x, float y, float scale, int dir) {
         int[] size = getFrameSize(dir);
         float dW = size[0] * scale;
         float dH = size[1] * scale;
+        float ax = getAnchorX(dir) * scale;
         float ay = getAnchorY(dir) * scale;
-        return new RectF(x - dW / 2, y - ay, x + dW / 2, y - ay + dH);
+        return new RectF(x - ax, y - ay, x - ax + dW, y - ay + dH);
     }
     
     public void drawOn(Canvas c, int dir, int time, Point p, float scale, boolean dragged) {

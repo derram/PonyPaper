@@ -327,6 +327,29 @@ public class PonyEditor {
     }
     
     /**
+     * Feet column within each frame (pixels from the left of the sheet), or
+     * {@link Float#NaN} when unset (frame-centre default).
+     */
+    public float getActionAnchorX(int index) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        return ponyDefinition.actions[index].anchorX;
+    }
+    
+    /**
+     * Sets the feet hotspot X for this action. Pass {@link Float#NaN} or a
+     * negative value to clear (use frame centre). Non-negative values are
+     * unscaled pixels from the left of each frame.
+     */
+    public void setActionAnchorX(int index, float anchorX) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        if (Float.isNaN(anchorX) || anchorX < 0f) {
+            ponyDefinition.actions[index].anchorX = Float.NaN;
+        } else {
+            ponyDefinition.actions[index].anchorX = anchorX;
+        }
+    }
+    
+    /**
      * Feet row within each frame (pixels from the top of the sheet), or
      * {@link Float#NaN} when unset (bottom-center default).
      */
@@ -509,6 +532,7 @@ public class PonyEditor {
         setActionSpritesFrom(index, ownerName);
         setActionSpecial(index, source.specialType);
         setActionLoops(index, source.loops);
+        setActionAnchorX(index, source.anchorX);
         setActionAnchorY(index, source.anchorY);
         setActionNext(index, "waiting", getActionNext(sourceIndex, "waiting"));
         setActionNext(index, "moving", getActionNext(sourceIndex, "moving"));
