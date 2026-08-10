@@ -189,6 +189,8 @@ On animation complete:
 | Moving | Next **moving** list (keeps current target) |
 | Dragged | Next **drag** list |
 
+**Wait timer vs one-shots:** the idle timer still counts down during a waiting one-shot, but **expiry is deferred** while the current action has `loop` false. The engine will not start travel or re-pick waiting mid-clip; once the one-shot finishes (and hands off to a looping waiter, or fall-through starts travel), a timer that already hit zero fires on the next opportunity. Looping idle sheets are still interruptible by the timer as before.
+
 ### `none` / `-` (no successor)
 
 Use the reserved token **`none`** or **`-`** when a list should have no real action:

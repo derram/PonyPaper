@@ -191,6 +191,15 @@ public class Pony {
                     waitTimerMs -= deltaMs;
                     if (waitTimerMs <= 0) {
                         waitTimerMs = 0;
+                        // One-shots own the stage until the sheet finishes
+                        // (advanceOneshot above). Defer idle→travel / re-roll so
+                        // the timer does not cut a mid-play transition clip.
+                        // Timer stays at 0; the next frame after a looping
+                        // waiter is selected (or fall-through starts travel)
+                        // runs the normal expiry path.
+                        if (!currentAction.loops) {
+                            break;
+                        }
                         // Only leave idle if a real next moving action exists.
                         // Otherwise re-roll wait (none/- means "does not start travel").
                         if (!tryBeginMoving(true)) {
