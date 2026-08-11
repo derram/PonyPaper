@@ -128,20 +128,23 @@ public final class TransitionPreviewDialog extends JDialog {
         actionACombo.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 if (!updatingUi) {
-                    // New A → rebuild B neighbors and pick a smart default successor.
+                    // New A → rebuild B neighbors, show A at feet (anchors for A).
                     stopPlaying();
                     rebuildBList(selectedActionIndex(actionACombo), -1);
                     loadSources();
-                    resetToStart();
+                    showActionA();
                 }
             }
         });
         actionBCombo.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 if (!updatingUi) {
-                    // Changing B does not need to restart A mid-play if still on A;
-                    // still reload B and refresh.
-                    reloadSourcesKeepPhase();
+                    // New B must re-anchor the stage to B immediately. Previously we
+                    // kept phase A, so the feet crosshair/sprite stayed on the first
+                    // action until the user played through the whole sequence.
+                    stopPlaying();
+                    loadSources();
+                    showActionB();
                 }
             }
         });
@@ -150,7 +153,7 @@ public final class TransitionPreviewDialog extends JDialog {
                 if (!updatingUi) {
                     rebuildActionLists(selectedActionIndex(actionACombo));
                     loadSources();
-                    resetToStart();
+                    showActionA();
                 }
             }
         });
@@ -463,27 +466,6 @@ public final class TransitionPreviewDialog extends JDialog {
         return out;
     }
 
-    private void reloadSourcesKeepPhase() {
-        boolean wasPlaying = playing;
-        stopPlaying();
-        loadSources();
-        if (sourceB == null) {
-            phaseA = true;
-            animTimeCs = 0;
-        } else if (!phaseA) {
-            animTimeCs = Math.min(animTimeCs, sourceB.totalTimeCs - 0.001f);
-            if (animTimeCs < 0) {
-                animTimeCs = 0;
-            }
-        }
-        stage.revalidate();
-        stage.repaint();
-        updateStatus();
-        if (wasPlaying && sourceA != null && sourceB != null) {
-            startPlaying();
-        }
-    }
-
     private void loadSources() {
         sourceA = null;
         sourceB = null;
@@ -513,9 +495,33 @@ public final class TransitionPreviewDialog extends JDialog {
         stage.revalidate();
     }
 
-    private void resetToStart() {
+    /** Show the start of action A (sequence start / after A is re-chosen). */
+    private void showActionA() {
         phaseA = true;
         animTimeCs = 0;
+        refreshStage();
+    }
+
+    /**
+     * Show the start of action B with A→B handoff framing (onion of A last under
+     * B first when onion is enabled). Used when B is re-chosen so anchors for the
+     * new successor are visible immediately.
+     */
+    private void showActionB() {
+        if (sourceB == null) {
+            showActionA();
+            return;
+        }
+        phaseA = false;
+        animTimeCs = 0;
+        refreshStage();
+    }
+
+    private void resetToStart() {
+        showActionA();
+    }
+
+    private void refreshStage() {
         stage.revalidate();
         stage.repaint();
         updateStatus();
