@@ -132,21 +132,16 @@ public class PonyEditorCLI {
                     {
                         checkArgument(args, i);
                         if (currentAction < 0) throw new PonyEditor.GenericException("", "No current action for " + args[i]);
-                        String anchorText = args[++i].trim();
+                        String[] parsed = parseAnchorCliArg(args, i);
+                        i = Integer.parseInt(parsed[0]);
+                        String direction = parsed[1];
+                        String anchorText = parsed[2];
                         try {
-                            if (anchorText.isEmpty()
-                                    || "none".equalsIgnoreCase(anchorText)
-                                    || "clear".equalsIgnoreCase(anchorText)
-                                    || "-".equals(anchorText)) {
-                                editor.setActionAnchorX(currentAction, Float.NaN);
+                            float value = parseAnchorValueOrClear(anchorText, "anchorx");
+                            if ("both".equals(direction)) {
+                                editor.setActionAnchorX(currentAction, value);
                             } else {
-                                float anchorX = Float.parseFloat(anchorText);
-                                if (Float.isNaN(anchorX) || anchorX < 0f) {
-                                    throw new PonyEditor.GenericException("",
-                                            "Invalid anchorx (use non-negative pixels, or none to clear): "
-                                                    + anchorText);
-                                }
-                                editor.setActionAnchorX(currentAction, anchorX);
+                                editor.setActionAnchorX(currentAction, direction, value);
                             }
                             guiDirty = true;
                         } catch (NumberFormatException e) {
@@ -159,21 +154,16 @@ public class PonyEditorCLI {
                     {
                         checkArgument(args, i);
                         if (currentAction < 0) throw new PonyEditor.GenericException("", "No current action for " + args[i]);
-                        String anchorText = args[++i].trim();
+                        String[] parsed = parseAnchorCliArg(args, i);
+                        i = Integer.parseInt(parsed[0]);
+                        String direction = parsed[1];
+                        String anchorText = parsed[2];
                         try {
-                            if (anchorText.isEmpty()
-                                    || "none".equalsIgnoreCase(anchorText)
-                                    || "clear".equalsIgnoreCase(anchorText)
-                                    || "-".equals(anchorText)) {
-                                editor.setActionAnchorY(currentAction, Float.NaN);
+                            float value = parseAnchorValueOrClear(anchorText, "anchory");
+                            if ("both".equals(direction)) {
+                                editor.setActionAnchorY(currentAction, value);
                             } else {
-                                float anchorY = Float.parseFloat(anchorText);
-                                if (Float.isNaN(anchorY) || anchorY < 0f) {
-                                    throw new PonyEditor.GenericException("",
-                                            "Invalid anchory (use non-negative pixels, or none to clear): "
-                                                    + anchorText);
-                                }
-                                editor.setActionAnchorY(currentAction, anchorY);
+                                editor.setActionAnchorY(currentAction, direction, value);
                             }
                             guiDirty = true;
                         } catch (NumberFormatException e) {
@@ -318,12 +308,13 @@ public class PonyEditorCLI {
         System.out.println("    Set the current action's next actions of the given type.");
         System.out.println("-special TYPE");
         System.out.println("    Set the current action's special type.");
-        System.out.println("-anchorx PIXELS|none");
-        System.out.println("    Feet column in pixels from the left of each frame (optional).");
-        System.out.println("    Use none/clear/- or empty to restore frame-centre default.");
-        System.out.println("-anchory PIXELS|none");
-        System.out.println("    Feet row in pixels from the top of each frame (optional).");
-        System.out.println("    Use none/clear/- or empty to restore bottom-of-frame default.");
+        System.out.println("-anchorx [left|right|both] PIXELS|none");
+        System.out.println("    Feet column in pixels from the left of the frame (optional).");
+        System.out.println("    Direction defaults to both. Use none/clear/- to restore frame-centre.");
+        System.out.println("    Left and right often differ when sheets are horizontal mirrors.");
+        System.out.println("-anchory [left|right|both] PIXELS|none");
+        System.out.println("    Feet row in pixels from the top of the frame (optional).");
+        System.out.println("    Direction defaults to both. Use none/clear/- to restore frame bottom.");
         System.out.println("-speed VALUE");
         System.out.println("    Set the current action's travel/animation speed factor (positive float).");
         System.out.println("    Typical gaits: 0.5 stroll, 0.7 walk, 1.0 trot.");
@@ -342,6 +333,55 @@ public class PonyEditorCLI {
         System.out.println("    then select the new action.");
         System.out.println("-sprite DIRECTION FILE");
         System.out.println("    Set the current action's sprite for the given direction.");
+    }
+    
+    /**
+     * Parses {@code -anchorx/-anchory} arguments after the option at {@code i}.
+     * Accepts {@code VALUE} (both facings) or {@code left|right|both VALUE}.
+     *
+     * @return {@code {newIndex, direction, valueText}} where {@code newIndex} is the
+     *         last consumed argument index (so the main loop can assign {@code i})
+     */
+    private static String[] parseAnchorCliArg(String[] args, int i)
+            throws PonyEditor.GenericException {
+        checkArgument(args, i);
+        String first = args[i + 1].trim();
+        if ("left".equalsIgnoreCase(first)
+                || "right".equalsIgnoreCase(first)
+                || "both".equalsIgnoreCase(first)) {
+            checkArgument(args, i, 2);
+            return new String[] {
+                Integer.toString(i + 2),
+                first.toLowerCase(),
+                args[i + 2].trim()
+            };
+        }
+        return new String[] {
+            Integer.toString(i + 1),
+            "both",
+            first
+        };
+    }
+    
+    /**
+     * Parses a pixel value, or {@link Float#NaN} for clear tokens
+     * ({@code none}/{@code clear}/{@code -}/empty).
+     */
+    private static float parseAnchorValueOrClear(String anchorText, String tag)
+            throws PonyEditor.GenericException, NumberFormatException {
+        if (anchorText.isEmpty()
+                || "none".equalsIgnoreCase(anchorText)
+                || "clear".equalsIgnoreCase(anchorText)
+                || "-".equals(anchorText)) {
+            return Float.NaN;
+        }
+        float value = Float.parseFloat(anchorText);
+        if (Float.isNaN(value) || value < 0f) {
+            throw new PonyEditor.GenericException("",
+                    "Invalid " + tag + " (use non-negative pixels, or none to clear): "
+                            + anchorText);
+        }
+        return value;
     }
     
 }

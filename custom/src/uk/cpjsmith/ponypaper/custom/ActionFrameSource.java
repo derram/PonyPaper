@@ -27,9 +27,9 @@ public final class ActionFrameSource {
     /** Frame durations in centiseconds (same unit as XML timings). */
     public final int[] frameTimesCs;
     public final int totalTimeCs;
-    /** Explicit {@code <anchorx>}, or {@link Float#NaN} when unset. */
+    /** Explicit {@code <anchorx>} for this facing, or {@link Float#NaN} when unset. */
     public final float explicitAnchorX;
-    /** Explicit {@code <anchory>}, or {@link Float#NaN} when unset. */
+    /** Explicit {@code <anchory>} for this facing, or {@link Float#NaN} when unset. */
     public final float explicitAnchorY;
     public final boolean loops;
     public final float speed;
@@ -158,7 +158,7 @@ public final class ActionFrameSource {
     /**
      * Loads a frame source for {@code actionIndex} facing {@code direction}
      * ({@code "left"} or {@code "right"}). Uses owner sprites when the action
-     * is a {@code spritesfrom} alias. Anchors come from the action itself.
+     * is a {@code spritesfrom} alias. Anchors come from the action for this facing.
      *
      * @return loaded source, or {@code null} if no image is available
      * @throws IOException if the image bytes cannot be decoded
@@ -198,8 +198,8 @@ public final class ActionFrameSource {
                 image,
                 frameCount,
                 frameTimes,
-                editor.getActionAnchorX(actionIndex),
-                editor.getActionAnchorY(actionIndex),
+                editor.getActionAnchorX(actionIndex, direction),
+                editor.getActionAnchorY(actionIndex, direction),
                 editor.getActionLoops(actionIndex),
                 editor.getActionSpeed(actionIndex),
                 editor.getActionSpecial(actionIndex));

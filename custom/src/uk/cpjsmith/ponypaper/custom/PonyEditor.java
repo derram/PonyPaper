@@ -327,48 +327,68 @@ public class PonyEditor {
     }
     
     /**
-     * Feet column within each frame (pixels from the left of the sheet), or
-     * {@link Float#NaN} when unset (frame-centre default).
+     * Feet column for {@code direction} ({@code "left"} or {@code "right"}),
+     * pixels from the left of that sheet's frame, or {@link Float#NaN} when
+     * unset (frame-centre default).
      */
-    public float getActionAnchorX(int index) {
+    public float getActionAnchorX(int index, String direction) {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
-        return ponyDefinition.actions[index].anchorX;
+        checkAnchorDirection(direction);
+        return ponyDefinition.actions[index].getAnchorX(direction);
     }
     
     /**
-     * Sets the feet hotspot X for this action. Pass {@link Float#NaN} or a
+     * Sets the feet hotspot X for one facing. Pass {@link Float#NaN} or a
      * negative value to clear (use frame centre). Non-negative values are
-     * unscaled pixels from the left of each frame.
+     * unscaled pixels from the left of that direction's frame.
+     */
+    public void setActionAnchorX(int index, String direction, float anchorX) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        checkAnchorDirection(direction);
+        ponyDefinition.actions[index].setAnchorX(direction, anchorX);
+    }
+    
+    /**
+     * Sets the feet hotspot X for both facings (legacy / bulk clear or assign).
      */
     public void setActionAnchorX(int index, float anchorX) {
-        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
-        if (Float.isNaN(anchorX) || anchorX < 0f) {
-            ponyDefinition.actions[index].anchorX = Float.NaN;
-        } else {
-            ponyDefinition.actions[index].anchorX = anchorX;
-        }
+        setActionAnchorX(index, "left", anchorX);
+        setActionAnchorX(index, "right", anchorX);
     }
     
     /**
-     * Feet row within each frame (pixels from the top of the sheet), or
-     * {@link Float#NaN} when unset (bottom-center default).
+     * Feet row for {@code direction} ({@code "left"} or {@code "right"}),
+     * pixels from the top of that sheet's frame, or {@link Float#NaN} when
+     * unset (bottom-center default).
      */
-    public float getActionAnchorY(int index) {
+    public float getActionAnchorY(int index, String direction) {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
-        return ponyDefinition.actions[index].anchorY;
+        checkAnchorDirection(direction);
+        return ponyDefinition.actions[index].getAnchorY(direction);
     }
     
     /**
-     * Sets the feet hotspot Y for this action. Pass {@link Float#NaN} or a
+     * Sets the feet hotspot Y for one facing. Pass {@link Float#NaN} or a
      * negative value to clear (use bottom-center). Non-negative values are
-     * unscaled pixels from the top of each frame.
+     * unscaled pixels from the top of that direction's frame.
+     */
+    public void setActionAnchorY(int index, String direction, float anchorY) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        checkAnchorDirection(direction);
+        ponyDefinition.actions[index].setAnchorY(direction, anchorY);
+    }
+    
+    /**
+     * Sets the feet hotspot Y for both facings (legacy / bulk clear or assign).
      */
     public void setActionAnchorY(int index, float anchorY) {
-        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
-        if (Float.isNaN(anchorY) || anchorY < 0f) {
-            ponyDefinition.actions[index].anchorY = Float.NaN;
-        } else {
-            ponyDefinition.actions[index].anchorY = anchorY;
+        setActionAnchorY(index, "left", anchorY);
+        setActionAnchorY(index, "right", anchorY);
+    }
+    
+    private static void checkAnchorDirection(String direction) {
+        if (!"left".equals(direction) && !"right".equals(direction)) {
+            throw new IllegalArgumentException("direction must be left or right");
         }
     }
     
@@ -532,8 +552,10 @@ public class PonyEditor {
         setActionSpritesFrom(index, ownerName);
         setActionSpecial(index, source.specialType);
         setActionLoops(index, source.loops);
-        setActionAnchorX(index, source.anchorX);
-        setActionAnchorY(index, source.anchorY);
+        setActionAnchorX(index, "left", source.getAnchorX("left"));
+        setActionAnchorX(index, "right", source.getAnchorX("right"));
+        setActionAnchorY(index, "left", source.getAnchorY("left"));
+        setActionAnchorY(index, "right", source.getAnchorY("right"));
         setActionNext(index, "waiting", getActionNext(sourceIndex, "waiting"));
         setActionNext(index, "moving", getActionNext(sourceIndex, "moving"));
         setActionNext(index, "drag", getActionNext(sourceIndex, "drag"));

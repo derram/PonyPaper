@@ -140,17 +140,20 @@ public class PonyDefinition {
          */
         public String gaits;
         /**
-         * Unscaled feet column within each frame (pixels from the left of the sheet).
+         * Unscaled feet column within each frame per direction ({@code "left"} /
+         * {@code "right"}), pixels from the left of that sheet's frame.
          * {@link Float#NaN} means omit and use frame centre (default). Used when
-         * asymmetric VFX/padding would otherwise shift the body sideways on action change.
+         * asymmetric VFX/padding would otherwise shift the body sideways on action
+         * or facing change. Left and right often differ when sheets are mirrors.
          */
-        public float anchorX;
+        public final Map<String, Float> anchorX = new HashMap<String, Float>();
         /**
-         * Unscaled feet row within each frame (pixels from the top of the sheet).
+         * Unscaled feet row within each frame per direction ({@code "left"} /
+         * {@code "right"}), pixels from the top of that sheet's frame.
          * {@link Float#NaN} means omit and use bottom-center (default). Used so
          * tall VFX sheets keep the body on the same ground line as shorter poses.
          */
-        public float anchorY;
+        public final Map<String, Float> anchorY = new HashMap<String, Float>();
         public final Map<String, String> images = new HashMap<String, String>();
         public final Map<String, String> timings = new HashMap<String, String>();
         public final Map<String, String> nextActions = new HashMap<String, String>();
@@ -162,8 +165,10 @@ public class PonyDefinition {
             loops = true;
             spritesFrom = "";
             gaits = "";
-            anchorX = Float.NaN;
-            anchorY = Float.NaN;
+            anchorX.put("left", Float.NaN);
+            anchorX.put("right", Float.NaN);
+            anchorY.put("left", Float.NaN);
+            anchorY.put("right", Float.NaN);
             images.put("left", "");
             timings.put("left", "");
             images.put("right", "");
@@ -171,6 +176,48 @@ public class PonyDefinition {
             nextActions.put("waiting", "");
             nextActions.put("moving", "");
             nextActions.put("drag", "");
+        }
+        
+        /**
+         * Explicit feet X for {@code direction} ({@code "left"} or {@code "right"}),
+         * or {@link Float#NaN} when unset (frame-centre default).
+         */
+        public float getAnchorX(String direction) {
+            Float value = anchorX.get(direction);
+            return value != null ? value.floatValue() : Float.NaN;
+        }
+        
+        /**
+         * Explicit feet Y for {@code direction} ({@code "left"} or {@code "right"}),
+         * or {@link Float#NaN} when unset (frame-bottom default).
+         */
+        public float getAnchorY(String direction) {
+            Float value = anchorY.get(direction);
+            return value != null ? value.floatValue() : Float.NaN;
+        }
+        
+        /**
+         * Sets feet X for one direction. Pass {@link Float#NaN} or a negative
+         * value to clear (use frame centre).
+         */
+        public void setAnchorX(String direction, float value) {
+            if (Float.isNaN(value) || value < 0f) {
+                anchorX.put(direction, Float.NaN);
+            } else {
+                anchorX.put(direction, Float.valueOf(value));
+            }
+        }
+        
+        /**
+         * Sets feet Y for one direction. Pass {@link Float#NaN} or a negative
+         * value to clear (use frame bottom).
+         */
+        public void setAnchorY(String direction, float value) {
+            if (Float.isNaN(value) || value < 0f) {
+                anchorY.put(direction, Float.NaN);
+            } else {
+                anchorY.put(direction, Float.valueOf(value));
+            }
         }
         
         public Action(Element element) throws InvalidPonyException {
@@ -186,8 +233,9 @@ public class PonyDefinition {
             Boolean parsedLoops = null;
             String parsedSpritesFrom = null;
             String parsedGaits = null;
-            Float parsedAnchorX = null;
-            Float parsedAnchorY = null;
+            // Bare (no direction) anchor applies to any facing without a directed tag.
+            Float bareAnchorX = null;
+            Float bareAnchorY = null;
             
             for (Node node = element.getFirstChild(); node != null; node = node.getNextSibling()) {
                 switch (node.getNodeType()) {
@@ -205,9 +253,9 @@ public class PonyDefinition {
                         } else if (nodeName.equals("gaits")) {
                             parsedGaits = addGaits((Element)node, parsedGaits, errors);
                         } else if (nodeName.equals("anchorx")) {
-                            parsedAnchorX = addAnchorX((Element)node, parsedAnchorX, errors);
+                            bareAnchorX = addAnchorAxis((Element)node, "anchorx", anchorX, bareAnchorX, errors);
                         } else if (nodeName.equals("anchory")) {
-                            parsedAnchorY = addAnchorY((Element)node, parsedAnchorY, errors);
+                            bareAnchorY = addAnchorAxis((Element)node, "anchory", anchorY, bareAnchorY, errors);
                         } else if (nodeName.equals("image")) {
                             addImage((Element)node, errors);
                         } else if (nodeName.equals("timings")) {
@@ -242,8 +290,13 @@ public class PonyDefinition {
             loops = parsedLoops != null ? parsedLoops.booleanValue() : true;
             spritesFrom = parsedSpritesFrom != null ? parsedSpritesFrom : "";
             gaits = parsedGaits != null ? parsedGaits : "";
-            anchorX = parsedAnchorX != null ? parsedAnchorX.floatValue() : Float.NaN;
-            anchorY = parsedAnchorY != null ? parsedAnchorY.floatValue() : Float.NaN;
+            // Directed tags win; bare (legacy) fills any missing facing.
+            applyBareAnchor(anchorX, bareAnchorX);
+            applyBareAnchor(anchorY, bareAnchorY);
+            if (!anchorX.containsKey("left")) anchorX.put("left", Float.NaN);
+            if (!anchorX.containsKey("right")) anchorX.put("right", Float.NaN);
+            if (!anchorY.containsKey("left")) anchorY.put("left", Float.NaN);
+            if (!anchorY.containsKey("right")) anchorY.put("right", Float.NaN);
             if (!images.containsKey("left")) images.put("left", "");
             if (!timings.containsKey("left")) timings.put("left", "");
             if (!images.containsKey("right")) images.put("right", "");
@@ -251,6 +304,18 @@ public class PonyDefinition {
             if (!nextActions.containsKey("waiting")) nextActions.put("waiting", "");
             if (!nextActions.containsKey("moving")) nextActions.put("moving", "");
             if (!nextActions.containsKey("drag")) nextActions.put("drag", "");
+        }
+        
+        private static void applyBareAnchor(Map<String, Float> map, Float bare) {
+            if (bare == null) {
+                return;
+            }
+            if (!map.containsKey("left")) {
+                map.put("left", bare);
+            }
+            if (!map.containsKey("right")) {
+                map.put("right", bare);
+            }
         }
         
         /** @return true if this action reuses another action's bitmaps */
@@ -353,33 +418,47 @@ public class PonyDefinition {
             return text;
         }
         
-        private Float addAnchorX(Element element, Float existing, List<String> errors) {
-            if (existing != null) {
-                errors.add("Too many <anchorx> elements.");
-                return existing;
+        /**
+         * Parses one {@code <anchorx>} or {@code <anchory>} element.
+         * With {@code direction="left|right"}, stores on {@code directed}.
+         * Without direction (legacy), returns the bare value for both facings.
+         *
+         * @return updated bare value (only changes when the element has no direction)
+         */
+        private Float addAnchorAxis(Element element, String tagName, Map<String, Float> directed,
+                Float bareExisting, List<String> errors) {
+            String direction = element.getAttribute("direction");
+            if (direction == null) {
+                direction = "";
             }
-            String text = getContent(element, errors);
-            if (text == null) {
-                return null;
+            direction = direction.trim();
+            
+            Float value = parseAnchorNumber(element, tagName, errors);
+            if (value == null) {
+                return bareExisting;
             }
-            try {
-                float value = Float.parseFloat(text.replaceAll("\\s+", ""));
-                if (Float.isNaN(value) || value < 0f) {
-                    errors.add("<anchorx> must be a non-negative number (pixels from left of frame).");
-                    return null;
+            
+            if (direction.isEmpty()) {
+                if (bareExisting != null) {
+                    errors.add("Too many bare <" + tagName + "> elements (omit direction to apply to both).");
+                    return bareExisting;
                 }
-                return Float.valueOf(value);
-            } catch (NumberFormatException e) {
-                errors.add("Invalid <anchorx> value.");
-                return null;
+                return value;
             }
+            
+            if (!(direction.equals("left") || direction.equals("right"))) {
+                errors.add("<" + tagName + "> direction must be left or right (or omitted for both).");
+                return bareExisting;
+            }
+            if (directed.containsKey(direction)) {
+                errors.add("Too many <" + tagName + "> elements with direction " + direction + ".");
+                return bareExisting;
+            }
+            directed.put(direction, value);
+            return bareExisting;
         }
         
-        private Float addAnchorY(Element element, Float existing, List<String> errors) {
-            if (existing != null) {
-                errors.add("Too many <anchory> elements.");
-                return existing;
-            }
+        private Float parseAnchorNumber(Element element, String tagName, List<String> errors) {
             String text = getContent(element, errors);
             if (text == null) {
                 return null;
@@ -387,12 +466,16 @@ public class PonyDefinition {
             try {
                 float value = Float.parseFloat(text.replaceAll("\\s+", ""));
                 if (Float.isNaN(value) || value < 0f) {
-                    errors.add("<anchory> must be a non-negative number (pixels from top of frame).");
+                    if (tagName.equals("anchorx")) {
+                        errors.add("<anchorx> must be a non-negative number (pixels from left of frame).");
+                    } else {
+                        errors.add("<anchory> must be a non-negative number (pixels from top of frame).");
+                    }
                     return null;
                 }
                 return Float.valueOf(value);
             } catch (NumberFormatException e) {
-                errors.add("Invalid <anchory> value.");
+                errors.add("Invalid <" + tagName + "> value.");
                 return null;
             }
         }
@@ -631,13 +714,8 @@ public class PonyDefinition {
                 errors.add("Invalid speed for " + name + " (must be positive).");
             }
             
-            if (!Float.isNaN(action.anchorX) && action.anchorX < 0f) {
-                errors.add("Invalid anchorx for " + name + " (must be non-negative).");
-            }
-            
-            if (!Float.isNaN(action.anchorY) && action.anchorY < 0f) {
-                errors.add("Invalid anchory for " + name + " (must be non-negative).");
-            }
+            validateAnchorMap(action.anchorX, "anchorx", name, errors);
+            validateAnchorMap(action.anchorY, "anchory", name, errors);
             
             if (action.spritesFrom == null) {
                 action.spritesFrom = "";
@@ -746,6 +824,61 @@ public class PonyDefinition {
         return Float.toString(speed);
     }
     
+    private static void validateAnchorMap(Map<String, Float> map, String tag, String actionName,
+            List<String> errors) {
+        String[] dirs = { "left", "right" };
+        for (int i = 0; i < dirs.length; i++) {
+            Float value = map.get(dirs[i]);
+            if (value != null && !Float.isNaN(value.floatValue()) && value.floatValue() < 0f) {
+                errors.add("Invalid " + tag + " (" + dirs[i] + ") for " + actionName
+                        + " (must be non-negative).");
+            }
+        }
+    }
+    
+    /**
+     * Writes {@code <tag>} for left/right feet anchors. When both facings share
+     * the same explicit value, emits one bare element (legacy shape). When only
+     * one facing is set, or they differ, emits directed elements.
+     */
+    private static void writeAnchorElements(PrintWriter writer, String tag, float left, float right) {
+        boolean leftSet = !Float.isNaN(left);
+        boolean rightSet = !Float.isNaN(right);
+        if (!leftSet && !rightSet) {
+            return;
+        }
+        if (leftSet && rightSet && left == right) {
+            writer.print("        <");
+            writer.print(tag);
+            writer.print(">");
+            writeCharacters(writer, formatSpeed(left));
+            writer.print("</");
+            writer.print(tag);
+            writer.println(">");
+            return;
+        }
+        if (leftSet) {
+            writer.print("        <");
+            writer.print(tag);
+            writeAttribute(writer, "direction", "left");
+            writer.print(">");
+            writeCharacters(writer, formatSpeed(left));
+            writer.print("</");
+            writer.print(tag);
+            writer.println(">");
+        }
+        if (rightSet) {
+            writer.print("        <");
+            writer.print(tag);
+            writeAttribute(writer, "direction", "right");
+            writer.print(">");
+            writeCharacters(writer, formatSpeed(right));
+            writer.print("</");
+            writer.print(tag);
+            writer.println(">");
+        }
+    }
+    
     private static void writeAttribute(PrintWriter writer, String name, String value) {
         writer.print(" ");
         writer.print(name);
@@ -800,17 +933,10 @@ public class PonyDefinition {
                 writer.println("        <loop>false</loop>");
             }
             
-            // Omitted <anchorx> means frame centre; omitted <anchory> means frame bottom.
-            if (!Float.isNaN(action.anchorX)) {
-                writer.print("        <anchorx>");
-                writeCharacters(writer, formatSpeed(action.anchorX));
-                writer.println("</anchorx>");
-            }
-            if (!Float.isNaN(action.anchorY)) {
-                writer.print("        <anchory>");
-                writeCharacters(writer, formatSpeed(action.anchorY));
-                writer.println("</anchory>");
-            }
+            // Omitted anchors mean frame centre (X) / frame bottom (Y).
+            // Same value on both facings → bare tag (legacy-compatible); else direction=.
+            writeAnchorElements(writer, "anchorx", action.getAnchorX("left"), action.getAnchorX("right"));
+            writeAnchorElements(writer, "anchory", action.getAnchorY("left"), action.getAnchorY("right"));
             
             if (action.isAlias()) {
                 writer.print("        <spritesfrom>");

@@ -5,6 +5,7 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -82,49 +83,58 @@ public class PonyEditorGUI extends JPanel {
             }
         };
 
-        DocumentListener anchorXListener = new MyDocumentListener() {
+        DocumentListener anchorXLeftListener = new MyDocumentListener() {
             public void update(DocumentEvent e) {
-                if (currentIndex >= 0) {
-                    String text = anchorXField.getText().trim();
-                    if (text.isEmpty()) {
-                        editor.setActionAnchorX(currentIndex, Float.NaN);
-                        hasChanges = true;
-                        return;
-                    }
-                    try {
-                        float anchorX = Float.parseFloat(text);
-                        if (!Float.isNaN(anchorX) && anchorX >= 0f) {
-                            editor.setActionAnchorX(currentIndex, anchorX);
-                            hasChanges = true;
-                        }
-                    } catch (NumberFormatException ex) {
-                        // Leave previous value until the field parses cleanly.
-                    }
-                }
+                applyAnchorField(anchorXLeftField, "left", true);
             }
         };
 
-        DocumentListener anchorYListener = new MyDocumentListener() {
+        DocumentListener anchorYLeftListener = new MyDocumentListener() {
             public void update(DocumentEvent e) {
-                if (currentIndex >= 0) {
-                    String text = anchorYField.getText().trim();
-                    if (text.isEmpty()) {
-                        editor.setActionAnchorY(currentIndex, Float.NaN);
-                        hasChanges = true;
-                        return;
-                    }
-                    try {
-                        float anchorY = Float.parseFloat(text);
-                        if (!Float.isNaN(anchorY) && anchorY >= 0f) {
-                            editor.setActionAnchorY(currentIndex, anchorY);
-                            hasChanges = true;
-                        }
-                    } catch (NumberFormatException ex) {
-                        // Leave previous value until the field parses cleanly.
-                    }
-                }
+                applyAnchorField(anchorYLeftField, "left", false);
             }
         };
+
+        DocumentListener anchorXRightListener = new MyDocumentListener() {
+            public void update(DocumentEvent e) {
+                applyAnchorField(anchorXRightField, "right", true);
+            }
+        };
+
+        DocumentListener anchorYRightListener = new MyDocumentListener() {
+            public void update(DocumentEvent e) {
+                applyAnchorField(anchorYRightField, "right", false);
+            }
+        };
+
+        private void applyAnchorField(JTextField field, String direction, boolean isX) {
+            if (currentIndex < 0) {
+                return;
+            }
+            String text = field.getText().trim();
+            if (text.isEmpty()) {
+                if (isX) {
+                    editor.setActionAnchorX(currentIndex, direction, Float.NaN);
+                } else {
+                    editor.setActionAnchorY(currentIndex, direction, Float.NaN);
+                }
+                hasChanges = true;
+                return;
+            }
+            try {
+                float value = Float.parseFloat(text);
+                if (!Float.isNaN(value) && value >= 0f) {
+                    if (isX) {
+                        editor.setActionAnchorX(currentIndex, direction, value);
+                    } else {
+                        editor.setActionAnchorY(currentIndex, direction, value);
+                    }
+                    hasChanges = true;
+                }
+            } catch (NumberFormatException ex) {
+                // Leave previous value until the field parses cleanly.
+            }
+        }
 
         DocumentListener speedListener = new MyDocumentListener() {
             public void update(DocumentEvent e) {
@@ -271,9 +281,12 @@ public class PonyEditorGUI extends JPanel {
         };
         
         JTextField specialTypeField;
-        JTextField anchorXField;
-        JTextField anchorYField;
-        JButton pickAnchorsButton;
+        JTextField anchorXLeftField;
+        JTextField anchorYLeftField;
+        JTextField anchorXRightField;
+        JTextField anchorYRightField;
+        JButton pickAnchorsLeftButton;
+        JButton pickAnchorsRightButton;
         JButton checkTransitionsButton;
         JTextField speedField;
         JCheckBox loopCheckBox;
@@ -321,38 +334,49 @@ public class PonyEditorGUI extends JPanel {
             c.fill = GridBagConstraints.HORIZONTAL;
             add(specialTypeField, c);
 
-            JLabel anchorXLabel = new JLabel("Anchor X:");
+            JLabel anchorLeftLabel = new JLabel("Anchors left (X,Y):");
             c = getConstraints(0, 1);
             c.anchor = GridBagConstraints.WEST;
-            add(anchorXLabel, c);
+            add(anchorLeftLabel, c);
 
-            anchorXField = new JTextField();
-            anchorXField.setToolTipText("Optional. Feet column in pixels from the left of each frame. "
-                    + "Leave empty for frame centre (normal sheets). Set when asymmetric VFX/padding "
-                    + "would shift the body sideways relative to stand/walk.");
-            anchorXField.getDocument().addDocumentListener(anchorXListener);
+            anchorXLeftField = new JTextField();
+            anchorXLeftField.setToolTipText("Optional. Left sheet feet column in pixels from the left of "
+                    + "each frame. Leave empty for frame centre. Often differs from right when sheets are mirrors.");
+            anchorXLeftField.getDocument().addDocumentListener(anchorXLeftListener);
+            anchorYLeftField = new JTextField();
+            anchorYLeftField.setToolTipText("Optional. Left sheet feet row in pixels from the top of each "
+                    + "frame. Leave empty for bottom of frame. Set on tall VFX/teleport sheets.");
+            anchorYLeftField.getDocument().addDocumentListener(anchorYLeftListener);
+            pickAnchorsLeftButton = new JButton("Pick L…");
+            pickAnchorsLeftButton.setToolTipText("Pick feet anchors on the left spritesheet.");
+            pickAnchorsLeftButton.addActionListener(new ActionListener() {
+                public void actionPerformed(ActionEvent e) {
+                    pickAnchors("left");
+                }
+            });
             c = getConstraints(1, 1);
             c.weighty = 1.0;
             c.fill = GridBagConstraints.HORIZONTAL;
-            add(anchorXField, c);
+            add(wrapAnchorRow(anchorXLeftField, anchorYLeftField, pickAnchorsLeftButton), c);
 
-            JLabel anchorYLabel = new JLabel("Anchor Y:");
+            JLabel anchorRightLabel = new JLabel("Anchors right (X,Y):");
             c = getConstraints(0, 2);
             c.anchor = GridBagConstraints.WEST;
-            add(anchorYLabel, c);
+            add(anchorRightLabel, c);
 
-            anchorYField = new JTextField();
-            anchorYField.setToolTipText("Optional. Feet row in pixels from the top of each frame. "
-                    + "Leave empty for bottom of frame (normal sheets). Set on tall VFX/teleport sheets "
-                    + "so the body does not jump when switching to stand/walk.");
-            anchorYField.getDocument().addDocumentListener(anchorYListener);
-
-            pickAnchorsButton = new JButton("Pick…");
-            pickAnchorsButton.setToolTipText("Pick feet anchors visually: choose a frame, then click "
-                    + "on a zoomed view with a pixel grid. Anchors are shared for left and right.");
-            pickAnchorsButton.addActionListener(new ActionListener() {
+            anchorXRightField = new JTextField();
+            anchorXRightField.setToolTipText("Optional. Right sheet feet column in pixels from the left of "
+                    + "each frame. Leave empty for frame centre. Often differs from left when sheets are mirrors.");
+            anchorXRightField.getDocument().addDocumentListener(anchorXRightListener);
+            anchorYRightField = new JTextField();
+            anchorYRightField.setToolTipText("Optional. Right sheet feet row in pixels from the top of each "
+                    + "frame. Leave empty for bottom of frame.");
+            anchorYRightField.getDocument().addDocumentListener(anchorYRightListener);
+            pickAnchorsRightButton = new JButton("Pick R…");
+            pickAnchorsRightButton.setToolTipText("Pick feet anchors on the right spritesheet.");
+            pickAnchorsRightButton.addActionListener(new ActionListener() {
                 public void actionPerformed(ActionEvent e) {
-                    pickAnchors();
+                    pickAnchors("right");
                 }
             });
             checkTransitionsButton = new JButton("Check…");
@@ -366,7 +390,7 @@ public class PonyEditorGUI extends JPanel {
             c = getConstraints(1, 2);
             c.weighty = 1.0;
             c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapFieldWithButtons(anchorYField, pickAnchorsButton, checkTransitionsButton), c);
+            add(wrapAnchorRow(anchorXRightField, anchorYRightField, pickAnchorsRightButton, checkTransitionsButton), c);
 
             JLabel speedLabel = new JLabel("Speed:");
             c = getConstraints(0, 3);
@@ -626,8 +650,10 @@ public class PonyEditorGUI extends JPanel {
             
             if (index >= 0) {
                 specialTypeField.setText(editor.getActionSpecial(index));
-                anchorXField.setText(formatAnchor(editor.getActionAnchorX(index)));
-                anchorYField.setText(formatAnchor(editor.getActionAnchorY(index)));
+                anchorXLeftField.setText(formatAnchor(editor.getActionAnchorX(index, "left")));
+                anchorYLeftField.setText(formatAnchor(editor.getActionAnchorY(index, "left")));
+                anchorXRightField.setText(formatAnchor(editor.getActionAnchorX(index, "right")));
+                anchorYRightField.setText(formatAnchor(editor.getActionAnchorY(index, "right")));
                 speedField.setText(formatSpeed(editor.getActionSpeed(index)));
                 loopCheckBox.setSelected(editor.getActionLoops(index));
                 spritesFromField.setText(editor.getActionSpritesFrom(index));
@@ -640,8 +666,10 @@ public class PonyEditorGUI extends JPanel {
                 setEnabled(true);
             } else {
                 specialTypeField.setText("");
-                anchorXField.setText("");
-                anchorYField.setText("");
+                anchorXLeftField.setText("");
+                anchorYLeftField.setText("");
+                anchorXRightField.setText("");
+                anchorYRightField.setText("");
                 speedField.setText("");
                 loopCheckBox.setSelected(true);
                 spritesFromField.setText("");
@@ -846,13 +874,11 @@ public class PonyEditorGUI extends JPanel {
          * Opens the visual anchor picker on a left or right spritesheet for the
          * current action, then writes the chosen feet hotspot into the anchor fields.
          */
-        void pickAnchors() {
+        void pickAnchors(String direction) {
             if (currentIndex < 0) {
                 return;
             }
-
-            String direction = chooseAnchorPickDirection();
-            if (direction == null) {
+            if (!"left".equals(direction) && !"right".equals(direction)) {
                 return;
             }
 
@@ -875,8 +901,8 @@ public class PonyEditorGUI extends JPanel {
                     throw new IllegalArgumentException();
                 }
                 int frames = frameCountFromTimings(timings);
-                float initialX = editor.getActionAnchorX(currentIndex);
-                float initialY = editor.getActionAnchorY(currentIndex);
+                float initialX = editor.getActionAnchorX(currentIndex, direction);
+                float initialY = editor.getActionAnchorY(currentIndex, direction);
 
                 AnchorPickerDialog.Result result = AnchorPickerDialog.showDialog(
                         this, image, frames, initialX, initialY);
@@ -886,8 +912,13 @@ public class PonyEditorGUI extends JPanel {
 
                 // Setting the text fields drives the existing document listeners
                 // (editor + hasChanges).
-                anchorXField.setText(formatAnchor(result.anchorX));
-                anchorYField.setText(formatAnchor(result.anchorY));
+                if ("left".equals(direction)) {
+                    anchorXLeftField.setText(formatAnchor(result.anchorX));
+                    anchorYLeftField.setText(formatAnchor(result.anchorY));
+                } else {
+                    anchorXRightField.setText(formatAnchor(result.anchorX));
+                    anchorYRightField.setText(formatAnchor(result.anchorY));
+                }
             } catch (IllegalArgumentException e) {
                 JOptionPane.showMessageDialog(
                         this,
@@ -901,53 +932,6 @@ public class PonyEditorGUI extends JPanel {
                         "Image Error",
                         JOptionPane.ERROR_MESSAGE);
             }
-        }
-
-        /**
-         * Picks which direction's sheet to use for placement. Anchors are shared;
-         * the sheet is only a visual reference. Returns {@code "left"}, {@code "right"},
-         * or {@code null} if cancelled / unavailable.
-         */
-        private String chooseAnchorPickDirection() {
-            String leftImg = editor.getActionImage(currentIndex, "left");
-            String rightImg = editor.getActionImage(currentIndex, "right");
-            boolean hasLeft = leftImg != null && !leftImg.isEmpty();
-            boolean hasRight = rightImg != null && !rightImg.isEmpty();
-
-            if (!hasLeft && !hasRight) {
-                JOptionPane.showMessageDialog(
-                        this,
-                        "This action has no spritesheets yet. Import left/right images first "
-                                + "(or set Sprites from to an owner that has them).",
-                        "Pick Anchors",
-                        JOptionPane.WARNING_MESSAGE);
-                return null;
-            }
-            if (hasLeft && !hasRight) {
-                return "left";
-            }
-            if (hasRight && !hasLeft) {
-                return "right";
-            }
-
-            Object[] options = { "Right", "Left", "Cancel" };
-            int choice = JOptionPane.showOptionDialog(
-                    this,
-                    "Anchors are shared for both directions.\n"
-                            + "Which spritesheet should be used as the visual reference?",
-                    "Pick Anchors",
-                    JOptionPane.DEFAULT_OPTION,
-                    JOptionPane.QUESTION_MESSAGE,
-                    null,
-                    options,
-                    options[0]);
-            if (choice == 0) {
-                return "right";
-            }
-            if (choice == 1) {
-                return "left";
-            }
-            return null;
         }
 
         private static int frameCountFromTimings(String timings) {
@@ -966,6 +950,24 @@ public class PonyEditorGUI extends JPanel {
 
         private static JPanel wrapFieldWithButton(JTextField field, JButton button) {
             return wrapFieldWithButtons(field, button);
+        }
+
+        /** X field + Y field + trailing buttons (Pick / Check). */
+        private static JPanel wrapAnchorRow(JTextField xField, JTextField yField, JButton... buttons) {
+            JPanel row = new JPanel(new BorderLayout(4, 0));
+            JPanel xy = new JPanel(new GridLayout(1, 2, 4, 0));
+            xy.add(xField);
+            xy.add(yField);
+            row.add(xy, BorderLayout.CENTER);
+            if (buttons != null && buttons.length > 0) {
+                JPanel east = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+                east.setOpaque(false);
+                for (JButton button : buttons) {
+                    east.add(button);
+                }
+                row.add(east, BorderLayout.EAST);
+            }
+            return row;
         }
 
         private static JPanel wrapFieldWithButtons(JTextField field, JButton... buttons) {
@@ -1064,9 +1066,13 @@ public class PonyEditorGUI extends JPanel {
             super.setEnabled(enabled);
             
             specialTypeField.setEnabled(enabled);
-            anchorXField.setEnabled(enabled);
-            anchorYField.setEnabled(enabled);
-            pickAnchorsButton.setEnabled(enabled);
+            anchorXLeftField.setEnabled(enabled);
+            anchorYLeftField.setEnabled(enabled);
+            anchorXRightField.setEnabled(enabled);
+            anchorYRightField.setEnabled(enabled);
+            pickAnchorsLeftButton.setEnabled(enabled);
+            pickAnchorsRightButton.setEnabled(enabled);
+            checkTransitionsButton.setEnabled(enabled);
             speedField.setEnabled(enabled);
             loopCheckBox.setEnabled(enabled);
             spritesFromField.setEnabled(enabled);

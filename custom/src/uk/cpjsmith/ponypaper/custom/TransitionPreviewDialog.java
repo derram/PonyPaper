@@ -44,7 +44,7 @@ import javax.swing.event.ChangeListener;
 /**
  * Modal dialog: play action A then B with feet locked to a fixed ground point,
  * and optional onion-skin of A's last frame under B's first (or current) frame.
- * Used to verify {@code <anchorx>}/{@code <anchory>} across transitions.
+ * Used to verify per-facing {@code <anchorx>}/{@code <anchory>} across transitions.
  */
 public final class TransitionPreviewDialog extends JDialog {
 

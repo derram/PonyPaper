@@ -84,20 +84,21 @@ public class PonyAction {
     private SpriteSheet[] sprites;
     
     /**
-     * Unscaled X of the feet hotspot within each frame (pixels from the left of
-     * the sheet). When {@link Float#NaN}, {@link #getAnchorX} uses the frame
-     * centre (bottom-center default). Asymmetric VFX sheets set this so world
-     * position stays on the body instead of shifting with padding.
+     * Unscaled X of the feet hotspot within each frame per facing
+     * ({@link #LEFT}/{@link #RIGHT}), pixels from the left of that sheet's frame.
+     * When {@link Float#NaN}, {@link #getAnchorX} uses the frame centre.
+     * Asymmetric VFX sheets set this so world position stays on the body;
+     * left and right often differ when sheets are mirrors.
      */
-    private float anchorX = Float.NaN;
+    private final float[] anchorX = new float[] { Float.NaN, Float.NaN };
     
     /**
-     * Unscaled Y of the feet hotspot within each frame (pixels from the top of
-     * the sheet). When {@link Float#NaN}, {@link #getAnchorY} uses the frame
-     * bottom (bottom-center default). Tall VFX sheets (teleports) set this so
-     * world position stays on the hooves instead of the sheet edge.
+     * Unscaled Y of the feet hotspot within each frame per facing
+     * ({@link #LEFT}/{@link #RIGHT}), pixels from the top of that sheet's frame.
+     * When {@link Float#NaN}, {@link #getAnchorY} uses the frame bottom.
+     * Tall VFX sheets (teleports) set this so world position stays on the hooves.
      */
-    private float anchorY = Float.NaN;
+    private final float[] anchorY = new float[] { Float.NaN, Float.NaN };
     
     private PonyAction[] nextWaiting;
     private PonyAction[] nextMoving;
@@ -189,9 +190,11 @@ public class PonyAction {
         this.res = this.spriteSource.res;
         this.arrayId = this.spriteSource.arrayId;
         this.definition = this.spriteSource.definition;
-        // Same sheets → same feet hotspot unless the alias overrides later.
-        this.anchorX = this.spriteSource.anchorX;
-        this.anchorY = this.spriteSource.anchorY;
+        // Same sheets → same feet hotspots unless the alias overrides later.
+        this.anchorX[LEFT] = this.spriteSource.anchorX[LEFT];
+        this.anchorX[RIGHT] = this.spriteSource.anchorX[RIGHT];
+        this.anchorY[LEFT] = this.spriteSource.anchorY[LEFT];
+        this.anchorY[RIGHT] = this.spriteSource.anchorY[RIGHT];
     }
     
     /**
@@ -210,77 +213,129 @@ public class PonyAction {
         }
         this.speed = sanitizeSpeed(definition.speed);
         this.loops = definition.loops;
-        if (!Float.isNaN(definition.anchorX) && definition.anchorX >= 0f) {
-            this.anchorX = definition.anchorX;
-        }
-        if (!Float.isNaN(definition.anchorY) && definition.anchorY >= 0f) {
-            this.anchorY = definition.anchorY;
-        }
+        copyDefinitionAnchors(definition);
         // Test the images.
         load();
         unload();
     }
     
+    private void copyDefinitionAnchors(PonyDefinition.Action definition) {
+        float leftX = definition.getAnchorX("left");
+        float rightX = definition.getAnchorX("right");
+        float leftY = definition.getAnchorY("left");
+        float rightY = definition.getAnchorY("right");
+        if (!Float.isNaN(leftX) && leftX >= 0f) {
+            this.anchorX[LEFT] = leftX;
+        }
+        if (!Float.isNaN(rightX) && rightX >= 0f) {
+            this.anchorX[RIGHT] = rightX;
+        }
+        if (!Float.isNaN(leftY) && leftY >= 0f) {
+            this.anchorY[LEFT] = leftY;
+        }
+        if (!Float.isNaN(rightY) && rightY >= 0f) {
+            this.anchorY[RIGHT] = rightY;
+        }
+    }
+    
     /**
-     * Sets the unscaled feet column within each frame (pixels from the left of
-     * the sheet). Pass a negative value or {@link Float#NaN} to restore the
-     * default frame-centre behaviour.
+     * Sets the unscaled feet column for both facings (pixels from the left of
+     * each frame). Pass a negative value or {@link Float#NaN} to restore the
+     * default frame-centre behaviour on both sides.
      *
      * @param anchorX feet X in source pixels, or {@code NaN}/negative to clear
      * @return this action (for chaining at construction sites)
      */
     public PonyAction setAnchorX(float anchorX) {
+        setAnchorX(LEFT, anchorX);
+        setAnchorX(RIGHT, anchorX);
+        return this;
+    }
+    
+    /**
+     * Sets the unscaled feet column for one facing.
+     *
+     * @param dir     {@link #LEFT} or {@link #RIGHT}
+     * @param anchorX feet X in source pixels, or {@code NaN}/negative to clear
+     * @return this action (for chaining)
+     */
+    public PonyAction setAnchorX(int dir, float anchorX) {
+        checkDir(dir);
         if (Float.isNaN(anchorX) || anchorX < 0f) {
-            this.anchorX = Float.NaN;
+            this.anchorX[dir] = Float.NaN;
         } else {
-            this.anchorX = anchorX;
+            this.anchorX[dir] = anchorX;
         }
         return this;
     }
     
     /**
-     * Sets the unscaled feet row within each frame (pixels from the top of the
-     * sheet). Pass a negative value or {@link Float#NaN} to restore the default
-     * bottom-center behaviour.
+     * Sets the unscaled feet row for both facings (pixels from the top of each
+     * frame). Pass a negative value or {@link Float#NaN} to restore the default
+     * bottom-center behaviour on both sides.
      *
      * @param anchorY feet Y in source pixels, or {@code NaN}/negative to clear
      * @return this action (for chaining at construction sites)
      */
     public PonyAction setAnchorY(float anchorY) {
+        setAnchorY(LEFT, anchorY);
+        setAnchorY(RIGHT, anchorY);
+        return this;
+    }
+    
+    /**
+     * Sets the unscaled feet row for one facing.
+     *
+     * @param dir     {@link #LEFT} or {@link #RIGHT}
+     * @param anchorY feet Y in source pixels, or {@code NaN}/negative to clear
+     * @return this action (for chaining)
+     */
+    public PonyAction setAnchorY(int dir, float anchorY) {
+        checkDir(dir);
         if (Float.isNaN(anchorY) || anchorY < 0f) {
-            this.anchorY = Float.NaN;
+            this.anchorY[dir] = Float.NaN;
         } else {
-            this.anchorY = anchorY;
+            this.anchorY[dir] = anchorY;
         }
         return this;
     }
     
     /**
-     * Feet hotspot X for drawing and hit-tests. Explicit {@link #setAnchorX}
-     * wins; otherwise the horizontal centre of the loaded frame (bottom-center).
+     * Feet hotspot X for drawing and hit-tests. Explicit per-facing
+     * {@link #setAnchorX} wins; otherwise the horizontal centre of the loaded
+     * frame for that facing (bottom-center default).
      *
      * @param dir {@link #LEFT} or {@link #RIGHT}
      * @return unscaled pixels from the left of the frame to the feet
      */
     public float getAnchorX(int dir) {
-        if (!Float.isNaN(anchorX)) {
-            return anchorX;
+        checkDir(dir);
+        if (!Float.isNaN(anchorX[dir])) {
+            return anchorX[dir];
         }
         return getFrameSize(dir)[0] / 2f;
     }
     
     /**
-     * Feet hotspot Y for drawing and hit-tests. Explicit {@link #setAnchorY}
-     * wins; otherwise the bottom of the loaded frame (bottom-center).
+     * Feet hotspot Y for drawing and hit-tests. Explicit per-facing
+     * {@link #setAnchorY} wins; otherwise the bottom of the loaded frame for
+     * that facing (bottom-center default).
      *
      * @param dir {@link #LEFT} or {@link #RIGHT}
      * @return unscaled pixels from the top of the frame to the feet
      */
     public float getAnchorY(int dir) {
-        if (!Float.isNaN(anchorY)) {
-            return anchorY;
+        checkDir(dir);
+        if (!Float.isNaN(anchorY[dir])) {
+            return anchorY[dir];
         }
         return getFrameSize(dir)[1];
+    }
+    
+    private static void checkDir(int dir) {
+        if (dir != LEFT && dir != RIGHT) {
+            throw new IllegalArgumentException("dir must be LEFT or RIGHT");
+        }
     }
     
     private static float sanitizeSpeed(float speed) {
