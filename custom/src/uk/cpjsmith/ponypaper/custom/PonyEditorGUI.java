@@ -2,6 +2,7 @@ package uk.cpjsmith.ponypaper.custom;
 
 import java.awt.BorderLayout;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Image;
@@ -273,6 +274,7 @@ public class PonyEditorGUI extends JPanel {
         JTextField anchorXField;
         JTextField anchorYField;
         JButton pickAnchorsButton;
+        JButton checkTransitionsButton;
         JTextField speedField;
         JCheckBox loopCheckBox;
         JTextField spritesFromField;
@@ -353,10 +355,18 @@ public class PonyEditorGUI extends JPanel {
                     pickAnchors();
                 }
             });
+            checkTransitionsButton = new JButton("Check…");
+            checkTransitionsButton.setToolTipText("Preview this action transitioning into a next action "
+                    + "with feet locked, to verify anchors. Includes onion-skin of A last under B.");
+            checkTransitionsButton.addActionListener(new ActionListener() {
+                public void actionPerformed(ActionEvent e) {
+                    checkTransitions();
+                }
+            });
             c = getConstraints(1, 2);
             c.weighty = 1.0;
             c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapFieldWithButton(anchorYField, pickAnchorsButton), c);
+            add(wrapFieldWithButtons(anchorYField, pickAnchorsButton, checkTransitionsButton), c);
 
             JLabel speedLabel = new JLabel("Speed:");
             c = getConstraints(0, 3);
@@ -814,6 +824,25 @@ public class PonyEditorGUI extends JPanel {
         }
 
         /**
+         * Opens the feet-locked A→B transition preview for the current action so
+         * anchors can be verified against next waiting/moving/drag successors.
+         */
+        void checkTransitions() {
+            if (currentIndex < 0) {
+                return;
+            }
+            String direction = "right";
+            String rightImg = editor.getActionImage(currentIndex, "right");
+            String leftImg = editor.getActionImage(currentIndex, "left");
+            boolean hasRight = rightImg != null && !rightImg.isEmpty();
+            boolean hasLeft = leftImg != null && !leftImg.isEmpty();
+            if (!hasRight && hasLeft) {
+                direction = "left";
+            }
+            TransitionPreviewDialog.showDialog(this, editor, currentIndex, direction);
+        }
+
+        /**
          * Opens the visual anchor picker on a left or right spritesheet for the
          * current action, then writes the chosen feet hotspot into the anchor fields.
          */
@@ -936,9 +965,20 @@ public class PonyEditorGUI extends JPanel {
         }
 
         private static JPanel wrapFieldWithButton(JTextField field, JButton button) {
+            return wrapFieldWithButtons(field, button);
+        }
+
+        private static JPanel wrapFieldWithButtons(JTextField field, JButton... buttons) {
             JPanel row = new JPanel(new BorderLayout(4, 0));
             row.add(field, BorderLayout.CENTER);
-            row.add(button, BorderLayout.EAST);
+            if (buttons != null && buttons.length > 0) {
+                JPanel east = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+                east.setOpaque(false);
+                for (JButton button : buttons) {
+                    east.add(button);
+                }
+                row.add(east, BorderLayout.EAST);
+            }
             return row;
         }
         
