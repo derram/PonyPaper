@@ -272,6 +272,7 @@ public class PonyEditorGUI extends JPanel {
         JTextField specialTypeField;
         JTextField anchorXField;
         JTextField anchorYField;
+        JButton pickAnchorsButton;
         JTextField speedField;
         JCheckBox loopCheckBox;
         JTextField spritesFromField;
@@ -343,10 +344,19 @@ public class PonyEditorGUI extends JPanel {
                     + "Leave empty for bottom of frame (normal sheets). Set on tall VFX/teleport sheets "
                     + "so the body does not jump when switching to stand/walk.");
             anchorYField.getDocument().addDocumentListener(anchorYListener);
+
+            pickAnchorsButton = new JButton("Pick…");
+            pickAnchorsButton.setToolTipText("Pick feet anchors visually: choose a frame, then click "
+                    + "on a zoomed view with a pixel grid. Anchors are shared for left and right.");
+            pickAnchorsButton.addActionListener(new ActionListener() {
+                public void actionPerformed(ActionEvent e) {
+                    pickAnchors();
+                }
+            });
             c = getConstraints(1, 2);
             c.weighty = 1.0;
             c.fill = GridBagConstraints.HORIZONTAL;
-            add(anchorYField, c);
+            add(wrapFieldWithButton(anchorYField, pickAnchorsButton), c);
 
             JLabel speedLabel = new JLabel("Speed:");
             c = getConstraints(0, 3);
@@ -794,12 +804,142 @@ public class PonyEditorGUI extends JPanel {
                 byte[] rawImage = b64Dec.decode(b64Image);
                 Image image = ImageIO.read(new ByteArrayInputStream(rawImage));
                 if (image == null) throw new IllegalArgumentException();
-                JOptionPane.showMessageDialog(this, new SpriteSheetPreview(image, timings.split(",").length), "Image Preview", JOptionPane.PLAIN_MESSAGE);
+                int frames = frameCountFromTimings(timings);
+                JOptionPane.showMessageDialog(this, new SpriteSheetPreview(image, frames), "Image Preview", JOptionPane.PLAIN_MESSAGE);
             } catch (IllegalArgumentException e) {
                 JOptionPane.showMessageDialog(this, "The image could not be decoded. Please load a new image.", "Image Error", JOptionPane.ERROR_MESSAGE);
             } catch (IOException e) {
                 JOptionPane.showMessageDialog(this, "The image could not be decoded. Please load a new image.", "Image Error", JOptionPane.ERROR_MESSAGE);
             }
+        }
+
+        /**
+         * Opens the visual anchor picker on a left or right spritesheet for the
+         * current action, then writes the chosen feet hotspot into the anchor fields.
+         */
+        void pickAnchors() {
+            if (currentIndex < 0) {
+                return;
+            }
+
+            String direction = chooseAnchorPickDirection();
+            if (direction == null) {
+                return;
+            }
+
+            String b64Image = editor.getActionImage(currentIndex, direction);
+            String timings = editor.getActionTimings(currentIndex, direction);
+            if (b64Image == null || b64Image.isEmpty()) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "No " + direction + " spritesheet is available for this action.",
+                        "Pick Anchors",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            try {
+                Base64.Decoder b64Dec = Base64.getDecoder();
+                byte[] rawImage = b64Dec.decode(b64Image);
+                Image image = ImageIO.read(new ByteArrayInputStream(rawImage));
+                if (image == null) {
+                    throw new IllegalArgumentException();
+                }
+                int frames = frameCountFromTimings(timings);
+                float initialX = editor.getActionAnchorX(currentIndex);
+                float initialY = editor.getActionAnchorY(currentIndex);
+
+                AnchorPickerDialog.Result result = AnchorPickerDialog.showDialog(
+                        this, image, frames, initialX, initialY);
+                if (result == null) {
+                    return;
+                }
+
+                // Setting the text fields drives the existing document listeners
+                // (editor + hasChanges).
+                anchorXField.setText(formatAnchor(result.anchorX));
+                anchorYField.setText(formatAnchor(result.anchorY));
+            } catch (IllegalArgumentException e) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "The image could not be decoded. Please load a new image.",
+                        "Image Error",
+                        JOptionPane.ERROR_MESSAGE);
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "The image could not be decoded. Please load a new image.",
+                        "Image Error",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        }
+
+        /**
+         * Picks which direction's sheet to use for placement. Anchors are shared;
+         * the sheet is only a visual reference. Returns {@code "left"}, {@code "right"},
+         * or {@code null} if cancelled / unavailable.
+         */
+        private String chooseAnchorPickDirection() {
+            String leftImg = editor.getActionImage(currentIndex, "left");
+            String rightImg = editor.getActionImage(currentIndex, "right");
+            boolean hasLeft = leftImg != null && !leftImg.isEmpty();
+            boolean hasRight = rightImg != null && !rightImg.isEmpty();
+
+            if (!hasLeft && !hasRight) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "This action has no spritesheets yet. Import left/right images first "
+                                + "(or set Sprites from to an owner that has them).",
+                        "Pick Anchors",
+                        JOptionPane.WARNING_MESSAGE);
+                return null;
+            }
+            if (hasLeft && !hasRight) {
+                return "left";
+            }
+            if (hasRight && !hasLeft) {
+                return "right";
+            }
+
+            Object[] options = { "Right", "Left", "Cancel" };
+            int choice = JOptionPane.showOptionDialog(
+                    this,
+                    "Anchors are shared for both directions.\n"
+                            + "Which spritesheet should be used as the visual reference?",
+                    "Pick Anchors",
+                    JOptionPane.DEFAULT_OPTION,
+                    JOptionPane.QUESTION_MESSAGE,
+                    null,
+                    options,
+                    options[0]);
+            if (choice == 0) {
+                return "right";
+            }
+            if (choice == 1) {
+                return "left";
+            }
+            return null;
+        }
+
+        private static int frameCountFromTimings(String timings) {
+            if (timings == null || timings.trim().isEmpty()) {
+                return 1;
+            }
+            String[] parts = timings.split(",");
+            int count = 0;
+            for (String part : parts) {
+                if (!part.trim().isEmpty()) {
+                    count++;
+                }
+            }
+            return count < 1 ? 1 : count;
+        }
+
+        private static JPanel wrapFieldWithButton(JTextField field, JButton button) {
+            JPanel row = new JPanel(new BorderLayout(4, 0));
+            row.add(field, BorderLayout.CENTER);
+            row.add(button, BorderLayout.EAST);
+            return row;
         }
         
         void importImage(String direction) {
@@ -886,6 +1026,7 @@ public class PonyEditorGUI extends JPanel {
             specialTypeField.setEnabled(enabled);
             anchorXField.setEnabled(enabled);
             anchorYField.setEnabled(enabled);
+            pickAnchorsButton.setEnabled(enabled);
             speedField.setEnabled(enabled);
             loopCheckBox.setEnabled(enabled);
             spritesFromField.setEnabled(enabled);
