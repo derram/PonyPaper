@@ -22,7 +22,8 @@ import javax.swing.SwingUtilities;
 
 /**
  * Modal dialog: pick a spritesheet frame, then place feet anchors on a zoomed
- * view with an optional pixel grid. Returns {@code null} on cancel.
+ * view with an optional pixel grid. Ctrl+scroll zooms toward the cursor in
+ * place mode. Returns {@code null} on cancel.
  */
 public final class AnchorPickerDialog extends JDialog {
 

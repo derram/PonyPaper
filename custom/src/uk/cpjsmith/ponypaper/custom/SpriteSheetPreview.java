@@ -14,15 +14,21 @@ import java.awt.event.KeyListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.awt.event.MouseMotionListener;
+import java.awt.event.MouseWheelEvent;
+import java.awt.event.MouseWheelListener;
 import java.awt.image.BufferedImage;
 import javax.swing.JComponent;
+import javax.swing.JScrollPane;
+import javax.swing.JViewport;
+import javax.swing.SwingUtilities;
 
 /**
  * Spritesheet viewer used for plain preview and for the two-phase anchor picker
  * (select a frame, then place feet on a zoomed frame with an optional pixel grid).
+ * In place mode, Ctrl+scroll (Meta+scroll on macOS) zooms toward the cursor.
  */
 public class SpriteSheetPreview extends JComponent
-        implements MouseListener, MouseMotionListener, KeyListener {
+        implements MouseListener, MouseMotionListener, MouseWheelListener, KeyListener {
 
     /** Interaction mode for the component. */
     public enum Mode {
@@ -89,6 +95,7 @@ public class SpriteSheetPreview extends JComponent
         setPreferredSize(preferredSizeForMode());
         addMouseListener(this);
         addMouseMotionListener(this);
+        addMouseWheelListener(this);
         addKeyListener(this);
         updateStatus();
     }
@@ -168,15 +175,85 @@ public class SpriteSheetPreview extends JComponent
 
     /**
      * Integer zoom used in {@link Mode#PLACE_ANCHOR} so source pixels map to clean blocks.
+     * Range is 1–16.
      */
     public void setPlaceZoom(int placeZoom) {
-        this.placeZoom = Math.max(1, Math.min(16, placeZoom));
+        int z = Math.max(1, Math.min(16, placeZoom));
+        if (this.placeZoom == z) {
+            return;
+        }
+        this.placeZoom = z;
         if (mode == Mode.PLACE_ANCHOR) {
             setPreferredSize(preferredSizeForMode());
             revalidate();
         }
         repaint();
         updateStatus();
+    }
+
+    /**
+     * Changes place-mode zoom while keeping the source pixel under {@code mouseInPreview}
+     * fixed in the enclosing {@link JScrollPane} viewport (cursor-centered zoom).
+     * No-op when not in {@link Mode#PLACE_ANCHOR} or when zoom is unchanged after clamping.
+     *
+     * @param mouseInPreview mouse location in this component's coordinates
+     * @param newZoom        desired integer zoom (clamped to 1–16)
+     */
+    public void zoomToward(Point mouseInPreview, int newZoom) {
+        if (mode != Mode.PLACE_ANCHOR || selectedFrame < 0 || mouseInPreview == null) {
+            setPlaceZoom(newZoom);
+            return;
+        }
+        int z = Math.max(1, Math.min(16, newZoom));
+        if (z == placeZoom) {
+            return;
+        }
+
+        Rectangle bounds = getImageBounds();
+        float srcX;
+        float srcY;
+        if (bounds.width > 0 && bounds.height > 0 && bounds.contains(mouseInPreview)) {
+            srcX = (mouseInPreview.x - bounds.x) * (float) frameWidth / bounds.width;
+            srcY = (mouseInPreview.y - bounds.y) * (float) frameHeight / bounds.height;
+        } else {
+            // Outside the image: zoom around frame centre.
+            srcX = frameWidth / 2f;
+            srcY = frameHeight / 2f;
+        }
+        srcX = clamp(srcX, 0f, frameWidth);
+        srcY = clamp(srcY, 0f, frameHeight);
+
+        JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, this);
+        JViewport viewport = scroll != null ? scroll.getViewport() : null;
+        Point mouseInViewport = viewport != null
+                ? SwingUtilities.convertPoint(this, mouseInPreview, viewport)
+                : null;
+
+        setPlaceZoom(z);
+
+        if (viewport == null || mouseInViewport == null) {
+            return;
+        }
+
+        // Apply new preferred size immediately so bounds / view size match the zoom.
+        Dimension pref = getPreferredSize();
+        setSize(pref);
+        viewport.setViewSize(pref);
+
+        Rectangle newBounds = getImageBounds();
+        int contentX = newBounds.x + Math.round(srcX * newBounds.width / (float) frameWidth);
+        int contentY = newBounds.y + Math.round(srcY * newBounds.height / (float) frameHeight);
+
+        int viewX = contentX - mouseInViewport.x;
+        int viewY = contentY - mouseInViewport.y;
+
+        Dimension extent = viewport.getExtentSize();
+        int maxX = Math.max(0, pref.width - extent.width);
+        int maxY = Math.max(0, pref.height - extent.height);
+        viewX = Math.max(0, Math.min(maxX, viewX));
+        viewY = Math.max(0, Math.min(maxY, viewY));
+
+        viewport.setViewPosition(new Point(viewX, viewY));
     }
 
     /**
@@ -374,7 +451,7 @@ public class SpriteSheetPreview extends JComponent
                 coords = String.format("%.1f, %.1f", anchorX, anchorY);
             }
             return String.format(
-                    "Frame %d / %d @ %dx — click or drag to set feet (%s). Arrows nudge 1px (Shift: 5).",
+                    "Frame %d / %d @ %dx — click or drag to set feet (%s). Arrows nudge 1px (Shift: 5). Ctrl+scroll zooms.",
                     selectedFrame + 1,
                     frameCount,
                     placeZoom,
@@ -588,6 +665,51 @@ public class SpriteSheetPreview extends JComponent
     @Override
     public void mouseMoved(MouseEvent e) {
         highlightFrame(e);
+    }
+
+    @Override
+    public void mouseWheelMoved(MouseWheelEvent e) {
+        // Ctrl (or Meta on macOS) + wheel zooms in place mode; otherwise forward so
+        // the enclosing JScrollPane can still scroll (registering a wheel listener
+        // on the view suppresses default scroll-pane delivery).
+        if (mode == Mode.PLACE_ANCHOR && (e.isControlDown() || e.isMetaDown())) {
+            int notches = e.getWheelRotation();
+            if (notches != 0) {
+                int newZoom = placeZoom + (notches < 0 ? 1 : -1);
+                zoomToward(e.getPoint(), newZoom);
+            }
+            e.consume();
+            return;
+        }
+        forwardWheelToScrollPane(e);
+    }
+
+    /**
+     * Re-dispatches a wheel event to the enclosing scroll pane so plain scrolling
+     * still works after we attach a {@link MouseWheelListener} to this view.
+     */
+    private void forwardWheelToScrollPane(MouseWheelEvent e) {
+        JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, this);
+        if (scroll == null) {
+            return;
+        }
+        Point p = SwingUtilities.convertPoint(this, e.getPoint(), scroll);
+        MouseWheelEvent copy = new MouseWheelEvent(
+                scroll,
+                e.getID(),
+                e.getWhen(),
+                e.getModifiersEx(),
+                p.x,
+                p.y,
+                e.getXOnScreen(),
+                e.getYOnScreen(),
+                e.getClickCount(),
+                e.isPopupTrigger(),
+                e.getScrollType(),
+                e.getScrollAmount(),
+                e.getWheelRotation(),
+                e.getPreciseWheelRotation());
+        scroll.dispatchEvent(copy);
     }
 
     @Override
