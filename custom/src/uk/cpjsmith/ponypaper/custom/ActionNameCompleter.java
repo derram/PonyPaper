@@ -1,8 +1,11 @@
 package uk.cpjsmith.ponypaper.custom;
 
+import java.awt.AWTKeyStroke;
+import java.awt.KeyboardFocusManager;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import javax.swing.AbstractAction;
 import javax.swing.JComponent;
@@ -20,6 +23,11 @@ import javax.swing.text.Document;
  * <p>
  * Phase 1: Tab only. One prefix match fills the token; several matches extend
  * to the longest common prefix. No popup yet.
+ * <p>
+ * Tab is a Swing focus-traversal key, so it never reaches a field's InputMap
+ * unless forward traversal is cleared on that component. Shift+Tab still moves
+ * focus backward; plain Tab falls through to the next field only when
+ * completion has nothing left to do.
  */
 public final class ActionNameCompleter {
 
@@ -60,6 +68,12 @@ public final class ActionNameCompleter {
         if (field == null || candidates == null) {
             throw new IllegalArgumentException("field and candidates required");
         }
+        // KeyboardFocusManager eats VK_TAB for focus traversal before InputMap
+        // sees it. Clear only forward keys so our binding receives Tab; keep
+        // default Shift+Tab backward traversal.
+        field.setFocusTraversalKeys(
+                KeyboardFocusManager.FORWARD_TRAVERSAL_KEYS,
+                Collections.<AWTKeyStroke>emptySet());
         field.getInputMap(JComponent.WHEN_FOCUSED)
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "completeActionName");
         field.getActionMap().put("completeActionName", new AbstractAction() {
