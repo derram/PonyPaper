@@ -454,7 +454,13 @@ public class PonyAction {
     }
     
     public void drawOn(Canvas c, int dir, int time, Point p, float scale, boolean dragged) {
+        if (sprites == null || dir < 0 || dir >= sprites.length) return;
         SpriteSheet sprite = sprites[dir];
+        // Recycled / unloaded sheets must not be blitted: that produces the
+        // classic garbage-stripe ("spaghetti") frames during teardown races.
+        if (sprite == null || sprite.bitmap == null || sprite.bitmap.isRecycled()) {
+            return;
+        }
         
         if (dragged) {
             p = new Point(p);

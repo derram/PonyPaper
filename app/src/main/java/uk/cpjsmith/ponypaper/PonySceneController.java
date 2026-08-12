@@ -147,6 +147,12 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     private boolean active = false;
     private boolean started = false;
+    /**
+     * When true, the draw loop is paused and the last surface buffer is left
+     * intact. Used by the dream during content fade-out so bitmaps are not
+     * redrawn/recycled under a system window transition.
+     */
+    private boolean frozen = false;
     private long lastFrameUptimeMs = 0;
     private final Runnable drawFrameCallback = new Runnable() {
         public void run() {
@@ -217,6 +223,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (!started) return;
         started = false;
         active = false;
+        frozen = false;
         unregisterThermalListener();
         try {
             appContext.unregisterReceiver(powerSaveReceiver);
@@ -239,10 +246,12 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /**
      * Starts or stops the draw loop. Wallpaper maps visibility here; dream maps
      * dreaming + surface-ready. Does not animate while {@link #thermalEmergency}.
+     * Clearing active also clears {@link #frozen}.
      */
     public void setActive(boolean active) {
         if (!active) {
             this.active = false;
+            this.frozen = false;
             handler.removeCallbacks(drawFrameCallback);
             return;
         }
@@ -250,9 +259,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         applyPowerPolicyState(isSystemPowerSaveMode(), isOnBattery(null));
         recomputeThermalPolicy();
         this.active = true;
+        this.frozen = false;
         lastFrameUptimeMs = 0;
         if (thermalEmergency) {
-            paintThermalSafeFrame();
+            paintSolidFrame(THERMAL_SAFE_COLOUR);
             // Dream may have attached while already hot (hard-stop was a no-op then).
             surface.onThermalHardStop();
             return;
@@ -261,10 +271,54 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
+     * Freezes or unfreezes the scene. While frozen, no further frames are
+     * scheduled and the last posted surface buffer is left as-is (no bitmap
+     * recycle, no herd reset). Dream hosts use this during content fade-out
+     * before {@code wakeUp()}/{@code finish()}.
+     */
+    public void setFrozen(boolean frozen) {
+        if (this.frozen == frozen) return;
+        this.frozen = frozen;
+        handler.removeCallbacks(drawFrameCallback);
+        if (!frozen && active && !thermalEmergency && surface.isDrawingEnabled()) {
+            lastFrameUptimeMs = 0;
+            drawFrame();
+        }
+    }
+
+    /** @return whether {@link #setFrozen(boolean)} is holding the last frame */
+    public boolean isFrozen() {
+        return frozen;
+    }
+
+    /**
+     * Paints a single solid colour to the host surface. Used for thermal safe
+     * frames and optional teardown blanks.
+     */
+    public void paintSolidFrame(int color) {
+        final SurfaceHolder holder = surface.getSurfaceHolder();
+        if (holder == null) return;
+        Canvas c = null;
+        try {
+            c = holder.lockCanvas();
+            if (c != null && c.getWidth() > 0 && c.getHeight() > 0) {
+                c.drawColor(color);
+            }
+        } finally {
+            if (c != null) holder.unlockCanvasAndPost(c);
+        }
+    }
+
+    /**
      * Call when the host surface size changes. Resets pony positions and
-     * redraws if the scene is active.
+     * redraws if the scene is active. Skipped while inactive or frozen so
+     * teardown / exit-size thrash does not {@link Pony#reset() recycle} bitmaps
+     * under a still-visible surface buffer.
      */
     public void onSurfaceSizeChanged() {
+        if (!active || frozen) {
+            return;
+        }
         if (ponies != null) ponies.reset();
         if (drunkMode) {
             drunkElapsedMs = 0;
@@ -272,9 +326,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             paint.setAlpha(0xff);
         }
         lastFrameUptimeMs = 0;
-        if (active) {
-            drawFrame();
-        }
+        drawFrame();
     }
 
     public void onTouchEvent(MotionEvent event) {
@@ -458,8 +510,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             handler.removeCallbacks(drawFrameCallback);
             ponies = null;
             background = null;
-            if (active && surface.isDrawingEnabled()) {
-                paintThermalSafeFrame();
+            if (active && surface.isDrawingEnabled() && !frozen) {
+                paintSolidFrame(THERMAL_SAFE_COLOUR);
             }
             if (!wasEmergency) {
                 surface.onThermalHardStop();
@@ -468,34 +520,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
 
         // Leaving emergency or crossing throttle: rebuild herd when size/profile changes.
-        if (wasEmergency || wasThrottle != thermalThrottle
-                || wasEffectivePonies != nowEffectivePonies) {
+        // Skip while frozen so exit fade does not drop bitmaps mid-transition.
+        if (!frozen && (wasEmergency || wasThrottle != thermalThrottle
+                || wasEffectivePonies != nowEffectivePonies)) {
             ponies = null;
             background = null;
         }
 
         handler.removeCallbacks(drawFrameCallback);
-        if (active && surface.isDrawingEnabled()) {
+        if (active && surface.isDrawingEnabled() && !frozen) {
             lastFrameUptimeMs = 0;
             drawFrame();
-        }
-    }
-
-    /**
-     * Single solid frame with no animation. Used while thermal emergency is active
-     * so the surface is not left showing a stale high-cost scene.
-     */
-    private void paintThermalSafeFrame() {
-        final SurfaceHolder holder = surface.getSurfaceHolder();
-        if (holder == null) return;
-        Canvas c = null;
-        try {
-            c = holder.lockCanvas();
-            if (c != null && c.getWidth() > 0 && c.getHeight() > 0) {
-                c.drawColor(THERMAL_SAFE_COLOUR);
-            }
-        } finally {
-            if (c != null) holder.unlockCanvasAndPost(c);
         }
     }
 
@@ -547,12 +582,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         applyTargetFps(prefs);
 
         // Rebuild when herd size or image-background policy changes.
-        if (ponies == null || wasEffective != nowEffective || wasSig != nowSig) {
+        // Leave the herd alone while frozen (exit fade holds the last buffer).
+        if (!frozen && (ponies == null || wasEffective != nowEffective || wasSig != nowSig)) {
             ponies = null;
         }
 
         handler.removeCallbacks(drawFrameCallback);
-        if (active) {
+        if (active && !frozen) {
             lastFrameUptimeMs = 0;
             drawFrame();
         }
@@ -560,9 +596,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     private void reapplyPowerProfilePrefs(SharedPreferences prefs) {
         applyTargetFps(prefs);
-        ponies = null;
+        if (!frozen) {
+            ponies = null;
+        }
         handler.removeCallbacks(drawFrameCallback);
-        if (active) {
+        if (active && !frozen) {
             lastFrameUptimeMs = 0;
             drawFrame();
         }
@@ -573,7 +611,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (PREF_TARGET_FPS.equals(key)) {
             applyTargetFps(prefs);
             handler.removeCallbacks(drawFrameCallback);
-            if (active) {
+            if (active && !frozen) {
                 lastFrameUptimeMs = 0;
                 drawFrame();
             }
@@ -586,7 +624,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             reapplyPowerProfilePrefs(prefs);
             return;
         }
-        ponies = null;
+        if (!frozen) {
+            ponies = null;
+        }
     }
 
     private void drawFrame() {
@@ -598,10 +638,15 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (!active && !surface.isDrawingEnabled()) {
             return;
         }
+        // Exit freeze: leave the last buffer alone (content fade overlay covers it).
+        if (frozen) {
+            handler.removeCallbacks(drawFrameCallback);
+            return;
+        }
 
         // Thermal emergency: solid safe frame only; never schedule animation.
         if (thermalEmergency) {
-            paintThermalSafeFrame();
+            paintSolidFrame(THERMAL_SAFE_COLOUR);
             handler.removeCallbacks(drawFrameCallback);
             return;
         }
@@ -693,7 +738,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
         // Reschedule the next redraw at the effective target rate.
         handler.removeCallbacks(drawFrameCallback);
-        if (active && surface.isDrawingEnabled() && !thermalEmergency) {
+        if (active && surface.isDrawingEnabled() && !thermalEmergency && !frozen) {
             handler.postDelayed(drawFrameCallback, framePeriodMs);
         }
     }
