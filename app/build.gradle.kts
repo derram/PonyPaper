@@ -27,8 +27,8 @@ android {
         applicationId = "io.github.derram.ponypaper"
         minSdk = 21
         targetSdk = 35
-        versionCode = 177
-        versionName = "1.7.7-modern"
+        versionCode = 178
+        versionName = "1.7.8-modern"
     }
 
     signingConfigs {
