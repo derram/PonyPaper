@@ -151,7 +151,10 @@ public final class TransitionPreviewDialog extends JDialog {
         directionCombo.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 if (!updatingUi) {
-                    rebuildActionLists(selectedActionIndex(actionACombo));
+                    // Keep A and B selections; only facing/sheets change with direction.
+                    rebuildActionLists(
+                            selectedActionIndex(actionACombo),
+                            selectedActionIndex(actionBCombo));
                     loadSources();
                     showActionA();
                 }
@@ -298,7 +301,7 @@ public final class TransitionPreviewDialog extends JDialog {
             }
         });
 
-        rebuildActionLists(initialActionIndex);
+        rebuildActionLists(initialActionIndex, -1);
         loadSources();
         resetToStart();
 
@@ -323,7 +326,13 @@ public final class TransitionPreviewDialog extends JDialog {
         return item != null ? item.index : -1;
     }
 
-    private void rebuildActionLists(int preferAIndex) {
+    /**
+     * Rebuilds Action A/B combo models for the current direction.
+     *
+     * @param preferAIndex action index to keep selected for A, or -1 for default
+     * @param preferBIndex action index to keep selected for B, or -1 for neighbor default
+     */
+    private void rebuildActionLists(int preferAIndex, int preferBIndex) {
         updatingUi = true;
         try {
             String dir = currentDirection();
@@ -340,7 +349,8 @@ public final class TransitionPreviewDialog extends JDialog {
             }
             selectAction(actionACombo, aIndex);
 
-            rebuildBList(aIndex, -1);
+            // Preserve B when it still has a sheet for this facing; otherwise fall back.
+            rebuildBList(aIndex, preferBIndex);
         } finally {
             updatingUi = false;
         }
