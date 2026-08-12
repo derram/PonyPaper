@@ -713,7 +713,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 }
                 float xOffset = surface.getBackgroundXOffset();
                 float yOffset = surface.getBackgroundYOffset();
-                if (background != null) {
+                if (background != null && !background.isRecycled()) {
                     Rect srcRect = new Rect(0, 0, background.getWidth(), background.getHeight());
                     Rect cb = c.getClipBounds();
                     float scale = Math.max((float) cb.height() / (float) srcRect.height(),
