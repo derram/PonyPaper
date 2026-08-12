@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.List;
 import javax.imageio.ImageIO;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -426,8 +427,15 @@ public class PonyEditorGUI extends JPanel {
             add(spritesFromLabel, c);
 
             spritesFromField = new JTextField();
-            spritesFromField.setToolTipText("Reuse another action's bitmaps (leave empty to own sprites). Alias needs only speed + next lists.");
+            spritesFromField.setToolTipText("Reuse another action's bitmaps (leave empty to own sprites). "
+                    + "Alias needs only speed + next lists. Tab completes owner action names.");
             spritesFromField.getDocument().addDocumentListener(spritesFromListener);
+            ActionNameCompleter.install(spritesFromField, new ActionNameCompleter.CandidateSource() {
+                @Override
+                public List<String> getCandidates() {
+                    return ActionNameCompleter.spriteOwnerCandidates(editor);
+                }
+            }, false);
             c = getConstraints(1, 5);
             c.weighty = 1.0;
             c.fill = GridBagConstraints.HORIZONTAL;
@@ -609,8 +617,14 @@ public class PonyEditorGUI extends JPanel {
             
             nextWaitingField = new JTextField();
             nextWaitingField.setToolTipText("Comma-separated actions. Use none or - for no successor "
-                    + "(one-shots fall through to next moving).");
+                    + "(one-shots fall through to next moving). Tab completes the token under the caret.");
             nextWaitingField.getDocument().addDocumentListener(nextWaitingListener);
+            ActionNameCompleter.install(nextWaitingField, new ActionNameCompleter.CandidateSource() {
+                @Override
+                public List<String> getCandidates() {
+                    return ActionNameCompleter.candidatesFromEditor(editor, true);
+                }
+            }, true);
             c = getConstraints(1, 16);
             c.fill = GridBagConstraints.HORIZONTAL;
             add(nextWaitingField, c);
@@ -623,8 +637,14 @@ public class PonyEditorGUI extends JPanel {
             
             nextMovingField = new JTextField();
             nextMovingField.setToolTipText("Comma-separated actions. Use none or - for no successor "
-                    + "(one-shots fall through to next waiting).");
+                    + "(one-shots fall through to next waiting). Tab completes the token under the caret.");
             nextMovingField.getDocument().addDocumentListener(nextMovingListener);
+            ActionNameCompleter.install(nextMovingField, new ActionNameCompleter.CandidateSource() {
+                @Override
+                public List<String> getCandidates() {
+                    return ActionNameCompleter.candidatesFromEditor(editor, true);
+                }
+            }, true);
             c = getConstraints(1, 17);
             c.fill = GridBagConstraints.HORIZONTAL;
             add(nextMovingField, c);
@@ -636,8 +656,15 @@ public class PonyEditorGUI extends JPanel {
             add(nextDragLabel, c);
             
             nextDragField = new JTextField();
-            nextDragField.setToolTipText("Comma-separated actions. Must list at least one real action.");
+            nextDragField.setToolTipText("Comma-separated actions. Must list at least one real action. "
+                    + "Tab completes the token under the caret.");
             nextDragField.getDocument().addDocumentListener(nextDragListener);
+            ActionNameCompleter.install(nextDragField, new ActionNameCompleter.CandidateSource() {
+                @Override
+                public List<String> getCandidates() {
+                    return ActionNameCompleter.candidatesFromEditor(editor, false);
+                }
+            }, true);
             c = getConstraints(1, 18);
             c.fill = GridBagConstraints.HORIZONTAL;
             add(nextDragField, c);
@@ -1615,7 +1642,14 @@ public class PonyEditorGUI extends JPanel {
         result.add(startActionsLabel, c);
         
         startActionsField = new JTextField();
+        startActionsField.setToolTipText("Comma-separated entry actions. Tab completes the token under the caret.");
         startActionsField.getDocument().addDocumentListener(startActionsListener);
+        ActionNameCompleter.install(startActionsField, new ActionNameCompleter.CandidateSource() {
+            @Override
+            public List<String> getCandidates() {
+                return ActionNameCompleter.candidatesFromEditor(editor, false);
+            }
+        }, true);
         c = getConstraints(1, 0);
         c.weightx = 1.0;
         c.fill = GridBagConstraints.HORIZONTAL;
