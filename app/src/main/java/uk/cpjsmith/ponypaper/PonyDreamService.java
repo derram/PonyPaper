@@ -2,6 +2,7 @@ package uk.cpjsmith.ponypaper;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -12,6 +13,8 @@ import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
 
 /**
  * Optional screensaver (Daydream) host. Uses the same {@link PonySceneController}
@@ -28,6 +31,10 @@ import android.view.View;
  * the same way. That path gently wakes the dream and starts
  * {@link UnlockRequestActivity} so a secure keyguard can show the unlock method
  * (PIN / pattern / biometrics) without an extra lock-screen swipe.
+ *
+ * <p>Enter and exit use a black content overlay (fade-in / fade-out) so the herd
+ * does not hard-cut against the lock screen, and so any OEM window wipe only
+ * animates a solid black buffer instead of stretching live sprites.
  *
  * <p>After {@link #MAX_IDLE_MS} with no touch interaction, the dream calls
  * {@link #finish()} so the system can turn the screen off (and run AOD if
@@ -55,11 +62,23 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      */
     private static final long MAX_IDLE_MS = 10 * 60_000L;
 
+    /** Black overlay fade when the dream becomes visible. */
+    private static final long FADE_IN_MS = 350;
+    /**
+     * Brief hold at full black so the first scene frame can paint under the
+     * overlay before it dissolves.
+     */
+    private static final long FADE_IN_DELAY_MS = 50;
+    /** Black overlay fade before {@link #wakeUp()} / {@link #finish()}. */
+    private static final long FADE_OUT_MS = 250;
+    /** Treat overlay as already solid black above this alpha. */
+    private static final float FADE_OPAQUE_EPSILON = 0.99f;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable reDimRunnable = new Runnable() {
         @Override
         public void run() {
-            if (dreaming && isScreenBright()) {
+            if (dreaming && !exiting && isScreenBright()) {
                 setScreenBright(false);
             }
         }
@@ -67,15 +86,29 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private final Runnable maxIdleRunnable = new Runnable() {
         @Override
         public void run() {
-            if (dreaming) {
-                finish();
+            if (dreaming && !exiting) {
+                beginGracefulExit(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (dreaming) {
+                            finish();
+                        }
+                    }
+                });
             }
         }
     };
     private PonySceneController controller;
+    private FrameLayout rootLayout;
     private SurfaceView surfaceView;
+    /** Full-screen black veil for content enter/exit transitions. */
+    private View fadeOverlay;
     private boolean dreaming = false;
     private boolean surfaceReady = false;
+    /** True while a content fade-out is in progress (or completed) for this exit. */
+    private boolean exiting = false;
+    /** True after the enter fade for this dream session has been started. */
+    private boolean fadeInStarted = false;
     /** Uptime millis when {@link #onDreamingStarted} last ran; 0 if not dreaming. */
     private long dreamingStartedAtMs = 0;
     /** True after a real {@link MotionEvent#ACTION_DOWN} we own for the current gesture. */
@@ -91,6 +124,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         // Keep the default dimmed screen for dock/idle power use.
         setScreenBright(false);
 
+        rootLayout = new FrameLayout(this);
         surfaceView = new SurfaceView(this);
         surfaceView.setFocusable(true);
         surfaceView.setFocusableInTouchMode(true);
@@ -99,6 +133,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             public void surfaceCreated(SurfaceHolder holder) {
                 surfaceReady = true;
                 updateActive();
+                maybeStartFadeIn();
             }
 
             @Override
@@ -108,19 +143,32 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                     controller.onSurfaceSizeChanged();
                 }
                 updateActive();
+                maybeStartFadeIn();
             }
 
             @Override
             public void surfaceDestroyed(SurfaceHolder holder) {
                 surfaceReady = false;
                 if (controller != null) {
+                    // Freeze first so any late size/policy work does not unload bitmaps.
+                    controller.setFrozen(true);
                     controller.setActive(false);
                 }
             }
         });
-        surfaceView.setOnTouchListener(new View.OnTouchListener() {
+
+        fadeOverlay = new View(this);
+        fadeOverlay.setBackgroundColor(Color.BLACK);
+        fadeOverlay.setAlpha(1f);
+        // Overlay sits above the surface for the whole dream; it owns touch so
+        // events still reach the herd while alpha is 0.
+        fadeOverlay.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
+                if (exiting) {
+                    // Swallow input during fade-out so a second tap cannot re-enter unlock.
+                    return true;
+                }
                 if (controller != null) {
                     controller.onTouchEvent(event);
                 }
@@ -171,7 +219,12 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 return true;
             }
         });
-        setContentView(surfaceView);
+
+        FrameLayout.LayoutParams matchParent = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        rootLayout.addView(surfaceView, matchParent);
+        rootLayout.addView(fadeOverlay, matchParent);
+        setContentView(rootLayout);
         surfaceView.requestFocus();
 
         controller = new PonySceneController(this, handler, this);
@@ -182,13 +235,24 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     public void onDreamingStarted() {
         super.onDreamingStarted();
         dreaming = true;
+        exiting = false;
+        fadeInStarted = false;
         dreamingStartedAtMs = SystemClock.uptimeMillis();
         gestureDown = false;
         // Always start dimmed; a prior bright session must not stick across dreams.
         setScreenBright(false);
         cancelReDim();
         scheduleMaxIdle();
+        if (controller != null) {
+            controller.setFrozen(false);
+        }
+        // Cover the scene until the first frames are ready, then dissolve.
+        if (fadeOverlay != null) {
+            fadeOverlay.animate().cancel();
+            fadeOverlay.setAlpha(1f);
+        }
         updateActive();
+        maybeStartFadeIn();
         if (surfaceView != null) {
             surfaceView.requestFocus();
         }
@@ -199,32 +263,48 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         dreaming = false;
         dreamingStartedAtMs = 0;
         gestureDown = false;
+        fadeInStarted = false;
         cancelReDim();
         cancelMaxIdle();
+        cancelOverlayAnimations();
+        if (fadeOverlay != null) {
+            fadeOverlay.setAlpha(1f);
+        }
         if (controller != null) {
+            // Hold the last buffer; do not recycle under any residual window anim.
+            controller.setFrozen(true);
             controller.setActive(false);
         }
+        exiting = false;
         super.onDreamingStopped();
     }
 
     @Override
     public void onDetachedFromWindow() {
         dreaming = false;
+        exiting = false;
+        fadeInStarted = false;
         dreamingStartedAtMs = 0;
         gestureDown = false;
         surfaceReady = false;
         cancelReDim();
         cancelMaxIdle();
+        cancelOverlayAnimations();
         if (controller != null) {
             controller.stop();
             controller = null;
         }
+        fadeOverlay = null;
         surfaceView = null;
+        rootLayout = null;
         super.onDetachedFromWindow();
     }
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (exiting) {
+            return true;
+        }
         if (event.getAction() == KeyEvent.ACTION_UP) {
             int code = event.getKeyCode();
             // HOME is often not delivered to apps; BACK/ESCAPE still help on docks.
@@ -240,15 +320,83 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     /**
-     * User intends to leave the dream and unlock. Starts the keyguard-dismiss
-     * trampoline (API 26+), then {@link #wakeUp()} so the dream ends gently and
-     * the device stays awake. Idle / thermal paths keep using {@link #finish()}
-     * so they do not prompt for credentials.
+     * User intends to leave the dream and unlock. Fades content to black, then
+     * starts the keyguard-dismiss trampoline (API 26+) and {@link #wakeUp()} so
+     * the dream ends gently and the device stays awake. Idle / thermal paths
+     * keep using {@link #finish()} so they do not prompt for credentials.
      */
     private void requestUserUnlock() {
-        if (!dreaming) return;
-        UnlockRequestActivity.launch(this);
-        wakeUp();
+        beginGracefulExit(new Runnable() {
+            @Override
+            public void run() {
+                if (!dreaming) return;
+                UnlockRequestActivity.launch(PonyDreamService.this);
+                wakeUp();
+            }
+        });
+    }
+
+    /**
+     * Content-side exit: freeze the herd, fade the black overlay to opaque, then
+     * run {@code afterFade} ({@link #wakeUp()} or {@link #finish()}). Idempotent
+     * for the lifetime of one exit so double-taps cannot stack unlock requests.
+     */
+    private void beginGracefulExit(final Runnable afterFade) {
+        if (exiting) {
+            return;
+        }
+        exiting = true;
+        cancelReDim();
+        cancelMaxIdle();
+        cancelOverlayAnimations();
+        if (controller != null) {
+            controller.setFrozen(true);
+        }
+        if (fadeOverlay == null) {
+            if (afterFade != null) afterFade.run();
+            return;
+        }
+        float alpha = fadeOverlay.getAlpha();
+        if (alpha >= FADE_OPAQUE_EPSILON) {
+            fadeOverlay.setAlpha(1f);
+            if (afterFade != null) afterFade.run();
+            return;
+        }
+        fadeOverlay.animate()
+                .alpha(1f)
+                .setDuration(FADE_OUT_MS)
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (afterFade != null) afterFade.run();
+                    }
+                })
+                .start();
+    }
+
+    /**
+     * Dissolves the black overlay once the dream is active and the surface is
+     * ready. Started at most once per dream session so surface size churn does
+     * not restart the enter animation.
+     */
+    private void maybeStartFadeIn() {
+        if (!dreaming || !surfaceReady || exiting || fadeInStarted || fadeOverlay == null) {
+            return;
+        }
+        fadeInStarted = true;
+        cancelOverlayAnimations();
+        fadeOverlay.setAlpha(1f);
+        fadeOverlay.animate()
+                .alpha(0f)
+                .setStartDelay(FADE_IN_DELAY_MS)
+                .setDuration(FADE_IN_MS)
+                .start();
+    }
+
+    private void cancelOverlayAnimations() {
+        if (fadeOverlay != null) {
+            fadeOverlay.animate().cancel();
+        }
     }
 
     /**
@@ -257,7 +405,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      * {@link #requestUserUnlock()} / flip brightness.
      */
     private boolean canDismissFromTouch() {
-        if (!dreaming || dreamingStartedAtMs == 0) return false;
+        if (!dreaming || exiting || dreamingStartedAtMs == 0) return false;
         return SystemClock.uptimeMillis() - dreamingStartedAtMs >= DISMISS_GRACE_MS;
     }
 
@@ -275,7 +423,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      * keeps the screensaver running.
      */
     private void noteUserActivity() {
-        if (!dreaming) return;
+        if (!dreaming || exiting) return;
         scheduleMaxIdle();
     }
 
@@ -290,7 +438,16 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void updateActive() {
         if (controller == null) return;
-        controller.setActive(dreaming && surfaceReady);
+        // Keep the controller "active" only while living and not mid-exit freeze
+        // beyond what setFrozen already handles; surface still needed for first paint.
+        boolean wantActive = dreaming && surfaceReady && !exiting;
+        if (wantActive) {
+            controller.setActive(true);
+        } else if (!dreaming || !surfaceReady) {
+            controller.setActive(false);
+        }
+        // When exiting, leave active as-is under freeze so we do not clear frozen
+        // via setActive(false) until dreaming stops / surface dies.
     }
 
     // --- FrameSurface ---
@@ -302,7 +459,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     @Override
     public boolean isDrawingEnabled() {
-        return dreaming && surfaceReady;
+        // Allow the last pre-exit frames; freeze stops the loop separately.
+        return dreaming && surfaceReady && !exiting;
     }
 
     @Override
@@ -334,14 +492,20 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     /**
-     * Thermal emergency (SEVERE+): end the dream so the system can turn the
-     * display off instead of holding a frozen screensaver on a hot device.
+     * Thermal emergency (SEVERE+): fade out then end the dream so the system can
+     * turn the display off instead of holding a frozen screensaver on a hot device.
      */
     @Override
     public void onThermalHardStop() {
-        if (dreaming) {
-            finish();
-        }
+        if (!dreaming) return;
+        beginGracefulExit(new Runnable() {
+            @Override
+            public void run() {
+                if (dreaming) {
+                    finish();
+                }
+            }
+        });
     }
 
     private SharedPreferences getDreamPreferences() {
