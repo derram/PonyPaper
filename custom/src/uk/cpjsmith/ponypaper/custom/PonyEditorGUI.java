@@ -201,6 +201,12 @@ public class PonyEditorGUI extends JPanel {
                 previewImage(editor.getActionImage(currentIndex, "left"), editor.getActionTimings(currentIndex, "left"));
             }
         };
+
+        ActionListener mirrorLeftListener = new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                mirrorFacing("left");
+            }
+        };
         
         ActionListener importLeftListener = new ActionListener() {
             public void actionPerformed(ActionEvent e) {
@@ -236,6 +242,12 @@ public class PonyEditorGUI extends JPanel {
         ActionListener previewRightListener = new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 previewImage(editor.getActionImage(currentIndex, "right"), editor.getActionTimings(currentIndex, "right"));
+            }
+        };
+
+        ActionListener mirrorRightListener = new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                mirrorFacing("right");
             }
         };
         
@@ -314,6 +326,7 @@ public class PonyEditorGUI extends JPanel {
         JButton cloneGaitButton;
         JTextField imageLeftField;
         JButton imageLeftPreview;
+        JButton imageLeftMirror;
         JButton imageLeftImport;
         JButton imageLeftImportFrames;
         JButton imageLeftExport;
@@ -322,6 +335,7 @@ public class PonyEditorGUI extends JPanel {
         JButton timingsLeftPlus;
         JTextField imageRightField;
         JButton imageRightPreview;
+        JButton imageRightMirror;
         JButton imageRightImport;
         JButton imageRightImportFrames;
         JButton imageRightExport;
@@ -533,9 +547,13 @@ public class PonyEditorGUI extends JPanel {
             
             imageLeftPreview = new JButton("Preview");
             imageLeftPreview.addActionListener(previewLeftListener);
+            imageLeftMirror = new JButton("Mirror to right");
+            imageLeftMirror.setToolTipText(
+                    "Build the right spritesheet by flopping each left frame (same order and timings).");
+            imageLeftMirror.addActionListener(mirrorLeftListener);
             c = getConstraints(1, 9);
             c.fill = GridBagConstraints.HORIZONTAL;
-            add(imageLeftPreview, c);
+            add(wrapTwoButtons(imageLeftPreview, imageLeftMirror), c);
             
             imageLeftImport = new JButton("Import image");
             imageLeftImport.addActionListener(importLeftListener);
@@ -591,9 +609,13 @@ public class PonyEditorGUI extends JPanel {
             
             imageRightPreview = new JButton("Preview");
             imageRightPreview.addActionListener(previewRightListener);
+            imageRightMirror = new JButton("Mirror to left");
+            imageRightMirror.setToolTipText(
+                    "Build the left spritesheet by flopping each right frame (same order and timings).");
+            imageRightMirror.addActionListener(mirrorRightListener);
             c = getConstraints(1, 13);
             c.fill = GridBagConstraints.HORIZONTAL;
-            add(imageRightPreview, c);
+            add(wrapTwoButtons(imageRightPreview, imageRightMirror), c);
             
             imageRightImport = new JButton("Import image");
             imageRightImport.addActionListener(importRightListener);
@@ -851,6 +873,13 @@ public class PonyEditorGUI extends JPanel {
             return button;
         }
 
+        private static JPanel wrapTwoButtons(JButton left, JButton right) {
+            JPanel row = new JPanel(new GridLayout(1, 2, 4, 0));
+            row.add(left);
+            row.add(right);
+            return row;
+        }
+
         private static JPanel wrapImportExportButtons(
                 JButton importButton, JButton importFramesButton, JButton exportButton) {
             JPanel col = new JPanel(new GridLayout(2, 1, 0, 4));
@@ -1040,6 +1069,57 @@ public class PonyEditorGUI extends JPanel {
             return row;
         }
         
+        /**
+         * Builds the opposite facing from {@code fromDirection} by flopping each
+         * cell. Confirms before replacing an existing destination sheet.
+         */
+        void mirrorFacing(String fromDirection) {
+            if (currentIndex < 0) {
+                return;
+            }
+            String toDirection = "left".equals(fromDirection) ? "right"
+                    : "right".equals(fromDirection) ? "left" : null;
+            if (toDirection == null) {
+                return;
+            }
+
+            String source = editor.getActionImage(currentIndex, fromDirection);
+            if (source == null || source.isEmpty()) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "No " + fromDirection + " spritesheet to mirror.",
+                        "Mirror Facing",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            String dest = editor.getActionImage(currentIndex, toDirection);
+            if (dest != null && !dest.isEmpty()) {
+                int confirm = JOptionPane.showConfirmDialog(
+                        this,
+                        "Replace the " + toDirection + " spritesheet with a per-cell mirror of the "
+                                + fromDirection + " sheet?\n"
+                                + "Frame order and timings are copied; explicit feet X is flipped.",
+                        "Mirror to " + toDirection,
+                        JOptionPane.OK_CANCEL_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+                if (confirm != JOptionPane.OK_OPTION) {
+                    return;
+                }
+            }
+
+            try {
+                editor.mirrorActionSprite(currentIndex, fromDirection);
+                setAction(currentIndex);
+                hasChanges = true;
+                previewImage(
+                        editor.getActionImage(currentIndex, toDirection),
+                        editor.getActionTimings(currentIndex, toDirection));
+            } catch (PonyEditor.GenericException e) {
+                JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
+            }
+        }
+
         void importImage(String direction) {
             fc.setFileFilter(new FileNameExtensionFilter("All Supported Formats", "png", "gif"));
             fc.addChoosableFileFilter(new FileNameExtensionFilter("PNG Images", "png"));
@@ -1248,6 +1328,7 @@ public class PonyEditorGUI extends JPanel {
             cloneGaitButton.setEnabled(enabled);
             imageLeftField.setEnabled(enabled);
             imageLeftPreview.setEnabled(enabled);
+            imageLeftMirror.setEnabled(enabled);
             imageLeftImport.setEnabled(enabled);
             imageLeftImportFrames.setEnabled(enabled);
             imageLeftExport.setEnabled(enabled);
@@ -1256,6 +1337,7 @@ public class PonyEditorGUI extends JPanel {
             timingsLeftPlus.setEnabled(enabled);
             imageRightField.setEnabled(enabled);
             imageRightPreview.setEnabled(enabled);
+            imageRightMirror.setEnabled(enabled);
             imageRightImport.setEnabled(enabled);
             imageRightImportFrames.setEnabled(enabled);
             imageRightExport.setEnabled(enabled);
