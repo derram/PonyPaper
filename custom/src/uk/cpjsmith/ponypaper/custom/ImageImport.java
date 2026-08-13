@@ -22,8 +22,9 @@ import javax.imageio.ImageIO;
  *
  * <p>Static PNG (or other) files are passed through as-is. Individual PNG
  * frames can be packed into that same strip via {@link #fromFrames} /
- * {@link #fromFrameFiles}: uniform cells, bottom-centre alignment, no
- * inter-frame padding. Animated GIFs —
+ * {@link #fromFrameFiles}: uniform cells, bottom-centre alignment, optional
+ * per-frame lift (pixels of air under the sprite), no inter-frame padding.
+ * Animated GIFs —
  * typically Desktop Ponies sprites — are decoded, fully coalesced (so each
  * frame is a complete image, not a dirty-rectangle delta), scaled to half
  * size for PonyPaper, and packed left-to-right into a single PNG spritesheet
@@ -65,6 +66,13 @@ public class ImageImport {
          * padding to the max canvas.
          */
         public boolean rejectMixedSizes = false;
+        /**
+         * Pixels up from the shared bottom baseline for each frame ({@code 0}
+         * = current bottom-align). {@code null} means all zeros. When
+         * non-null, length must equal the frame count; values must be
+         * {@code >= 0}. Cell height becomes {@code max(frameH + lift)}.
+         */
+        public int[] lifts;
     }
 
     /**
@@ -289,10 +297,111 @@ public class ImageImport {
         return frames;
     }
 
+    /**
+     * Parses a comma-separated lift list ({@code 0,8,16}). Whitespace around
+     * commas is ignored. Empty parts, non-integers, and negatives are errors.
+     */
+    public static int[] parseLifts(String text) throws IOException {
+        if (text == null || text.trim().isEmpty()) {
+            throw new IOException("Lifts list is empty.");
+        }
+        String[] parts = text.split(",", -1);
+        int[] out = new int[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            String part = parts[i].trim();
+            if (part.isEmpty()) {
+                throw new IOException("Empty lift at position " + (i + 1) + ".");
+            }
+            int value;
+            try {
+                value = Integer.parseInt(part);
+            } catch (NumberFormatException e) {
+                throw new IOException("Invalid lift: " + part);
+            }
+            if (value < 0) {
+                throw new IOException("Lift must be >= 0 (got " + value + ").");
+            }
+            out[i] = value;
+        }
+        return out;
+    }
+
+    /**
+     * {@code lifts} as a comma-separated string, or empty when {@code null}.
+     */
+    public static String formatLifts(int[] lifts) {
+        if (lifts == null || lifts.length == 0) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < lifts.length; i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(lifts[i]);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Copies {@code lifts} and checks length / non-negative values.
+     * {@code null} becomes {@code frameCount} zeros.
+     */
+    public static int[] normalizeLifts(int[] lifts, int frameCount) throws IOException {
+        if (frameCount < 1) {
+            throw new IOException("No frames to pack.");
+        }
+        if (lifts == null) {
+            return new int[frameCount];
+        }
+        if (lifts.length != frameCount) {
+            throw new IOException("Expected " + frameCount + " lifts, got " + lifts.length + ".");
+        }
+        int[] out = new int[frameCount];
+        for (int i = 0; i < frameCount; i++) {
+            if (lifts[i] < 0) {
+                throw new IOException("Lift must be >= 0 (frame " + (i + 1) + ").");
+            }
+            out[i] = lifts[i];
+        }
+        return out;
+    }
+
+    /**
+     * Parabolic hop: {@code 0} at both ends, {@code peak} at the middle.
+     * A single frame yields {@code {0}}. {@code peak} is clamped to
+     * {@code >= 0}.
+     */
+    public static int[] hopCurve(int frameCount, int peak) {
+        if (frameCount < 1) {
+            return new int[0];
+        }
+        int[] out = new int[frameCount];
+        if (frameCount == 1 || peak <= 0) {
+            return out;
+        }
+        float denom = frameCount - 1;
+        for (int i = 0; i < frameCount; i++) {
+            float t = i / denom;
+            out[i] = Math.round(4f * peak * t * (1f - t));
+        }
+        return out;
+    }
+
     public static PackPreview inspectFrames(List<BufferedImage> frames) throws IOException {
+        return inspectFrames(frames, null);
+    }
+
+    /**
+     * Cell size for {@code frames}. When {@code lifts} is non-null it must
+     * match the frame count; cell height is {@code max(frameH + lift)}.
+     */
+    public static PackPreview inspectFrames(List<BufferedImage> frames, int[] lifts)
+            throws IOException {
         if (frames == null || frames.isEmpty()) {
             throw new IOException("No frames to pack.");
         }
+        int[] resolved = normalizeLifts(lifts, frames.size());
         int cellW = 0;
         int cellH = 0;
         boolean mixed = false;
@@ -302,7 +411,8 @@ public class ImageImport {
         }
         int firstW = first.getWidth();
         int firstH = first.getHeight();
-        for (BufferedImage frame : frames) {
+        for (int i = 0; i < frames.size(); i++) {
+            BufferedImage frame = frames.get(i);
             if (frame == null) {
                 throw new IOException("Null frame");
             }
@@ -317,46 +427,78 @@ public class ImageImport {
             if (w > cellW) {
                 cellW = w;
             }
-            if (h > cellH) {
-                cellH = h;
+            int placedH = h + resolved[i];
+            if (placedH > cellH) {
+                cellH = placedH;
             }
         }
         return new PackPreview(frames.size(), cellW, cellH, mixed);
     }
 
     /**
-     * Packs frames left-to-right into a PonyPaper strip: cell size is the max
-     * frame width × max frame height, each frame is drawn bottom-centre in its
-     * cell, and there is no gutter between cells.
+     * Composites frames into a left-to-right strip using the same placement as
+     * {@link #fromFrames}: centred horizontally, {@code lift} pixels of air
+     * under each sprite, no gutters. {@code lifts} must already be
+     * {@link #normalizeLifts normalized}.
+     */
+    public static BufferedImage packSheetImage(
+            List<BufferedImage> frames, int cellW, int cellH, int[] lifts)
+            throws IOException {
+        if (frames == null || frames.isEmpty()) {
+            throw new IOException("No frames to pack.");
+        }
+        if (cellW < 1 || cellH < 1) {
+            throw new IOException("Cell has no size");
+        }
+        int n = frames.size();
+        if (lifts == null || lifts.length != n) {
+            throw new IOException("Expected " + n + " lifts, got "
+                    + (lifts == null ? 0 : lifts.length) + ".");
+        }
+        BufferedImage sheet = new BufferedImage(n * cellW, cellH, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = sheet.createGraphics();
+        g.setComposite(AlphaComposite.SrcOver);
+        for (int i = 0; i < n; i++) {
+            BufferedImage frame = frames.get(i);
+            if (frame == null) {
+                g.dispose();
+                throw new IOException("Null frame");
+            }
+            int dx = i * cellW + (cellW - frame.getWidth()) / 2;
+            int dy = cellH - frame.getHeight() - lifts[i];
+            g.drawImage(frame, dx, dy, null);
+        }
+        g.dispose();
+        return sheet;
+    }
+
+    /**
+     * Packs frames left-to-right into a PonyPaper strip: cell width is the max
+     * frame width, cell height is {@code max(frameH + lift)}, each frame is
+     * drawn bottom-centre plus lift in its cell, and there is no gutter
+     * between cells.
      */
     public static ImageImport fromFrames(List<BufferedImage> frames, PackOptions options)
             throws IOException {
-        PackPreview preview = inspectFrames(frames);
         PackOptions opts = options != null ? options : new PackOptions();
+        PackPreview preview = inspectFrames(frames, opts.lifts);
         if (opts.rejectMixedSizes && preview.mixedSizes) {
-            throw new IOException("Frame sizes differ; expected "
-                    + preview.cellWidth + "×" + preview.cellHeight + " for every frame.");
+            throw new IOException("Frame sizes differ; every frame must be the same size.");
         }
         int timingCs = Math.max(1, opts.defaultTimingCs);
         int cellW = preview.cellWidth;
         int cellH = preview.cellHeight;
         int n = preview.frameCount;
+        int[] lifts = normalizeLifts(opts.lifts, n);
 
-        BufferedImage sheet = new BufferedImage(n * cellW, cellH, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = sheet.createGraphics();
-        g.setComposite(AlphaComposite.SrcOver);
+        BufferedImage sheet = packSheetImage(frames, cellW, cellH, lifts);
         StringBuilder timings = new StringBuilder();
         for (int i = 0; i < n; i++) {
-            BufferedImage frame = frames.get(i);
-            int dx = i * cellW + (cellW - frame.getWidth()) / 2;
-            int dy = cellH - frame.getHeight();
-            g.drawImage(frame, dx, dy, null);
             if (i > 0) {
                 timings.append(',');
             }
             timings.append(timingCs);
         }
-        g.dispose();
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         if (!ImageIO.write(sheet, "png", out)) {

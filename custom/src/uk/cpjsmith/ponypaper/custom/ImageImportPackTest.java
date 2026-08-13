@@ -28,6 +28,12 @@ public final class ImageImportPackTest {
         failures += run("mirrorPreservesOrderAndTimings", ImageImportPackTest::testMirrorPreservesOrderAndTimings);
         failures += run("listFrameFilesNaturalOrder", ImageImportPackTest::testListFrameFilesNaturalOrder);
         failures += run("collectFrameFilesRejectsMix", ImageImportPackTest::testCollectFrameFilesRejectsMix);
+        failures += run("parseAndNormalizeLifts", ImageImportPackTest::testParseAndNormalizeLifts);
+        failures += run("hopCurve", ImageImportPackTest::testHopCurve);
+        failures += run("packLiftsHop", ImageImportPackTest::testPackLiftsHop);
+        failures += run("inspectIncludesLiftInCellHeight", ImageImportPackTest::testInspectIncludesLiftInCellHeight);
+        failures += run("liftsLengthMismatch", ImageImportPackTest::testLiftsLengthMismatch);
+        failures += run("negativeLiftRejected", ImageImportPackTest::testNegativeLiftRejected);
         if (failures > 0) {
             System.err.println(failures + " packer check(s) failed.");
             System.exit(1);
@@ -162,6 +168,115 @@ public final class ImageImportPackTest {
             assertEq("second", "walk_10.png", files.get(1).getName());
         } finally {
             deleteTree(dir);
+        }
+    }
+
+    private static void testParseAndNormalizeLifts() throws IOException {
+        int[] parsed = ImageImport.parseLifts(" 0 , 8,16 ");
+        assertEq("parse[0]", 0, parsed[0]);
+        assertEq("parse[1]", 8, parsed[1]);
+        assertEq("parse[2]", 16, parsed[2]);
+        assertEq("format", "0,8,16", ImageImport.formatLifts(parsed));
+
+        int[] zeros = ImageImport.normalizeLifts(null, 3);
+        assertEq("null lifts length", 3, zeros.length);
+        assertEq("null lifts zero", 0, zeros[0] + zeros[1] + zeros[2]);
+
+        try {
+            ImageImport.parseLifts("0,,4");
+            throw new AssertionError("expected empty-part failure");
+        } catch (IOException e) {
+            if (!e.getMessage().toLowerCase().contains("empty")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+        try {
+            ImageImport.parseLifts("8,-1,0");
+            throw new AssertionError("expected negative parse failure");
+        } catch (IOException e) {
+            if (!e.getMessage().contains(">= 0")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void testHopCurve() {
+        int[] one = ImageImport.hopCurve(1, 16);
+        assertEq("single frame", 1, one.length);
+        assertEq("single is 0", 0, one[0]);
+
+        int[] three = ImageImport.hopCurve(3, 20);
+        assertEq("n3[0]", 0, three[0]);
+        assertEq("n3[1]", 20, three[1]);
+        assertEq("n3[2]", 0, three[2]);
+
+        int[] zeroPeak = ImageImport.hopCurve(5, 0);
+        assertEq("zero peak mid", 0, zeroPeak[2]);
+    }
+
+    private static void testPackLiftsHop() throws IOException {
+        BufferedImage a = solid(8, 8, 0xffff0000);
+        BufferedImage b = solid(8, 8, 0xff0000ff);
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        opts.lifts = new int[] {0, 4};
+        ImageImport packed = ImageImport.fromFrames(Arrays.asList(a, b), opts);
+        assertEq("cellW", 8, packed.cellWidth);
+        assertEq("cellH", 12, packed.cellHeight);
+        BufferedImage sheet = decode(packed.loadedImage);
+        assertEq("sheetW", 16, sheet.getWidth());
+        assertEq("sheetH", 12, sheet.getHeight());
+
+        // Ground frame sits on the baseline: opaque at y=11, air at y=0..3.
+        assertEq("ground foot", 0xffff0000, sheet.getRGB(4, 11));
+        assertEq("ground headroom", 0, sheet.getRGB(4, 1));
+        // Lifted frame has 4px of air under the sprite.
+        assertEq("hop body", 0xff0000ff, sheet.getRGB(12, 3));
+        assertEq("hop air under", 0, sheet.getRGB(12, 10));
+        assertEq("hop top", 0xff0000ff, sheet.getRGB(12, 0));
+    }
+
+    private static void testInspectIncludesLiftInCellHeight() throws IOException {
+        BufferedImage tall = solid(10, 20, 0xffff0000);
+        BufferedImage shortFrame = solid(20, 10, 0xff0000ff);
+        ImageImport.PackPreview noLift = ImageImport.inspectFrames(Arrays.asList(tall, shortFrame));
+        assertEq("no-lift cellH", 20, noLift.cellHeight);
+        assertEq("no-lift cellW", 20, noLift.cellWidth);
+
+        ImageImport.PackPreview hop = ImageImport.inspectFrames(
+                Arrays.asList(tall, shortFrame), new int[] {0, 10});
+        assertEq("hop cellH", 20, hop.cellHeight);
+        assertEq("hop cellW", 20, hop.cellWidth);
+
+        ImageImport.PackPreview taller = ImageImport.inspectFrames(
+                Arrays.asList(tall, shortFrame), new int[] {0, 16});
+        assertEq("taller cellH", 26, taller.cellHeight);
+    }
+
+    private static void testLiftsLengthMismatch() throws IOException {
+        BufferedImage a = solid(4, 4, 0xff00ff00);
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        opts.lifts = new int[] {0, 4};
+        try {
+            ImageImport.fromFrames(Arrays.asList(a), opts);
+            throw new AssertionError("expected lift-count failure");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("Expected 1 lifts")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void testNegativeLiftRejected() throws IOException {
+        BufferedImage a = solid(4, 4, 0xff00ff00);
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        opts.lifts = new int[] {-1};
+        try {
+            ImageImport.fromFrames(Arrays.asList(a), opts);
+            throw new AssertionError("expected negative lift failure");
+        } catch (IOException e) {
+            if (!e.getMessage().contains(">= 0")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
         }
     }
 
