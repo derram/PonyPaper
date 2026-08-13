@@ -374,6 +374,7 @@ public final class FramePackDialog extends JDialog {
         private int cellH = 1;
         private int dragStartY;
         private int dragStartLift;
+        private float dragStartScale = 1f;
         private boolean dragging;
 
         CellPreview() {
@@ -392,6 +393,7 @@ public final class FramePackDialog extends JDialog {
                     dragging = true;
                     dragStartY = e.getY();
                     dragStartLift = lifts[index];
+                    dragStartScale = cellScale();
                 }
 
                 @Override
@@ -409,7 +411,7 @@ public final class FramePackDialog extends JDialog {
                     if (index < 0) {
                         return;
                     }
-                    float scale = cellScale();
+                    float scale = dragStartScale > 0f ? dragStartScale : 1f;
                     int delta = Math.round((dragStartY - e.getY()) / scale);
                     setLift(index, dragStartLift + delta);
                 }
