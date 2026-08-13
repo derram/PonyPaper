@@ -79,6 +79,19 @@ public final class FramesToSpritesheet {
                 options.rejectMixedSizes = true;
                 continue;
             }
+            if ("--lifts".equals(arg)) {
+                if (i + 1 >= args.length) {
+                    System.err.println("Option " + arg + " requires a comma-separated list.");
+                    return 2;
+                }
+                try {
+                    options.lifts = ImageImport.parseLifts(args[++i]);
+                } catch (IOException e) {
+                    System.err.println("Invalid --lifts: " + e.getMessage());
+                    return 2;
+                }
+                continue;
+            }
             if (arg.startsWith("-")) {
                 System.err.println("Unknown option: " + arg);
                 showUsage();
@@ -113,6 +126,9 @@ public final class FramesToSpritesheet {
                         + "  cell: " + packed.cellWidth + "×" + packed.cellHeight
                         + "  sheet: " + (frames * packed.cellWidth) + "×" + packed.cellHeight
                         + "  timings (cs): " + timings);
+                if (options.lifts != null) {
+                    System.err.println("Lifts: " + ImageImport.formatLifts(options.lifts));
+                }
                 if (timingsFile != null) {
                     System.err.println("Timings file: " + timingsFile.getPath());
                 }
@@ -139,8 +155,11 @@ public final class FramesToSpritesheet {
         System.out.println("  -t, --timings FILE   Also write comma-separated frame timings to FILE");
         System.out.println("  --timing-cs N        Duration for every frame (hundredths of a second, default 10)");
         System.out.println("  --strict-size        Fail if frame pixel sizes differ (default: pad to max, bottom-centre)");
+        System.out.println("  --lifts N,N,...      Pixels up from the baseline for each frame (0 = on the ground).");
+        System.out.println("                       Length must match the frame count. Omit for all zeros.");
         System.out.println();
         System.out.println("Frames are natural-sorted, packed left-to-right with no gutters.");
+        System.out.println("Lift raises a frame in a taller cell (hop / jump). It is baked into the PNG.");
         System.out.println("Frame timings (hundredths of a second, comma-separated) are printed to stdout.");
     }
 }
