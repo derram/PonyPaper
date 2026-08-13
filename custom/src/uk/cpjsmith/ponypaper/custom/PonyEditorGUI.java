@@ -556,10 +556,14 @@ public class PonyEditorGUI extends JPanel {
             add(wrapTwoButtons(imageLeftPreview, imageLeftMirror), c);
             
             imageLeftImport = new JButton("Import image");
+            imageLeftImport.setToolTipText(
+                    "Load a packed PNG strip as-is, or a GIF (coalesced and packed). "
+                            + "GIFs open the same pack dialog as Import frames (scale 100% by default).");
             imageLeftImport.addActionListener(importLeftListener);
             imageLeftImportFrames = new JButton("Import frames");
             imageLeftImportFrames.setToolTipText(
-                    "Build a spritesheet from a folder or several PNG frames. Optional per-frame lift for hops.");
+                    "Build a spritesheet from a folder or several PNG frames. "
+                            + "Optional scale (100% / 50%) and per-frame lift for hops.");
             imageLeftImportFrames.addActionListener(importFramesLeftListener);
             imageLeftExport = new JButton("Export Spritesheet");
             imageLeftExport.setToolTipText("Save the left spritesheet as a PNG file.");
@@ -618,10 +622,14 @@ public class PonyEditorGUI extends JPanel {
             add(wrapTwoButtons(imageRightPreview, imageRightMirror), c);
             
             imageRightImport = new JButton("Import image");
+            imageRightImport.setToolTipText(
+                    "Load a packed PNG strip as-is, or a GIF (coalesced and packed). "
+                            + "GIFs open the same pack dialog as Import frames (scale 100% by default).");
             imageRightImport.addActionListener(importRightListener);
             imageRightImportFrames = new JButton("Import frames");
             imageRightImportFrames.setToolTipText(
-                    "Build a spritesheet from a folder or several PNG frames. Optional per-frame lift for hops.");
+                    "Build a spritesheet from a folder or several PNG frames. "
+                            + "Optional scale (100% / 50%) and per-frame lift for hops.");
             imageRightImportFrames.addActionListener(importFramesRightListener);
             imageRightExport = new JButton("Export Spritesheet");
             imageRightExport.setToolTipText("Save the right spritesheet as a PNG file.");
@@ -1121,20 +1129,81 @@ public class PonyEditorGUI extends JPanel {
         }
 
         void importImage(String direction) {
+            if (currentIndex < 0) {
+                return;
+            }
             fc.setFileFilter(new FileNameExtensionFilter("All Supported Formats", "png", "gif"));
             fc.addChoosableFileFilter(new FileNameExtensionFilter("PNG Images", "png"));
             fc.addChoosableFileFilter(new FileNameExtensionFilter("GIF Animations", "gif"));
             if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
                 File file = fc.getSelectedFile();
                 try {
-                    editor.loadActionSprite(currentIndex, direction, file);
-                    setAction(currentIndex);
-                    hasChanges = true;
+                    if (file.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".gif")) {
+                        importGif(direction, file);
+                    } else {
+                        editor.loadActionSprite(currentIndex, direction, file);
+                        setAction(currentIndex);
+                        hasChanges = true;
+                    }
                 } catch (PonyEditor.GenericException e) {
                     JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
+                } catch (IOException e) {
+                    JOptionPane.showMessageDialog(
+                            this,
+                            e.getMessage(),
+                            "Import Image Failed",
+                            JOptionPane.ERROR_MESSAGE);
                 }
             }
             fc.resetChoosableFileFilters();
+        }
+
+        /**
+         * Coalesces a GIF and opens the same pack dialog as Import frames.
+         * Default scale is native; Desktop Ponies 50% is a visible choice.
+         */
+        void importGif(String direction, File file) throws IOException, PonyEditor.GenericException {
+            ImageImport.GifFrames gif = ImageImport.loadGifFrames(file);
+            int existingCount = ImageImport.countTimings(editor.getActionTimings(currentIndex, direction));
+            StringBuilder notes = new StringBuilder();
+            notes.append(file.getName()).append(" — ").append(gif.frames.size()).append(" coalesced frame")
+                    .append(gif.frames.size() == 1 ? "" : "s")
+                    .append(" at ").append(gif.logicalWidth).append("×").append(gif.logicalHeight).append(".");
+            notes.append("\n\nGIF delays will be used as timings");
+            if (existingCount == gif.frames.size()) {
+                notes.append(" unless you keep the existing ").append(existingCount).append(" entries");
+            }
+            notes.append(".");
+            notes.append("\n\nScale is 100% by default. Choose 50% (Desktop Ponies) to match built-in pony size.");
+            notes.append("\n\nLift is pixels of air under a frame (0 = on the ground). ")
+                    .append("It is baked into the sheet — leave <anchory> empty so feet stay on the ground line.");
+
+            String[] names = new String[gif.frames.size()];
+            for (int i = 0; i < gif.frames.size(); i++) {
+                names[i] = file.getName() + " #" + (i + 1);
+            }
+
+            FramePackDialog.Result packed = FramePackDialog.showDialog(
+                    this,
+                    "Import GIF (" + direction + ")",
+                    names,
+                    gif.frames,
+                    notes.toString(),
+                    ImageImport.SCALE_NATIVE);
+            if (packed == null) {
+                return;
+            }
+
+            ImageImport.PackOptions options = new ImageImport.PackOptions();
+            options.lifts = packed.lifts;
+            options.scalePercent = packed.scalePercent;
+            options.timingsCs = gif.timingsCs;
+            editor.loadActionSpriteFromFrames(currentIndex, direction, gif.frames, options);
+            setAction(currentIndex);
+            hasChanges = true;
+            previewImage(
+                    editor.getActionImage(currentIndex, direction),
+                    editor.getActionTimings(currentIndex, direction));
         }
 
         /**
@@ -1195,21 +1264,24 @@ public class PonyEditorGUI extends JPanel {
                             .append(" × ").append(ImageImport.DEFAULT_FRAME_TIMING_CS)
                             .append(" (hundredths of a second).");
                 }
+                notes.append("\n\nScale is 100% by default. Choose 50% (Desktop Ponies) if these frames are full-size Desktop Ponies art.");
                 notes.append("\n\nLift is pixels of air under a frame (0 = on the ground). ")
                         .append("It is baked into the sheet — leave <anchory> empty so feet stay on the ground line.");
 
-                int[] lifts = FramePackDialog.showDialog(
+                FramePackDialog.Result packed = FramePackDialog.showDialog(
                         this,
                         "Import Frames (" + direction + ")",
                         files,
                         frames,
-                        notes.toString());
-                if (lifts == null) {
+                        notes.toString(),
+                        ImageImport.SCALE_NATIVE);
+                if (packed == null) {
                     return;
                 }
 
                 ImageImport.PackOptions options = new ImageImport.PackOptions();
-                options.lifts = lifts;
+                options.lifts = packed.lifts;
+                options.scalePercent = packed.scalePercent;
                 editor.loadActionSpriteFrames(currentIndex, direction, files, options);
                 setAction(currentIndex);
                 hasChanges = true;

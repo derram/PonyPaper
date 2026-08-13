@@ -657,16 +657,24 @@ public class PonyEditor {
      * @throws GenericException if the file cannot be loaded as an image
      */
     public void loadActionSprite(int index, String direction, File spriteFile) throws GenericException {
+        loadActionSprite(index, direction, spriteFile, null);
+    }
+
+    /**
+     * Like {@link #loadActionSprite(int, String, File)} but GIFs honour
+     * {@code options} (scale, lifts, timings). PNG stills stay pass-through.
+     */
+    public void loadActionSprite(int index, String direction, File spriteFile,
+            ImageImport.PackOptions options) throws GenericException {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
         if (!ponyDefinition.actions[index].images.containsKey(direction)) throw new IndexOutOfBoundsException();
-        
-        // Importing art on an alias detaches it so the new sprites are stored here.
+
         if (ponyDefinition.actions[index].isAlias()) {
             detachAliasCopyingSprites(index);
         }
-        
+
         try {
-            ImageImport imported = ImageImport.load(spriteFile);
+            ImageImport imported = ImageImport.load(spriteFile, options);
             ponyDefinition.actions[index].images.put(direction, Base64.getEncoder().encodeToString(imported.loadedImage));
             if (imported.timings != null) {
                 ponyDefinition.actions[index].timings.put(direction, imported.timings);
@@ -697,11 +705,33 @@ public class PonyEditor {
 
         try {
             java.util.List<File> files = ImageImport.collectFrameFiles(selected);
-            ImageImport imported = ImageImport.fromFrames(ImageImport.loadFrameImages(files), options);
+            return loadActionSpriteFromFrames(index, direction, ImageImport.loadFrameImages(files), options);
+        } catch (IOException e) {
+            throw new GenericException("Import Frames Failed", e.getMessage());
+        }
+    }
+
+    /**
+     * Packs already-decoded frames (PNG stills or coalesced GIF frames) with
+     * {@code options} (scale, lifts, optional per-frame timings).
+     */
+    public ImageImport loadActionSpriteFromFrames(
+            int index, String direction, java.util.List<java.awt.image.BufferedImage> frames,
+            ImageImport.PackOptions options)
+            throws GenericException {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        if (!ponyDefinition.actions[index].images.containsKey(direction)) throw new IndexOutOfBoundsException();
+
+        if (ponyDefinition.actions[index].isAlias()) {
+            detachAliasCopyingSprites(index);
+        }
+
+        try {
+            ImageImport imported = ImageImport.fromFrames(frames, options);
             applyPackedSprite(index, direction, imported);
             return imported;
         } catch (IOException e) {
-            throw new GenericException("Import Frames Failed", e.getMessage());
+            throw new GenericException("Import Failed", e.getMessage());
         }
     }
 
@@ -825,8 +855,10 @@ public class PonyEditor {
                     int index = addAction(action.name);
                     setActionSpecial(index, action.specialType);
                     setActionSpeed(index, action.speed);
-                    loadActionSprite(index, "left", action.leftImage);
-                    loadActionSprite(index, "right", action.rightImage);
+                    ImageImport.PackOptions dpOpts = new ImageImport.PackOptions();
+                    dpOpts.scalePercent = ImageImport.SCALE_DESKTOP_PONIES;
+                    loadActionSprite(index, "left", action.leftImage, dpOpts);
+                    loadActionSprite(index, "right", action.rightImage, dpOpts);
                     setActionNext(index, "waiting", action.nextWaiting);
                     setActionNext(index, "moving", action.nextMoving);
                     setActionNext(index, "drag", action.nextDrag);
@@ -855,6 +887,7 @@ public class PonyEditor {
             setDefaultDrag(result.defaultDrag);
             scrubMissingActionReferences();
             notes.add(0, "Loaded " + loaded + " action(s) into the editor.");
+            notes.add(1, "GIF sprites were scaled to 50% so they match built-in PonyPaper size.");
         } catch (GenericException e) {
             ponyDefinition = previous;
             throw e;

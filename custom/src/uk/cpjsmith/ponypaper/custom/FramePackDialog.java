@@ -24,12 +24,14 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
@@ -48,33 +50,67 @@ import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
 
 /**
- * Modal dialog: review imported PNG frames, set per-frame lift (pixels of air
- * under the sprite), and pack. Lift {@code 0} is the usual bottom-centre
- * alignment; positive lift bakes a hop into a taller cell. Returns
- * {@code null} on cancel.
+ * Modal dialog: review imported frames (PNG stills or coalesced GIF frames),
+ * choose native vs Desktop Ponies 50% scale, set per-frame lift, and pack.
+ * Lift {@code 0} is the usual bottom-centre alignment; positive lift bakes a
+ * hop into a taller cell. Returns {@code null} on cancel.
  */
 public final class FramePackDialog extends JDialog {
 
     private static final int MAX_LIFT = 512;
     private static final int THUMB_H = 32;
 
+    /**
+     * User choices after Pack. Lift values are in <em>output</em> pixels
+     * (after scale).
+     */
+    public static final class Result {
+        public final int[] lifts;
+        public final int scalePercent;
+
+        Result(int[] lifts, int scalePercent) {
+            this.lifts = lifts;
+            this.scalePercent = scalePercent;
+        }
+    }
+
+    private static final class ScaleItem {
+        final int percent;
+        final String label;
+
+        ScaleItem(int percent, String label) {
+            this.percent = percent;
+            this.label = label;
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
     private final List<BufferedImage> frames;
     private final List<String> names;
     private final int[] lifts;
     private final String notes;
     private final JLabel headerLabel;
+    private final JLabel warningLabel;
     private final JList<Integer> frameList;
     private final CellPreview cellPreview;
     private final StripPreview stripPreview;
     private final JSpinner liftSpinner;
     private final JSpinner hopPeakSpinner;
     private final SpinnerNumberModel liftModel;
+    private final JComboBox<ScaleItem> scaleCombo;
+    private int scalePercent;
+    private List<BufferedImage> scaledFrames;
     private boolean updatingSpinner;
     private boolean packed;
-    private int[] result;
+    private Result result;
 
     private FramePackDialog(Component parent, String title,
-            List<File> files, List<BufferedImage> frames, String notes) {
+            List<String> frameNames, List<BufferedImage> frames, String notes,
+            int defaultScalePercent) {
         super(SwingUtilities.getWindowAncestor(parent),
                 title != null ? title : "Import Frames",
                 ModalityType.APPLICATION_MODAL);
@@ -82,16 +118,23 @@ public final class FramePackDialog extends JDialog {
         this.notes = notes != null ? notes : "";
         this.names = new ArrayList<String>(frames.size());
         this.lifts = new int[frames.size()];
+        int initialScale = defaultScalePercent == ImageImport.SCALE_DESKTOP_PONIES
+                ? ImageImport.SCALE_DESKTOP_PONIES
+                : ImageImport.SCALE_NATIVE;
+        this.scalePercent = initialScale;
         for (int i = 0; i < frames.size(); i++) {
-            if (files != null && i < files.size() && files.get(i) != null) {
-                names.add(files.get(i).getName());
+            if (frameNames != null && i < frameNames.size() && frameNames.get(i) != null) {
+                names.add(frameNames.get(i));
             } else {
                 names.add("frame " + (i + 1));
             }
         }
 
         headerLabel = new JLabel(" ");
-        headerLabel.setBorder(BorderFactory.createEmptyBorder(8, 10, 4, 10));
+        headerLabel.setBorder(BorderFactory.createEmptyBorder(8, 10, 0, 10));
+        warningLabel = new JLabel(" ");
+        warningLabel.setForeground(new Color(0xb8, 0x5c, 0x00));
+        warningLabel.setBorder(BorderFactory.createEmptyBorder(0, 10, 4, 10));
 
         DefaultListModel<Integer> model = new DefaultListModel<Integer>();
         for (int i = 0; i < frames.size(); i++) {
@@ -110,6 +153,27 @@ public final class FramePackDialog extends JDialog {
         liftSpinner.setToolTipText("Pixels of air under this frame (0 = feet on the ground line).");
         hopPeakSpinner = new JSpinner(new SpinnerNumberModel(16, 1, MAX_LIFT, 1));
         hopPeakSpinner.setToolTipText("Peak height in pixels for the hop-curve preset.");
+
+        scaleCombo = new JComboBox<ScaleItem>(new ScaleItem[] {
+            new ScaleItem(ImageImport.SCALE_NATIVE, "100% (native)"),
+            new ScaleItem(ImageImport.SCALE_DESKTOP_PONIES, "50% (Desktop Ponies)"),
+        });
+        scaleCombo.setSelectedIndex(initialScale == ImageImport.SCALE_DESKTOP_PONIES ? 1 : 0);
+        scaleCombo.setToolTipText(
+                "Linear size of the packed sheet. 50% matches built-in ponies when the source is Desktop Ponies art.");
+        scaleCombo.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                ScaleItem item = (ScaleItem) scaleCombo.getSelectedItem();
+                int next = item != null ? item.percent : ImageImport.SCALE_NATIVE;
+                if (next == scalePercent) {
+                    return;
+                }
+                scalePercent = next;
+                scaledFrames = null;
+                refreshAll();
+            }
+        });
 
         liftSpinner.addChangeListener(new ChangeListener() {
             @Override
@@ -165,7 +229,7 @@ public final class FramePackDialog extends JDialog {
             @Override
             public void actionPerformed(ActionEvent e) {
                 packed = true;
-                result = lifts.clone();
+                result = new Result(lifts.clone(), scalePercent);
                 dispose();
             }
         });
@@ -202,6 +266,8 @@ public final class FramePackDialog extends JDialog {
         stripPane.add(stripScroll, BorderLayout.CENTER);
 
         JPanel liftRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        liftRow.add(new JLabel("Scale:"));
+        liftRow.add(scaleCombo);
         liftRow.add(new JLabel("Lift:"));
         liftRow.add(liftSpinner);
         liftRow.add(resetButton);
@@ -221,7 +287,10 @@ public final class FramePackDialog extends JDialog {
         south.add(southButtons, BorderLayout.SOUTH);
 
         JPanel notesPane = new JPanel(new BorderLayout());
-        notesPane.add(headerLabel, BorderLayout.NORTH);
+        JPanel headerPane = new JPanel(new BorderLayout());
+        headerPane.add(headerLabel, BorderLayout.NORTH);
+        headerPane.add(warningLabel, BorderLayout.SOUTH);
+        notesPane.add(headerPane, BorderLayout.NORTH);
         if (!this.notes.isEmpty()) {
             JLabel noteLabel = new JLabel("<html>" + escapeHtml(this.notes).replace("\n", "<br>") + "</html>");
             noteLabel.setBorder(BorderFactory.createEmptyBorder(0, 10, 6, 10));
@@ -269,17 +338,58 @@ public final class FramePackDialog extends JDialog {
     }
 
     /**
-     * Opens the pack dialog. Returns a lift array (one entry per frame) if the
-     * user chose Pack, or {@code null} if cancelled.
+     * Opens the pack dialog at native scale. Returns lifts + scale if the user
+     * chose Pack, or {@code null} if cancelled.
      */
-    public static int[] showDialog(Component parent, String title,
+    public static Result showDialog(Component parent, String title,
             List<File> files, List<BufferedImage> frames, String notes) {
+        return showDialog(parent, title, files, frames, notes, ImageImport.SCALE_NATIVE);
+    }
+
+    public static Result showDialog(Component parent, String title,
+            List<File> files, List<BufferedImage> frames, String notes, int defaultScalePercent) {
+        return showDialog(parent, title,
+                namesFromFiles(files, frames).toArray(new String[0]),
+                frames, notes, defaultScalePercent);
+    }
+
+    public static Result showDialog(Component parent, String title,
+            String[] frameNames, List<BufferedImage> frames, String notes,
+            int defaultScalePercent) {
         if (frames == null || frames.isEmpty()) {
             throw new IllegalArgumentException("frames");
         }
-        FramePackDialog dialog = new FramePackDialog(parent, title, files, frames, notes);
+        List<String> names = frameNames != null ? Arrays.asList(frameNames) : null;
+        FramePackDialog dialog = new FramePackDialog(
+                parent, title, names, frames, notes, defaultScalePercent);
         dialog.setVisible(true);
         return dialog.packed ? dialog.result : null;
+    }
+
+    private static List<String> namesFromFiles(List<File> files, List<BufferedImage> frames) {
+        List<String> names = new ArrayList<String>(frames.size());
+        for (int i = 0; i < frames.size(); i++) {
+            if (files != null && i < files.size() && files.get(i) != null) {
+                names.add(files.get(i).getName());
+            } else {
+                names.add("frame " + (i + 1));
+            }
+        }
+        return names;
+    }
+
+    private List<BufferedImage> packFrames() {
+        if (scalePercent == ImageImport.SCALE_NATIVE) {
+            return frames;
+        }
+        if (scaledFrames == null) {
+            try {
+                scaledFrames = ImageImport.scaleFrames(frames, scalePercent);
+            } catch (IOException e) {
+                return frames;
+            }
+        }
+        return scaledFrames;
     }
 
     private int selectedIndex() {
@@ -313,21 +423,31 @@ public final class FramePackDialog extends JDialog {
 
     private void refreshAll() {
         try {
-            ImageImport.PackPreview preview = ImageImport.inspectFrames(frames, lifts);
+            List<BufferedImage> toPack = packFrames();
+            ImageImport.PackPreview preview = ImageImport.inspectFrames(toPack, lifts);
             headerLabel.setText(String.format(
-                    "Pack %d frame%s into %d×%d cells (sheet %d×%d).",
+                    "Pack %d frame%s into %d×%d cells (sheet %d×%d) at %d%%.",
                     preview.frameCount,
                     preview.frameCount == 1 ? "" : "s",
                     preview.cellWidth,
                     preview.cellHeight,
                     preview.sheetWidth(),
-                    preview.cellHeight));
+                    preview.cellHeight,
+                    scalePercent));
+            if (ImageImport.isLargeCell(preview.cellHeight)) {
+                warningLabel.setText(ImageImport.largeCellWarning());
+                warningLabel.setVisible(true);
+            } else {
+                warningLabel.setText(" ");
+                warningLabel.setVisible(false);
+            }
             cellPreview.setCell(preview.cellWidth, preview.cellHeight);
             stripPreview.setSheet(ImageImport.packSheetImage(
-                    frames, preview.cellWidth, preview.cellHeight, lifts),
+                    toPack, preview.cellWidth, preview.cellHeight, lifts),
                     preview.frameCount, preview.cellHeight);
         } catch (IOException e) {
             headerLabel.setText("Cannot pack: " + e.getMessage());
+            warningLabel.setVisible(false);
         }
         syncSelection();
         frameList.repaint();
@@ -346,7 +466,7 @@ public final class FramePackDialog extends JDialog {
             if (i < 0 || i >= frames.size()) {
                 return this;
             }
-            BufferedImage frame = frames.get(i);
+            BufferedImage frame = packFrames().get(i);
             setIcon(new ImageIcon(thumbnail(frame)));
             setText(String.format("%d. %s  (%d×%d, lift %d)",
                     i + 1, names.get(i), frame.getWidth(), frame.getHeight(), lifts[i]));
@@ -494,7 +614,7 @@ public final class FramePackDialog extends JDialog {
                 if (index < 0) {
                     return;
                 }
-                BufferedImage frame = frames.get(index);
+                BufferedImage frame = packFrames().get(index);
                 Rectangle bounds = cellBounds();
                 paintChecker(g2, bounds);
                 g2.setColor(new Color(0x66, 0x66, 0x66));
