@@ -1,0 +1,630 @@
+package uk.cpjsmith.ponypaper.custom;
+
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.Image;
+import java.awt.Rectangle;
+import java.awt.RenderingHints;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
+import java.awt.event.MouseWheelEvent;
+import java.awt.event.MouseWheelListener;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import javax.swing.BorderFactory;
+import javax.swing.DefaultListCellRenderer;
+import javax.swing.DefaultListModel;
+import javax.swing.ImageIcon;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JDialog;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JSpinner;
+import javax.swing.JSplitPane;
+import javax.swing.KeyStroke;
+import javax.swing.ListSelectionModel;
+import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingUtilities;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
+import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.ListSelectionListener;
+
+/**
+ * Modal dialog: review imported PNG frames, set per-frame lift (pixels of air
+ * under the sprite), and pack. Lift {@code 0} is the usual bottom-centre
+ * alignment; positive lift bakes a hop into a taller cell. Returns
+ * {@code null} on cancel.
+ */
+public final class FramePackDialog extends JDialog {
+
+    private static final int MAX_LIFT = 512;
+    private static final int THUMB_H = 32;
+
+    private final List<BufferedImage> frames;
+    private final List<String> names;
+    private final int[] lifts;
+    private final String notes;
+    private final JLabel headerLabel;
+    private final JList<Integer> frameList;
+    private final CellPreview cellPreview;
+    private final StripPreview stripPreview;
+    private final JSpinner liftSpinner;
+    private final JSpinner hopPeakSpinner;
+    private final SpinnerNumberModel liftModel;
+    private boolean updatingSpinner;
+    private boolean packed;
+    private int[] result;
+
+    private FramePackDialog(Component parent, String title,
+            List<File> files, List<BufferedImage> frames, String notes) {
+        super(SwingUtilities.getWindowAncestor(parent),
+                title != null ? title : "Import Frames",
+                ModalityType.APPLICATION_MODAL);
+        this.frames = frames;
+        this.notes = notes != null ? notes : "";
+        this.names = new ArrayList<String>(frames.size());
+        this.lifts = new int[frames.size()];
+        for (int i = 0; i < frames.size(); i++) {
+            if (files != null && i < files.size() && files.get(i) != null) {
+                names.add(files.get(i).getName());
+            } else {
+                names.add("frame " + (i + 1));
+            }
+        }
+
+        headerLabel = new JLabel(" ");
+        headerLabel.setBorder(BorderFactory.createEmptyBorder(8, 10, 4, 10));
+
+        DefaultListModel<Integer> model = new DefaultListModel<Integer>();
+        for (int i = 0; i < frames.size(); i++) {
+            model.addElement(Integer.valueOf(i));
+        }
+        frameList = new JList<Integer>(model);
+        frameList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        frameList.setCellRenderer(new FrameRenderer());
+        frameList.setVisibleRowCount(8);
+
+        cellPreview = new CellPreview();
+        stripPreview = new StripPreview();
+
+        liftModel = new SpinnerNumberModel(0, 0, MAX_LIFT, 1);
+        liftSpinner = new JSpinner(liftModel);
+        liftSpinner.setToolTipText("Pixels of air under this frame (0 = feet on the ground line).");
+        hopPeakSpinner = new JSpinner(new SpinnerNumberModel(16, 1, MAX_LIFT, 1));
+        hopPeakSpinner.setToolTipText("Peak height in pixels for the hop-curve preset.");
+
+        liftSpinner.addChangeListener(new ChangeListener() {
+            @Override
+            public void stateChanged(ChangeEvent e) {
+                if (updatingSpinner) {
+                    return;
+                }
+                int index = selectedIndex();
+                if (index < 0) {
+                    return;
+                }
+                int value = ((Number) liftSpinner.getValue()).intValue();
+                setLift(index, value);
+            }
+        });
+
+        frameList.addListSelectionListener(new ListSelectionListener() {
+            @Override
+            public void valueChanged(ListSelectionEvent e) {
+                if (!e.getValueIsAdjusting()) {
+                    syncSelection();
+                }
+            }
+        });
+
+        JButton resetButton = new JButton("Reset lifts");
+        resetButton.setToolTipText("Set every frame back to 0 (bottom-aligned).");
+        resetButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                for (int i = 0; i < lifts.length; i++) {
+                    lifts[i] = 0;
+                }
+                refreshAll();
+            }
+        });
+
+        JButton hopButton = new JButton("Apply hop");
+        hopButton.setToolTipText("Parabola: 0 at both ends, peak in the middle. Baked into the sheet.");
+        hopButton.setEnabled(frames.size() >= 3);
+        hopButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                int peak = ((Number) hopPeakSpinner.getValue()).intValue();
+                int[] curve = ImageImport.hopCurve(lifts.length, peak);
+                System.arraycopy(curve, 0, lifts, 0, lifts.length);
+                refreshAll();
+            }
+        });
+
+        JButton packButton = new JButton("Pack");
+        packButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                packed = true;
+                result = lifts.clone();
+                dispose();
+            }
+        });
+
+        JButton cancelButton = new JButton("Cancel");
+        cancelButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                packed = false;
+                result = null;
+                dispose();
+            }
+        });
+
+        JPanel listPane = new JPanel(new BorderLayout());
+        listPane.add(new JScrollPane(frameList), BorderLayout.CENTER);
+        listPane.setPreferredSize(new Dimension(280, 240));
+
+        JPanel previewPane = new JPanel(new BorderLayout());
+        previewPane.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 0));
+        previewPane.add(new JLabel("Selected frame (drag up/down or use the spinner)"), BorderLayout.NORTH);
+        previewPane.add(cellPreview, BorderLayout.CENTER);
+
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, listPane, previewPane);
+        split.setResizeWeight(0.4);
+        split.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
+
+        JPanel stripPane = new JPanel(new BorderLayout());
+        stripPane.setBorder(BorderFactory.createEmptyBorder(4, 8, 0, 8));
+        stripPane.add(new JLabel("Sheet preview (click a cell to select)"), BorderLayout.NORTH);
+        JScrollPane stripScroll = new JScrollPane(stripPreview);
+        stripScroll.setPreferredSize(new Dimension(640, 120));
+        stripScroll.getHorizontalScrollBar().setUnitIncrement(16);
+        stripPane.add(stripScroll, BorderLayout.CENTER);
+
+        JPanel liftRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        liftRow.add(new JLabel("Lift:"));
+        liftRow.add(liftSpinner);
+        liftRow.add(resetButton);
+        liftRow.add(new JLabel("Hop peak:"));
+        liftRow.add(hopPeakSpinner);
+        liftRow.add(hopButton);
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
+        buttons.add(cancelButton);
+        buttons.add(packButton);
+
+        JPanel south = new JPanel(new BorderLayout());
+        south.add(stripPane, BorderLayout.CENTER);
+        JPanel southButtons = new JPanel(new BorderLayout());
+        southButtons.add(liftRow, BorderLayout.WEST);
+        southButtons.add(buttons, BorderLayout.EAST);
+        south.add(southButtons, BorderLayout.SOUTH);
+
+        JPanel notesPane = new JPanel(new BorderLayout());
+        notesPane.add(headerLabel, BorderLayout.NORTH);
+        if (!this.notes.isEmpty()) {
+            JLabel noteLabel = new JLabel("<html>" + escapeHtml(this.notes).replace("\n", "<br>") + "</html>");
+            noteLabel.setBorder(BorderFactory.createEmptyBorder(0, 10, 6, 10));
+            notesPane.add(noteLabel, BorderLayout.SOUTH);
+        }
+
+        setLayout(new BorderLayout());
+        add(notesPane, BorderLayout.NORTH);
+        add(split, BorderLayout.CENTER);
+        add(south, BorderLayout.SOUTH);
+
+        getRootPane().setDefaultButton(packButton);
+        getRootPane().registerKeyboardAction(
+                new ActionListener() {
+                    @Override
+                    public void actionPerformed(ActionEvent e) {
+                        packed = false;
+                        result = null;
+                        dispose();
+                    }
+                },
+                KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
+
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                packed = false;
+                result = null;
+            }
+        });
+
+        frameList.setSelectedIndex(0);
+        refreshAll();
+
+        pack();
+        Dimension size = getSize();
+        Dimension screen = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
+        int maxW = Math.max(640, (int) (screen.width * 0.9));
+        int maxH = Math.max(480, (int) (screen.height * 0.85));
+        if (size.width > maxW || size.height > maxH) {
+            setSize(Math.min(size.width, maxW), Math.min(size.height, maxH));
+        }
+        setLocationRelativeTo(parent);
+    }
+
+    /**
+     * Opens the pack dialog. Returns a lift array (one entry per frame) if the
+     * user chose Pack, or {@code null} if cancelled.
+     */
+    public static int[] showDialog(Component parent, String title,
+            List<File> files, List<BufferedImage> frames, String notes) {
+        if (frames == null || frames.isEmpty()) {
+            throw new IllegalArgumentException("frames");
+        }
+        FramePackDialog dialog = new FramePackDialog(parent, title, files, frames, notes);
+        dialog.setVisible(true);
+        return dialog.packed ? dialog.result : null;
+    }
+
+    private int selectedIndex() {
+        Integer value = frameList.getSelectedValue();
+        return value != null ? value.intValue() : -1;
+    }
+
+    private void setLift(int index, int value) {
+        int clamped = Math.max(0, Math.min(MAX_LIFT, value));
+        if (lifts[index] == clamped) {
+            return;
+        }
+        lifts[index] = clamped;
+        refreshAll();
+    }
+
+    private void syncSelection() {
+        int index = selectedIndex();
+        if (index < 0) {
+            return;
+        }
+        updatingSpinner = true;
+        try {
+            liftSpinner.setValue(Integer.valueOf(lifts[index]));
+        } finally {
+            updatingSpinner = false;
+        }
+        cellPreview.repaint();
+        stripPreview.repaint();
+    }
+
+    private void refreshAll() {
+        try {
+            ImageImport.PackPreview preview = ImageImport.inspectFrames(frames, lifts);
+            headerLabel.setText(String.format(
+                    "Pack %d frame%s into %d×%d cells (sheet %d×%d).",
+                    preview.frameCount,
+                    preview.frameCount == 1 ? "" : "s",
+                    preview.cellWidth,
+                    preview.cellHeight,
+                    preview.sheetWidth(),
+                    preview.cellHeight));
+            cellPreview.setCell(preview.cellWidth, preview.cellHeight);
+            stripPreview.setSheet(ImageImport.packSheetImage(
+                    frames, preview.cellWidth, preview.cellHeight, lifts),
+                    preview.frameCount, preview.cellHeight);
+        } catch (IOException e) {
+            headerLabel.setText("Cannot pack: " + e.getMessage());
+        }
+        syncSelection();
+        frameList.repaint();
+    }
+
+    private static String escapeHtml(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private final class FrameRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(
+                JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            int i = value instanceof Integer ? ((Integer) value).intValue() : index;
+            if (i < 0 || i >= frames.size()) {
+                return this;
+            }
+            BufferedImage frame = frames.get(i);
+            setIcon(new ImageIcon(thumbnail(frame)));
+            setText(String.format("%d. %s  (%d×%d, lift %d)",
+                    i + 1, names.get(i), frame.getWidth(), frame.getHeight(), lifts[i]));
+            return this;
+        }
+    }
+
+    private static Image thumbnail(BufferedImage src) {
+        int h = THUMB_H;
+        int w = Math.max(1, src.getWidth() * h / Math.max(1, src.getHeight()));
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = out.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+        g.drawImage(src, 0, 0, w, h, null);
+        g.dispose();
+        return out;
+    }
+
+    /**
+     * One frame on the computed cell, ground line at the bottom. Drag up to
+     * increase lift; wheel and arrows nudge 1px (Shift: 5).
+     */
+    private final class CellPreview extends JComponent {
+        private int cellW = 1;
+        private int cellH = 1;
+        private int dragStartY;
+        private int dragStartLift;
+        private boolean dragging;
+
+        CellPreview() {
+            setOpaque(true);
+            setBackground(new Color(0x2b, 0x2b, 0x2b));
+            setPreferredSize(new Dimension(280, 240));
+            setFocusable(true);
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    requestFocusInWindow();
+                    int index = selectedIndex();
+                    if (index < 0 || e.getButton() != MouseEvent.BUTTON1) {
+                        return;
+                    }
+                    dragging = true;
+                    dragStartY = e.getY();
+                    dragStartLift = lifts[index];
+                }
+
+                @Override
+                public void mouseReleased(MouseEvent e) {
+                    dragging = false;
+                }
+            });
+            addMouseMotionListener(new MouseMotionAdapter() {
+                @Override
+                public void mouseDragged(MouseEvent e) {
+                    if (!dragging) {
+                        return;
+                    }
+                    int index = selectedIndex();
+                    if (index < 0) {
+                        return;
+                    }
+                    float scale = cellScale();
+                    int delta = Math.round((dragStartY - e.getY()) / scale);
+                    setLift(index, dragStartLift + delta);
+                }
+            });
+            addMouseWheelListener(new MouseWheelListener() {
+                @Override
+                public void mouseWheelMoved(MouseWheelEvent e) {
+                    int index = selectedIndex();
+                    if (index < 0) {
+                        return;
+                    }
+                    int step = e.isShiftDown() ? 5 : 1;
+                    int notches = e.getWheelRotation();
+                    if (notches != 0) {
+                        setLift(index, lifts[index] + (notches < 0 ? step : -step));
+                    }
+                    e.consume();
+                }
+            });
+            registerKeyboardAction(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    nudge(1);
+                }
+            }, KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), WHEN_FOCUSED);
+            registerKeyboardAction(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    nudge(5);
+                }
+            }, KeyStroke.getKeyStroke(KeyEvent.VK_UP, KeyEvent.SHIFT_DOWN_MASK), WHEN_FOCUSED);
+            registerKeyboardAction(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    nudge(-1);
+                }
+            }, KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), WHEN_FOCUSED);
+            registerKeyboardAction(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    nudge(-5);
+                }
+            }, KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, KeyEvent.SHIFT_DOWN_MASK), WHEN_FOCUSED);
+        }
+
+        void setCell(int cellW, int cellH) {
+            this.cellW = Math.max(1, cellW);
+            this.cellH = Math.max(1, cellH);
+            repaint();
+        }
+
+        private void nudge(int delta) {
+            int index = selectedIndex();
+            if (index >= 0) {
+                setLift(index, lifts[index] + delta);
+            }
+        }
+
+        private float cellScale() {
+            int pad = 16;
+            int availW = Math.max(1, getWidth() - pad * 2);
+            int availH = Math.max(1, getHeight() - pad * 2);
+            return Math.max(1f, Math.min(availW / (float) cellW, availH / (float) cellH));
+        }
+
+        private Rectangle cellBounds() {
+            float scale = cellScale();
+            int w = Math.round(cellW * scale);
+            int h = Math.round(cellH * scale);
+            return new Rectangle((getWidth() - w) / 2, (getHeight() - h) / 2, w, h);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setColor(getBackground());
+                g2.fillRect(0, 0, getWidth(), getHeight());
+                int index = selectedIndex();
+                if (index < 0) {
+                    return;
+                }
+                BufferedImage frame = frames.get(index);
+                Rectangle bounds = cellBounds();
+                paintChecker(g2, bounds);
+                g2.setColor(new Color(0x66, 0x66, 0x66));
+                g2.drawRect(bounds.x, bounds.y, bounds.width - 1, bounds.height - 1);
+
+                float scale = cellScale();
+                int dx = bounds.x + Math.round(((cellW - frame.getWidth()) / 2f) * scale);
+                int dy = bounds.y + Math.round((cellH - frame.getHeight() - lifts[index]) * scale);
+                int dw = Math.round(frame.getWidth() * scale);
+                int dh = Math.round(frame.getHeight() * scale);
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                        RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+                g2.drawImage(frame, dx, dy, dw, dh, null);
+
+                int groundY = bounds.y + bounds.height - 1;
+                g2.setColor(new Color(0xff, 0x55, 0x33));
+                g2.fillRect(bounds.x, groundY - 1, bounds.width, 2);
+                g2.setColor(new Color(0xff, 0xcc, 0x00));
+                g2.drawString("ground", bounds.x + 4, groundY - 4);
+            } finally {
+                g2.dispose();
+            }
+        }
+    }
+
+    private static void paintChecker(Graphics2D g2, Rectangle bounds) {
+        int size = 8;
+        Color a = new Color(0x3a, 0x3a, 0x3a);
+        Color b = new Color(0x4a, 0x4a, 0x4a);
+        for (int y = 0; y < bounds.height; y += size) {
+            for (int x = 0; x < bounds.width; x += size) {
+                g2.setColor((((x / size) + (y / size)) & 1) == 0 ? a : b);
+                g2.fillRect(bounds.x + x, bounds.y + y,
+                        Math.min(size, bounds.width - x), Math.min(size, bounds.height - y));
+            }
+        }
+    }
+
+    /**
+     * Live packed strip. Click a cell to select that frame.
+     */
+    private final class StripPreview extends JComponent {
+        private BufferedImage sheet;
+        private int frameCount = 1;
+
+        StripPreview() {
+            setOpaque(true);
+            setBackground(new Color(0x22, 0x22, 0x22));
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    if (sheet == null || frameCount < 1) {
+                        return;
+                    }
+                    Rectangle bounds = imageBounds();
+                    if (!bounds.contains(e.getPoint()) || bounds.width <= 0) {
+                        return;
+                    }
+                    int index = (e.getX() - bounds.x) * frameCount / bounds.width;
+                    if (index < 0) {
+                        index = 0;
+                    }
+                    if (index >= frameCount) {
+                        index = frameCount - 1;
+                    }
+                    frameList.setSelectedIndex(index);
+                    frameList.ensureIndexIsVisible(index);
+                }
+            });
+        }
+
+        void setSheet(BufferedImage sheet, int frameCount, int cellH) {
+            this.sheet = sheet;
+            this.frameCount = Math.max(1, frameCount);
+            int prefH = Math.min(96, Math.max(48, cellH * 2));
+            int prefW = sheet != null
+                    ? Math.max(200, sheet.getWidth() * prefH / Math.max(1, sheet.getHeight()))
+                    : 200;
+            Dimension next = new Dimension(prefW, prefH);
+            if (!next.equals(getPreferredSize())) {
+                setPreferredSize(next);
+                revalidate();
+            }
+            repaint();
+        }
+
+        private Rectangle imageBounds() {
+            if (sheet == null) {
+                return new Rectangle(0, 0, 0, 0);
+            }
+            int pad = 4;
+            int availW = Math.max(1, getWidth() - pad * 2);
+            int availH = Math.max(1, getHeight() - pad * 2);
+            float scale = Math.min(availW / (float) sheet.getWidth(), availH / (float) sheet.getHeight());
+            // Prefer integer-ish scale when the strip is small; never downscale below 1 if it fits.
+            if (sheet.getWidth() <= availW && sheet.getHeight() <= availH) {
+                scale = Math.max(1f, (float) Math.floor(scale));
+            }
+            int w = Math.max(1, Math.round(sheet.getWidth() * scale));
+            int h = Math.max(1, Math.round(sheet.getHeight() * scale));
+            return new Rectangle((getWidth() - w) / 2, (getHeight() - h) / 2, w, h);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setColor(getBackground());
+                g2.fillRect(0, 0, getWidth(), getHeight());
+                if (sheet == null) {
+                    return;
+                }
+                Rectangle bounds = imageBounds();
+                paintChecker(g2, bounds);
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                        RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+                g2.drawImage(sheet, bounds.x, bounds.y, bounds.width, bounds.height, null);
+                int selected = selectedIndex();
+                if (selected >= 0 && frameCount > 0) {
+                    int x0 = bounds.x + bounds.width * selected / frameCount;
+                    int x1 = bounds.x + bounds.width * (selected + 1) / frameCount;
+                    g2.setColor(new Color(0x33, 0x99, 0xff, 0xcc));
+                    g2.drawRect(x0, bounds.y, Math.max(1, x1 - x0 - 1), bounds.height - 1);
+                }
+                g2.setColor(new Color(0x88, 0x88, 0x88));
+                for (int i = 1; i < frameCount; i++) {
+                    int x = bounds.x + bounds.width * i / frameCount;
+                    g2.drawLine(x, bounds.y, x, bounds.y + bounds.height);
+                }
+            } finally {
+                g2.dispose();
+            }
+        }
+    }
+}

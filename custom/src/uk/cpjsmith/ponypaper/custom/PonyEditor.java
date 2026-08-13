@@ -678,9 +678,10 @@ public class PonyEditor {
 
     /**
      * Packs PNG frames (a folder or loose files) into a left-to-right
-     * spritesheet for {@code direction}. Existing timings are kept when they
-     * already have one entry per frame; otherwise each frame gets
-     * {@link ImageImport#DEFAULT_FRAME_TIMING_CS}.
+     * spritesheet for {@code direction}. {@link ImageImport.PackOptions#lifts}
+     * raises frames off the baseline (baked into the PNG). Existing timings
+     * are kept when they already have one entry per frame; otherwise each
+     * frame gets {@link ImageImport#DEFAULT_FRAME_TIMING_CS}.
      *
      * @return the packed import (cell size, timings, PNG bytes)
      */

@@ -559,7 +559,7 @@ public class PonyEditorGUI extends JPanel {
             imageLeftImport.addActionListener(importLeftListener);
             imageLeftImportFrames = new JButton("Import frames");
             imageLeftImportFrames.setToolTipText(
-                    "Build a spritesheet from a folder or several PNG frames (no padding math).");
+                    "Build a spritesheet from a folder or several PNG frames. Optional per-frame lift for hops.");
             imageLeftImportFrames.addActionListener(importFramesLeftListener);
             imageLeftExport = new JButton("Export Spritesheet");
             imageLeftExport.setToolTipText("Save the left spritesheet as a PNG file.");
@@ -621,7 +621,7 @@ public class PonyEditorGUI extends JPanel {
             imageRightImport.addActionListener(importRightListener);
             imageRightImportFrames = new JButton("Import frames");
             imageRightImportFrames.setToolTipText(
-                    "Build a spritesheet from a folder or several PNG frames (no padding math).");
+                    "Build a spritesheet from a folder or several PNG frames. Optional per-frame lift for hops.");
             imageRightImportFrames.addActionListener(importFramesRightListener);
             imageRightExport = new JButton("Export Spritesheet");
             imageRightExport.setToolTipText("Save the right spritesheet as a PNG file.");
@@ -1139,8 +1139,8 @@ public class PonyEditorGUI extends JPanel {
 
         /**
          * Packs a folder of PNG frames or a multi-selection into a left-to-right
-         * spritesheet for {@code direction}. Confirms cell size, then opens Preview
-         * so hover-split can verify the timing count.
+         * spritesheet for {@code direction}. Opens the lift / pack dialog, then
+         * Preview so hover-split can verify the timing count.
          */
         void importFrames(String direction) {
             if (currentIndex < 0) {
@@ -1182,39 +1182,35 @@ public class PonyEditorGUI extends JPanel {
                 List<java.awt.image.BufferedImage> frames = ImageImport.loadFrameImages(files);
                 ImageImport.PackPreview preview = ImageImport.inspectFrames(frames);
                 int existingCount = ImageImport.countTimings(editor.getActionTimings(currentIndex, direction));
-                StringBuilder msg = new StringBuilder();
-                msg.append("Pack ").append(preview.frameCount)
-                        .append(preview.frameCount == 1 ? " frame" : " frames")
-                        .append(" into a ")
-                        .append(preview.cellWidth).append("×").append(preview.cellHeight)
-                        .append(" strip (sheet ")
-                        .append(preview.sheetWidth()).append("×").append(preview.cellHeight)
-                        .append(")?\n\n");
-                msg.append(summarizeFrameFiles(files));
+                StringBuilder notes = new StringBuilder();
+                notes.append(summarizeFrameFiles(files));
                 if (preview.mixedSizes) {
-                    msg.append("\n\nFrame sizes differ; smaller frames will be padded bottom-centre to ")
-                            .append(preview.cellWidth).append("×").append(preview.cellHeight)
-                            .append(".");
+                    notes.append("\n\nFrame sizes differ; smaller frames are padded to the cell and can be lifted.");
                 }
                 if (existingCount == preview.frameCount) {
-                    msg.append("\n\nExisting timings (").append(existingCount)
+                    notes.append("\n\nExisting timings (").append(existingCount)
                             .append(" entries) will be kept.");
                 } else {
-                    msg.append("\n\nTimings will be set to ").append(preview.frameCount)
+                    notes.append("\n\nTimings will be set to ").append(preview.frameCount)
                             .append(" × ").append(ImageImport.DEFAULT_FRAME_TIMING_CS)
                             .append(" (hundredths of a second).");
                 }
-                int confirm = JOptionPane.showConfirmDialog(
+                notes.append("\n\nLift is pixels of air under a frame (0 = on the ground). ")
+                        .append("It is baked into the sheet — leave <anchory> empty so feet stay on the ground line.");
+
+                int[] lifts = FramePackDialog.showDialog(
                         this,
-                        msg.toString(),
                         "Import Frames (" + direction + ")",
-                        JOptionPane.OK_CANCEL_OPTION,
-                        JOptionPane.PLAIN_MESSAGE);
-                if (confirm != JOptionPane.OK_OPTION) {
+                        files,
+                        frames,
+                        notes.toString());
+                if (lifts == null) {
                     return;
                 }
 
-                editor.loadActionSpriteFrames(currentIndex, direction, files, null);
+                ImageImport.PackOptions options = new ImageImport.PackOptions();
+                options.lifts = lifts;
+                editor.loadActionSpriteFrames(currentIndex, direction, files, options);
                 setAction(currentIndex);
                 hasChanges = true;
                 previewImage(
