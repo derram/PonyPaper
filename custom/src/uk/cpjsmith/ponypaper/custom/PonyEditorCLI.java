@@ -274,6 +274,41 @@ public class PonyEditorCLI {
                         }
                         break;
                     }
+
+                    case "-sprite-frames":
+                    {
+                        checkArgument(args, i, 2);
+                        if (currentAction < 0) throw new PonyEditor.GenericException("", "No current action for " + args[i]);
+                        String spriteDir = args[++i];
+                        java.util.List<File> frameFiles = new java.util.ArrayList<File>();
+                        while (i + 1 < args.length && !isCliOption(args[i + 1])) {
+                            frameFiles.add(new File(args[++i]));
+                        }
+                        if (frameFiles.isEmpty()) {
+                            throw new PonyEditor.GenericException("", "Option -sprite-frames requires a folder or PNG files.");
+                        }
+                        try {
+                            editor.loadActionSpriteFrames(currentAction, spriteDir, frameFiles, null);
+                            guiDirty = true;
+                        } catch (IndexOutOfBoundsException e) {
+                            throw new PonyEditor.GenericException("", "Can't set sprite for direction " + spriteDir);
+                        }
+                        break;
+                    }
+
+                    case "-mirror-facing":
+                    {
+                        checkArgument(args, i);
+                        if (currentAction < 0) throw new PonyEditor.GenericException("", "No current action for " + args[i]);
+                        String fromDir = args[++i];
+                        try {
+                            editor.mirrorActionSprite(currentAction, fromDir);
+                            guiDirty = true;
+                        } catch (IndexOutOfBoundsException e) {
+                            throw new PonyEditor.GenericException("", "Can't mirror from direction " + fromDir);
+                        }
+                        break;
+                    }
                     case "-start":
                         checkArgument(args, i);
                         editor.setStartActions(args[++i]);
@@ -342,6 +377,43 @@ public class PonyEditorCLI {
         System.out.println("    then select the new action.");
         System.out.println("-sprite DIRECTION FILE");
         System.out.println("    Set the current action's sprite for the given direction.");
+        System.out.println("-sprite-frames DIRECTION DIR|FILE...");
+        System.out.println("    Pack PNG frames (a folder or listed files) into a spritesheet for");
+        System.out.println("    DIRECTION. Natural-sorted, bottom-centred cells, no gutters.");
+        System.out.println("    Keeps existing timings when the frame count already matches.");
+        System.out.println("-mirror-facing DIRECTION");
+        System.out.println("    Build the opposite facing by flopping each cell of DIRECTION's sheet");
+        System.out.println("    (same frame order). Copies timings and mirrors explicit anchorx.");
+    }
+
+    /** True when {@code arg} is a known CLI flag (stops variable-length file lists). */
+    private static boolean isCliOption(String arg) {
+        if (arg == null || !arg.startsWith("-") || arg.length() < 2) {
+            return false;
+        }
+        switch (arg) {
+            case "-action":
+            case "-load":
+            case "-import-dp":
+            case "-next":
+            case "-save":
+            case "-special":
+            case "-anchorx":
+            case "-anchory":
+            case "-speed":
+            case "-loop":
+            case "-spritesfrom":
+            case "-gaits":
+            case "-clone-gait":
+            case "-sprite":
+            case "-sprite-frames":
+            case "-mirror-facing":
+            case "-start":
+            case "-defaultdrag":
+                return true;
+            default:
+                return false;
+        }
     }
     
     /**

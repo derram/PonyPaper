@@ -675,6 +675,97 @@ public class PonyEditor {
             throw new GenericException("", "Failed to read " + spriteFile + ".");
         }
     }
+
+    /**
+     * Packs PNG frames (a folder or loose files) into a left-to-right
+     * spritesheet for {@code direction}. Existing timings are kept when they
+     * already have one entry per frame; otherwise each frame gets
+     * {@link ImageImport#DEFAULT_FRAME_TIMING_CS}.
+     *
+     * @return the packed import (cell size, timings, PNG bytes)
+     */
+    public ImageImport loadActionSpriteFrames(
+            int index, String direction, java.util.List<File> selected, ImageImport.PackOptions options)
+            throws GenericException {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        if (!ponyDefinition.actions[index].images.containsKey(direction)) throw new IndexOutOfBoundsException();
+
+        if (ponyDefinition.actions[index].isAlias()) {
+            detachAliasCopyingSprites(index);
+        }
+
+        try {
+            java.util.List<File> files = ImageImport.collectFrameFiles(selected);
+            ImageImport imported = ImageImport.fromFrames(ImageImport.loadFrameImages(files), options);
+            applyPackedSprite(index, direction, imported);
+            return imported;
+        } catch (IOException e) {
+            throw new GenericException("Import Frames Failed", e.getMessage());
+        }
+    }
+
+    /**
+     * Builds the opposite facing by flopping each cell of {@code fromDirection}'s
+     * sheet (same frame order and timings). Explicit {@code anchorx} is mirrored
+     * as {@code cellW − x}; unset X stays unset. {@code anchory} is copied.
+     */
+    public ImageImport mirrorActionSprite(int index, String fromDirection) throws GenericException {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        if (!ponyDefinition.actions[index].images.containsKey(fromDirection)) {
+            throw new IndexOutOfBoundsException();
+        }
+        String toDirection = "left".equals(fromDirection) ? "right" : "right".equals(fromDirection) ? "left" : null;
+        if (toDirection == null) {
+            throw new IndexOutOfBoundsException();
+        }
+
+        if (ponyDefinition.actions[index].isAlias()) {
+            detachAliasCopyingSprites(index);
+        }
+
+        String b64 = ponyDefinition.actions[index].images.get(fromDirection);
+        if (b64 == null || b64.isEmpty()) {
+            throw new GenericException("Mirror Failed", "No " + fromDirection + " spritesheet to mirror.");
+        }
+        String timings = ponyDefinition.actions[index].timings.get(fromDirection);
+        int frameCount = ImageImport.countTimings(timings);
+        if (frameCount < 1) {
+            throw new GenericException(
+                    "Mirror Failed",
+                    "Set " + fromDirection + " timings first so the sheet can be split into frames.");
+        }
+
+        try {
+            byte[] png = Base64.getDecoder().decode(b64);
+            ImageImport mirrored = ImageImport.mirrorSheet(png, frameCount, timings);
+            applyPackedSprite(index, toDirection, mirrored);
+
+            float ax = getActionAnchorX(index, fromDirection);
+            float ay = getActionAnchorY(index, fromDirection);
+            if (!Float.isNaN(ax) && ax >= 0f && mirrored.cellWidth > 0) {
+                setActionAnchorX(index, toDirection, mirrored.cellWidth - ax);
+            } else {
+                setActionAnchorX(index, toDirection, Float.NaN);
+            }
+            setActionAnchorY(index, toDirection, ay);
+            return mirrored;
+        } catch (IllegalArgumentException e) {
+            throw new GenericException("Mirror Failed", "The " + fromDirection + " image could not be decoded.");
+        } catch (IOException e) {
+            throw new GenericException("Mirror Failed", e.getMessage());
+        }
+    }
+
+    private void applyPackedSprite(int index, String direction, ImageImport imported) {
+        ponyDefinition.actions[index].images.put(
+                direction, Base64.getEncoder().encodeToString(imported.loadedImage));
+        String existing = ponyDefinition.actions[index].timings.get(direction);
+        int packedCount = ImageImport.countTimings(imported.timings);
+        if (ImageImport.countTimings(existing) == packedCount && packedCount > 0) {
+            return;
+        }
+        ponyDefinition.actions[index].timings.put(direction, imported.timings);
+    }
     
     public String getActionNext(int index, String type) {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
