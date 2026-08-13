@@ -420,7 +420,7 @@ public final class TransitionPreviewDialog extends JDialog {
 
         String[] order = { "waiting", "moving", "drag" };
         for (String type : order) {
-            for (String name : ActionFrameSource.parseActionNames(editor.getActionNext(aIndex, type))) {
+            for (String name : ActionFrameSource.parseActionNames(editor.getEffectiveActionNext(aIndex, type))) {
                 int idx = editor.findAction(name);
                 if (idx != aIndex && containsIndex(modelB, idx)) {
                     return idx;
@@ -466,7 +466,7 @@ public final class TransitionPreviewDialog extends JDialog {
         List<Neighbor> out = new ArrayList<Neighbor>();
         String[] types = { "waiting", "moving", "drag" };
         for (String type : types) {
-            for (String name : ActionFrameSource.parseActionNames(editor.getActionNext(aIndex, type))) {
+            for (String name : ActionFrameSource.parseActionNames(editor.getEffectiveActionNext(aIndex, type))) {
                 int idx = editor.findAction(name);
                 if (idx >= 0) {
                     out.add(new Neighbor(idx, "next " + type));

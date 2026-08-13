@@ -156,6 +156,11 @@ public class PonyDefinition {
         public final Map<String, Float> anchorY = new HashMap<String, Float>();
         public final Map<String, String> images = new HashMap<String, String>();
         public final Map<String, String> timings = new HashMap<String, String>();
+        /**
+         * Next-action lists by motion type ({@code waiting}, {@code moving},
+         * {@code drag}). Waiting and moving are required. Drag is an optional
+         * override: empty/omitted means use the pony-level {@link #defaultDrag}.
+         */
         public final Map<String, String> nextActions = new HashMap<String, String>();
         
         public Action() {
@@ -523,10 +528,17 @@ public class PonyDefinition {
     
     public Action[] actions;
     public String startActions;
+    /**
+     * Pony-level drag successors used when an action has no drag override.
+     * Empty means every action must list its own real drag next-actions
+     * (legacy files).
+     */
+    public String defaultDrag;
     
     public PonyDefinition() {
         actions = new Action[0];
         startActions = "";
+        defaultDrag = "";
     }
     
     public PonyDefinition(Document document) throws InvalidPonyException {
@@ -558,6 +570,12 @@ public class PonyDefinition {
                         } else {
                             startActions = getContent((Element)node, errors);
                         }
+                    } else if (nodeName.equals("defaultdrag")) {
+                        if (defaultDrag != null) {
+                            errors.add("Too many <defaultdrag> elements.");
+                        } else {
+                            defaultDrag = getContent((Element)node, errors);
+                        }
                     } else {
                         errors.add("Unexpected " + node.getNodeName() + " element.");
                     }
@@ -582,6 +600,9 @@ public class PonyDefinition {
         if (!errors.isEmpty()) throw new InvalidPonyException(errors);
         
         this.actions = actions.toArray(new Action[actions.size()]);
+        if (defaultDrag == null) {
+            defaultDrag = "";
+        }
     }
     
     private static String getContent(Element container, List<String> errors) {
@@ -622,6 +643,38 @@ public class PonyDefinition {
         }
         String t = name.trim();
         return t.equals("-") || t.equalsIgnoreCase("none");
+    }
+    
+    /**
+     * @return true if {@code value} lists at least one non-empty token
+     *         (including reserved {@link #isNoneToken none} tokens)
+     */
+    public static boolean actionListHasTokens(String value) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+        String[] names = value.split(",");
+        for (int i = 0; i < names.length; i++) {
+            if (!names[i].trim().isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * Drag successor list for {@code action}: the per-action override if it
+     * has any tokens, otherwise {@link #defaultDrag}.
+     */
+    public String effectiveDragActions(Action action) {
+        if (action == null) {
+            return defaultDrag != null ? defaultDrag : "";
+        }
+        String override = action.nextActions.get("drag");
+        if (actionListHasTokens(override)) {
+            return override;
+        }
+        return defaultDrag != null ? defaultDrag : "";
     }
     
     /**
@@ -770,11 +823,14 @@ public class PonyDefinition {
             
             validateActionList(action.nextActions.get("waiting"), "waiting actions for ", name, errors);
             validateActionList(action.nextActions.get("moving"), "moving actions for ", name, errors);
-            validateActionList(action.nextActions.get("drag"), "drag actions for ", name, errors);
+            String dragOverride = action.nextActions.get("drag");
+            if (actionListHasTokens(dragOverride)) {
+                validateActionList(dragOverride, "drag override for ", name, errors);
+            }
             
             boolean hasWait = actionListHasReal(action.nextActions.get("waiting"));
             boolean hasMove = actionListHasReal(action.nextActions.get("moving"));
-            boolean hasDrag = actionListHasReal(action.nextActions.get("drag"));
+            boolean hasDrag = actionListHasReal(effectiveDragActions(action));
             if (!action.loops) {
                 // One-shots may use none/- on waiting or moving so they fall through
                 // to the other axis; at least one of those two must be real.
@@ -784,7 +840,8 @@ public class PonyDefinition {
                 }
                 if (!hasDrag) {
                     errors.add("Action " + name
-                            + " needs a real next drag action (none/- alone is not allowed for drag).");
+                            + " needs a real next drag action (set Default drag or a drag override; "
+                            + "none/- alone is not allowed for drag).");
                 }
             } else {
                 if (!hasWait) {
@@ -794,7 +851,8 @@ public class PonyDefinition {
                     errors.add("Looping action " + name + " needs a real next moving action.");
                 }
                 if (!hasDrag) {
-                    errors.add("Looping action " + name + " needs a real next drag action.");
+                    errors.add("Looping action " + name
+                            + " needs a real next drag action (set Default drag or a drag override).");
                 }
             }
         }
@@ -802,6 +860,13 @@ public class PonyDefinition {
         validateActionList(startActions, "start actions", "", errors);
         if (!actionListHasReal(startActions)) {
             errors.add("Start actions must list at least one real action (not only none/-).");
+        }
+        
+        if (actionListHasTokens(defaultDrag)) {
+            validateActionList(defaultDrag, "default drag actions", "", errors);
+            if (!actionListHasReal(defaultDrag)) {
+                errors.add("Default drag must list at least one real action (not only none/-).");
+            }
         }
         
         if (!errors.isEmpty()) throw new InvalidPonyException(errors);
@@ -974,9 +1039,12 @@ public class PonyDefinition {
             writeCharacters(writer, action.nextActions.get("moving"));
             writer.println("</nextactions>");
             
-            writer.print("        <nextactions type=\"drag\">");
-            writeCharacters(writer, action.nextActions.get("drag"));
-            writer.println("</nextactions>");
+            String dragOverride = action.nextActions.get("drag");
+            if (actionListHasTokens(dragOverride)) {
+                writer.print("        <nextactions type=\"drag\">");
+                writeCharacters(writer, dragOverride);
+                writer.println("</nextactions>");
+            }
             
             writer.println("    </action>");
         }
@@ -984,6 +1052,12 @@ public class PonyDefinition {
         writer.print("    <startactions>");
         writeCharacters(writer, startActions);
         writer.println("</startactions>");
+        
+        if (actionListHasTokens(defaultDrag)) {
+            writer.print("    <defaultdrag>");
+            writeCharacters(writer, defaultDrag);
+            writer.println("</defaultdrag>");
+        }
         
         writer.println("</pony>");
     }

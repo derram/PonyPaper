@@ -115,11 +115,12 @@ On the left side of the editor is the list of actions. You can create a new acti
 * Gaits: Optional load-time bag of `speed:weight` entries (e.g. `0.5:1,0.7:3,1:1`). When set, every reference to this action in start/next lists is expanded into weighted speed variants that share this action’s sprites—the same idea as built-in discrete gaits, without listing separate actions. Use the **Ground** button for the built-in ground bag (stroll 1/5, walk 3/5, full 1/5) or **Idle** for a 50/50 full vs walk-rate stand bag. Leave empty for a single fixed speed.
 * Left/right sprite: The text field simply states whether an image has been loaded or not. You can use the 'Preview' button to display the image and the 'Import image' button to load a new one. Once you have entered the timings, moving the cursor over the preview will highlight the frames, allowing you to verify that the correct number of times have been entered. Aliases show the owner’s image; importing on an alias detaches it into a full owner.
 * Left/right timings: The list of durations for each frame of the animation. These are represented in hundredths of a second and seperated by commas. Note: if you import a GIF animation, this field will be filled in automatically.
-* Next moving/waiting/drag actions: The comma-seperated list of possible actions the pony can transition to when it decides to move/wait or is dragged by the user. Note that the same action can be used for more than one of these three states; for example, many pegasi reuse the same flying action for both movement and hovering in-place. The reserved tokens **`none`** or **`-`** mean “no real successor” for that list (see [One-shot / transition actions](#one-shot--transition-actions)).
+* Next moving/waiting actions: The comma-seperated list of possible actions the pony can transition to when it decides to move or wait. Note that the same action can be used for more than one of these states; for example, many pegasi reuse the same flying action for both movement and hovering in-place. The reserved tokens **`none`** or **`-`** mean “no real successor” for that list (see [One-shot / transition actions](#one-shot--transition-actions)).
+* Drag override: Optional per-action replacement for **Default drag**. Leave empty to inherit the pony-level default. Set it only when this action should use a different drag clip (or list).
 
-At the bottom is the list of 'Start actions', the ways the pony can choose to initially enter the scene.
+At the bottom is the list of **Start actions** (how the pony can enter the scene) and **Default drag** (the drag successors used by every action that has no drag override). Most ponies only need a single drag clip in Default drag.
 
-In the action lists (either 'Start actions' or 'Next [whatever] actions') the same action can be repeated multiple times to make it more likely to be selected. For example, the built-in Rainbow Dash has a start action list of `trot,fly,fly,fly`, so she will choose the 'fly' action three-quarters of the time. Fluttershy, who prefers to keep her hooves on the ground, has a start action list of `trot,trot,trot,fly`.
+In the action lists (either 'Start actions', 'Default drag', or 'Next [whatever] actions') the same action can be repeated multiple times to make it more likely to be selected. For example, the built-in Rainbow Dash has a start action list of `trot,fly,fly,fly`, so she will choose the 'fly' action three-quarters of the time. Fluttershy, who prefers to keep her hooves on the ground, has a start action list of `trot,trot,trot,fly`.
 
 ## Speed, aliases, and gaits
 
@@ -138,20 +139,20 @@ Define one full action with images, then alias variants:
     <timings direction="right">…</timings>
     <nextactions type="waiting">stand</nextactions>
     <nextactions type="moving">stroll,walk,walk,walk,trot</nextactions>
-    <nextactions type="drag">trot</nextactions>
 </action>
 <action name="walk">
     <speed>0.7</speed>
     <spritesfrom>trot</spritesfrom>
     <nextactions type="waiting">stand</nextactions>
     <nextactions type="moving">stroll,walk,walk,walk,trot</nextactions>
-    <nextactions type="drag">trot</nextactions>
 </action>
 <action name="stroll">
     <speed>0.5</speed>
     <spritesfrom>trot</spritesfrom>
     <!-- same next lists as walk/trot -->
 </action>
+<startactions>trot</startactions>
+<defaultdrag>trot</defaultdrag>
 ```
 
 CLI helpers: `-spritesfrom trot`, `-clone-gait walk 0.7`, `-speed 0.5`.
@@ -167,8 +168,9 @@ Keep a single action and expand weights at wallpaper load time:
     <gaits>0.5:1,0.7:3,1:1</gaits>
     <nextactions type="waiting">stand</nextactions>
     <nextactions type="moving">trot</nextactions>
-    <nextactions type="drag">trot</nextactions>
 </action>
+<startactions>trot</startactions>
+<defaultdrag>trot</defaultdrag>
 ```
 
 Whenever `trot` appears in a start or next list, the runtime substitutes five weighted slots (stroll, walk×3, full)—the same distribution as built-in ground ponies. CLI: `-gaits default` (or `idle` / `none` / a custom `speed:weight` list).
@@ -207,8 +209,8 @@ Use the reserved token **`none`** or **`-`** when a list should have no real act
 - **Wait timer expired** + empty moving → stay waiting (re-roll timer; optional re-pick waiting). Does **not** fall through to invent travel.
 - **Arrive** + empty waiting → keep traveling if a real mover exists; otherwise stop in place.
 - At least one of waiting/moving must list a real action on a one-shot.
-- **Looping** actions must still have a real successor on every list.
-- Drag lists must always include a real action.
+- **Looping** actions must still have a real successor on waiting and moving lists.
+- Drag must always resolve to a real action: either **Default drag** or a per-action **Drag override**. `none`/`-` is not allowed for drag.
 - Start actions cannot be only `none`/`-`.
 - You cannot name an action `none` or `-`.
 
@@ -224,7 +226,6 @@ Example pattern (see [pinkie-custom.xml](pinkie-custom.xml)):
     <!-- images… -->
     <nextactions type="waiting">none</nextactions>
     <nextactions type="moving">haters</nextactions>
-    <nextactions type="drag">drag</nextactions>
 </action>
 
 <!-- Loop while walking; after arrive → outro -->
@@ -233,7 +234,6 @@ Example pattern (see [pinkie-custom.xml](pinkie-custom.xml)):
     <!-- images… (loops by default) -->
     <nextactions type="waiting">haterstop</nextactions>
     <nextactions type="moving">haters</nextactions>
-    <nextactions type="drag">drag</nextactions>
 </action>
 
 <!-- Outro: play once, then normal idle bag -->
@@ -242,7 +242,6 @@ Example pattern (see [pinkie-custom.xml](pinkie-custom.xml)):
     <loop>false</loop>
     <nextactions type="waiting">chicken,twitch,tongue,jumpy</nextactions>
     <nextactions type="moving">hop,trot,parade,partycanon</nextactions>
-    <nextactions type="drag">drag</nextactions>
 </action>
 
 <!-- Reaction after a travel action arrives -->

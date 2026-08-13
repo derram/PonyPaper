@@ -6,6 +6,7 @@ import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
+import java.awt.Insets;
 import java.awt.Image;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -414,7 +415,7 @@ public class PonyEditorGUI extends JPanel {
             loopCheckBox = new JCheckBox("Loop while active");
             loopCheckBox.setSelected(true);
             loopCheckBox.setToolTipText("Uncheck for one-shot transitions (intros/outros/reactions). "
-                    + "After one play, advances via Next waiting/moving/drag for the current motion.");
+                    + "After one play, advances via Next waiting/moving or Default drag / drag override.");
             loopCheckBox.addActionListener(loopListener);
             c = getConstraints(1, 4);
             c.weighty = 1.0;
@@ -649,15 +650,15 @@ public class PonyEditorGUI extends JPanel {
             c.fill = GridBagConstraints.HORIZONTAL;
             add(nextMovingField, c);
             
-            JLabel nextDragLabel = new JLabel("Next drag actions:");
+            JLabel nextDragLabel = new JLabel("Drag override:");
             c = getConstraints(0, 18);
             c.weighty = 1.0;
             c.anchor = GridBagConstraints.WEST;
             add(nextDragLabel, c);
             
             nextDragField = new JTextField();
-            nextDragField.setToolTipText("Comma-separated actions. Must list at least one real action. "
-                    + "Tab completes the token under the caret.");
+            nextDragField.setToolTipText("Optional. Leave empty to use Default drag. When set, replaces "
+                    + "the default for this action only. Tab completes the token under the caret.");
             nextDragField.getDocument().addDocumentListener(nextDragListener);
             ActionNameCompleter.install(nextDragField, new ActionNameCompleter.CandidateSource() {
                 @Override
@@ -1232,6 +1233,7 @@ public class PonyEditorGUI extends JPanel {
                 }
                 // Model already scrubbed start actions; keep the field in sync.
                 startActionsField.setText(editor.getStartActions());
+                defaultDragField.setText(editor.getDefaultDrag());
             }
         }
     };
@@ -1251,11 +1253,21 @@ public class PonyEditorGUI extends JPanel {
         }
     };
     
+    private DocumentListener defaultDragListener = new MyDocumentListener() {
+        public void update(DocumentEvent e) {
+            if (!defaultDragField.getText().equals(editor.getDefaultDrag())) {
+                editor.setDefaultDrag(defaultDragField.getText());
+                hasChanges = true;
+            }
+        }
+    };
+    
     private JFrame parentFrame;
     private DefaultListModel<String> actionListModel;
     private JList<String> actionList;
     private ActionPanel actionSettingsPane;
     private JTextField startActionsField;
+    private JTextField defaultDragField;
     
     private JFileChooser fc;
     
@@ -1360,6 +1372,7 @@ public class PonyEditorGUI extends JPanel {
             actionListModel.addElement(editor.getActionName(i));
         }
         startActionsField.setText(editor.getStartActions());
+        defaultDragField.setText(editor.getDefaultDrag());
         
         if (editor.getActionCount() > 0) {
             actionList.setSelectedIndex(0);
@@ -1584,6 +1597,7 @@ public class PonyEditorGUI extends JPanel {
         // Refresh next-action fields and start actions so rewritten names show.
         actionSettingsPane.setAction(i);
         startActionsField.setText(editor.getStartActions());
+        defaultDragField.setText(editor.getDefaultDrag());
     }
 
     private JComponent createActionListPane() {
@@ -1654,6 +1668,28 @@ public class PonyEditorGUI extends JPanel {
         c.weightx = 1.0;
         c.fill = GridBagConstraints.HORIZONTAL;
         result.add(startActionsField, c);
+        
+        JLabel defaultDragLabel = new JLabel("Default drag:");
+        c = getConstraints(2, 0);
+        c.weighty = 1.0;
+        c.anchor = GridBagConstraints.WEST;
+        c.insets = new Insets(0, 12, 0, 0);
+        result.add(defaultDragLabel, c);
+        
+        defaultDragField = new JTextField();
+        defaultDragField.setToolTipText("Comma-separated drag actions used when an action has no drag override. "
+                + "Tab completes the token under the caret.");
+        defaultDragField.getDocument().addDocumentListener(defaultDragListener);
+        ActionNameCompleter.install(defaultDragField, new ActionNameCompleter.CandidateSource() {
+            @Override
+            public List<String> getCandidates() {
+                return ActionNameCompleter.candidatesFromEditor(editor, false);
+            }
+        }, true);
+        c = getConstraints(3, 0);
+        c.weightx = 1.0;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        result.add(defaultDragField, c);
         
         return result;
     }

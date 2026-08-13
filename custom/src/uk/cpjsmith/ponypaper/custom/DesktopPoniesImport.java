@@ -83,12 +83,15 @@ public final class DesktopPoniesImport {
         public final String displayName;
         public final List<ImportedAction> actions;
         public final String startActions;
+        public final String defaultDrag;
         public final List<String> warnings;
 
-        Result(String displayName, List<ImportedAction> actions, String startActions, List<String> warnings) {
+        Result(String displayName, List<ImportedAction> actions, String startActions,
+               String defaultDrag, List<String> warnings) {
             this.displayName = displayName;
             this.actions = actions;
             this.startActions = startActions;
+            this.defaultDrag = defaultDrag != null ? defaultDrag : "";
             this.warnings = warnings;
         }
     }
@@ -378,21 +381,21 @@ public final class DesktopPoniesImport {
                 String inName = in != null ? in.name : "";
                 action.nextWaiting = waitList;
                 action.nextMoving = inName.isEmpty() ? moveList : inName;
-                action.nextDrag = dragList;
+                action.nextDrag = "";
             } else if (b.role == Role.TELEPORT_IN) {
                 action.nextWaiting = waitList;
                 action.nextMoving = moveList;
-                action.nextDrag = dragList;
+                action.nextDrag = "";
             } else {
                 action.nextWaiting = waitList;
                 action.nextMoving = moveList;
-                action.nextDrag = dragList;
+                action.nextDrag = "";
             }
             actions.add(action);
         }
 
         warnings.add(0, "Imported " + actions.size() + " action(s) from \"" + displayName + "\".");
-        return new Result(displayName, actions, startList, warnings);
+        return new Result(displayName, actions, startList, dragList, warnings);
     }
 
     /**

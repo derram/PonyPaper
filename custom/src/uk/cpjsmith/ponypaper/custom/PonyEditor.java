@@ -146,6 +146,25 @@ public class PonyEditor {
     }
     
     /**
+     * Returns the pony-level default drag actions.
+     *
+     * @return the default drag actions as a comma-separated string
+     */
+    public String getDefaultDrag() {
+        return ponyDefinition.defaultDrag != null ? ponyDefinition.defaultDrag : "";
+    }
+    
+    /**
+     * Changes the pony-level default drag actions. Actions with an empty
+     * drag override inherit this list.
+     *
+     * @param actionNames the default drag actions as a comma-separated string
+     */
+    public void setDefaultDrag(String actionNames) {
+        ponyDefinition.defaultDrag = actionNames != null ? actionNames : "";
+    }
+    
+    /**
      * Returns the number of actions that the pony has. All methods that take
      * an action index require it to be at least {@code 0} and strictly less
      * than {@code getActionCount()}; they throw {@code
@@ -245,6 +264,7 @@ public class PonyEditor {
             }
         }
         setStartActions(filterActionList(getStartActions(), present));
+        setDefaultDrag(filterActionList(getDefaultDrag(), present));
     }
     
     public String getActionName(int index) {
@@ -253,8 +273,8 @@ public class PonyEditor {
     }
     
     /**
-     * Renames an action and rewrites every next-action list and the start
-     * actions list so references to the old name point at the new one.
+     * Renames an action and rewrites every next-action list, the start
+     * actions list, and default drag so references to the old name point at the new one.
      *
      * @param index the index of the action to rename
      * @param name  the new name (must be non-empty and not used by another action)
@@ -296,6 +316,7 @@ public class PonyEditor {
             }
         }
         setStartActions(renameInActionList(getStartActions(), oldName, newName));
+        setDefaultDrag(renameInActionList(getDefaultDrag(), oldName, newName));
     }
 
     private static String renameInActionList(String list, String oldName, String newName) {
@@ -666,6 +687,18 @@ public class PonyEditor {
         if (!ponyDefinition.actions[index].nextActions.containsKey(type)) throw new IndexOutOfBoundsException();
         ponyDefinition.actions[index].nextActions.put(type, actionNames);
     }
+    
+    /**
+     * Next-action list used at runtime for {@code type}. For {@code drag}, an
+     * empty override falls back to {@link #getDefaultDrag()}.
+     */
+    public String getEffectiveActionNext(int index, String type) {
+        String listed = getActionNext(index, type);
+        if ("drag".equals(type) && !PonyDefinition.actionListHasTokens(listed)) {
+            return getDefaultDrag();
+        }
+        return listed;
+    }
 
     /**
      * Replaces the current pony by importing a Desktop Ponies character folder
@@ -727,6 +760,7 @@ public class PonyEditor {
             }
             // Rebuild next/start lists if some actions were dropped mid-import.
             setStartActions(result.startActions);
+            setDefaultDrag(result.defaultDrag);
             scrubMissingActionReferences();
             notes.add(0, "Loaded " + loaded + " action(s) into the editor.");
         } catch (GenericException e) {

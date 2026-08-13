@@ -279,6 +279,11 @@ public class PonyEditorCLI {
                         editor.setStartActions(args[++i]);
                         guiDirty = true;
                         break;
+                    case "-defaultdrag":
+                        checkArgument(args, i);
+                        editor.setDefaultDrag(args[++i]);
+                        guiDirty = true;
+                        break;
                         
                     default:
                         throw new PonyEditor.GenericException("", "Invalid option: " + args[i]);
@@ -302,10 +307,14 @@ public class PonyEditorCLI {
         System.out.println("    Save the pony definition to the given file path.");
         System.out.println("-start NAMES");
         System.out.println("    Set the starting actions.");
+        System.out.println("-defaultdrag NAMES");
+        System.out.println("    Set the pony-level default drag actions. Actions with an empty");
+        System.out.println("    drag override inherit this list.");
         System.out.println("-action NAME");
         System.out.println("    Switch to editing the named action, creating it if it does not exist.");
         System.out.println("-next TYPE NAMES");
         System.out.println("    Set the current action's next actions of the given type.");
+        System.out.println("    For type drag this is an override; leave empty to use -defaultdrag.");
         System.out.println("-special TYPE");
         System.out.println("    Set the current action's special type.");
         System.out.println("-anchorx [left|right|both] PIXELS|none");

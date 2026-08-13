@@ -920,7 +920,7 @@ public class AllPonies {
             }
             PonyAction[] nextWaiting = expandActionList(def.nextActions.get("waiting"), bags);
             PonyAction[] nextMoving = expandActionList(def.nextActions.get("moving"), bags);
-            PonyAction[] nextDrag = expandActionList(def.nextActions.get("drag"), bags);
+            PonyAction[] nextDrag = expandActionList(definition.effectiveDragActions(def), bags);
             for (int j = 0; j < bag.length; j++) {
                 bag[j].setNextWaiting(nextWaiting);
                 bag[j].setNextMoving(nextMoving);

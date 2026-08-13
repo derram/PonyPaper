@@ -2995,6 +2995,9 @@
     </action>
     <action name="tonguedance">
         <speed>1</speed>
+        <anchorx direction="left">28.5</anchorx>
+        <anchorx direction="right">33.5</anchorx>
+        <anchory>61</anchory>
         <image direction="left">
             iVBORw0KGgoAAAANSUhEUgAACrkAAAA/CAYAAABe6zEdAAAmH0lEQVR42u3dva4lSVaG4SPMYSxsbCTugXvgDsbFZcbAwEB9C1it9pgrQAILCWuEGpxh0DhcAcY4jdUC
             r2C3Knuio+NnRf7sjMx8PmmrTtU5Vb3XjowV7xe9VsTHBxERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERER
@@ -5029,4 +5032,5 @@
         <nextactions type="drag">drag</nextactions>
     </action>
     <startactions>hop,hop,trot,trot,parade,parade,haters,haters,partycannon,partycannon,roll,mina_trot</startactions>
+    <defaultdrag>drag</defaultdrag>
 </pony>
