@@ -942,11 +942,12 @@ public class PonyEditor {
             PonyEditorCLI.showArguments();
             System.out.println("-gif-to-sheet [options] INPUT.gif [OUTPUT.png]");
             System.out.println("    Convert a GIF to a PonyPaper spritesheet (standalone; ignores other options).");
-            System.out.println("    Same ImageImport path as Import image / Desktop-Ponies import.");
+            System.out.println("    Same ImageImport path as Import image. Default is native size;");
+            System.out.println("    use --half for the 50% Desktop Ponies folder-import scale.");
             System.out.println("    Run with -gif-to-sheet -help for converter options.");
             System.out.println("-pack-sheet [options] OUTPUT.png FRAME.png...|DIR");
             System.out.println("    Pack PNG frames (or a folder of them) into a left-to-right spritesheet.");
-            System.out.println("    Same ImageImport packer as Import frames (including --lifts).");
+            System.out.println("    Same ImageImport packer as Import frames (including --lifts / --scale).");
             System.out.println("    Run with -pack-sheet -help.");
         } else if ("-gif-to-sheet".equals(args[0])) {
             String[] converterArgs = new String[args.length - 1];

@@ -58,6 +58,7 @@ public class PonyEditorCLI {
         try {
             int currentAction = -1;
             int[] packLifts = null;
+            int packScale = ImageImport.SCALE_NATIVE;
             
             for (int i = 0; i < args.length; i++) {
                 switch (args[i]) {
@@ -261,6 +262,17 @@ public class PonyEditorCLI {
                         break;
                     }
                         
+                    case "-scale":
+                    {
+                        checkArgument(args, i);
+                        try {
+                            packScale = ImageImport.parseScalePercent(args[++i]);
+                        } catch (java.io.IOException e) {
+                            throw new PonyEditor.GenericException("", "Invalid scale: " + e.getMessage());
+                        }
+                        break;
+                    }
+
                     case "-sprite":
                     {
                         checkArgument(args, i, 2);
@@ -268,7 +280,12 @@ public class PonyEditorCLI {
                         String spriteDir = args[++i];
                         String spritePath = args[++i];
                         try {
-                            editor.loadActionSprite(currentAction, spriteDir, new File(spritePath));
+                            ImageImport.PackOptions spriteOpts = null;
+                            if (packScale != ImageImport.SCALE_NATIVE) {
+                                spriteOpts = new ImageImport.PackOptions();
+                                spriteOpts.scalePercent = packScale;
+                            }
+                            editor.loadActionSprite(currentAction, spriteDir, new File(spritePath), spriteOpts);
                             guiDirty = true;
                         } catch (IndexOutOfBoundsException e) {
                             throw new PonyEditor.GenericException("", "Can't set sprite for direction " + spriteDir);
@@ -307,9 +324,9 @@ public class PonyEditorCLI {
                             throw new PonyEditor.GenericException("", "Option -sprite-frames requires a folder or PNG files.");
                         }
                         try {
-                            ImageImport.PackOptions packOpts = null;
+                            ImageImport.PackOptions packOpts = new ImageImport.PackOptions();
+                            packOpts.scalePercent = packScale;
                             if (packLifts != null) {
-                                packOpts = new ImageImport.PackOptions();
                                 packOpts.lifts = packLifts;
                             }
                             editor.loadActionSpriteFrames(currentAction, spriteDir, frameFiles, packOpts);
@@ -360,7 +377,8 @@ public class PonyEditorCLI {
         System.out.println("    Without -save, opens the GUI with that pony loaded.");
         System.out.println("-import-dp DIR");
         System.out.println("    Import a Desktop Ponies character folder (pony.ini + GIFs),");
-        System.out.println("    replacing the current pony. Notes are printed to stderr.");
+        System.out.println("    replacing the current pony. GIF sprites are packed at 50% so");
+        System.out.println("    they match built-in PonyPaper size. Notes are printed to stderr.");
         System.out.println("    Without -save, opens the GUI with the imported pony loaded.");
         System.out.println("-save FILE");
         System.out.println("    Save the pony definition to the given file path.");
@@ -399,8 +417,14 @@ public class PonyEditorCLI {
         System.out.println("-clone-gait NAME SPEED");
         System.out.println("    Create NAME as a spritesfrom-alias of the current action at SPEED,");
         System.out.println("    then select the new action.");
+        System.out.println("-scale 100|50|native|half");
+        System.out.println("    Linear size for the next -sprite (GIF only) and -sprite-frames.");
+        System.out.println("    100/native is default (full pixels). 50/half matches built-in ponies");
+        System.out.println("    when the source is Desktop Ponies art. Persists until changed.");
         System.out.println("-sprite DIRECTION FILE");
         System.out.println("    Set the current action's sprite for the given direction.");
+        System.out.println("    GIFs are coalesced and packed (scale from -scale; default 100%).");
+        System.out.println("    PNG strips are stored as-is.");
         System.out.println("-lifts N,N,...|none");
         System.out.println("    Per-frame lift in pixels up from the baseline for the next");
         System.out.println("    -sprite-frames (hop / jump). Length must match the frame count.");
@@ -409,6 +433,7 @@ public class PonyEditorCLI {
         System.out.println("    Pack PNG frames (a folder or listed files) into a spritesheet for");
         System.out.println("    DIRECTION. Natural-sorted, bottom-centred cells, no gutters.");
         System.out.println("    Optional -lifts raises frames in a taller cell (baked into the PNG).");
+        System.out.println("    Optional -scale 50 halves the frames before packing.");
         System.out.println("    Keeps existing timings when the frame count already matches.");
         System.out.println("-mirror-facing DIRECTION");
         System.out.println("    Build the opposite facing by flopping each cell of DIRECTION's sheet");
@@ -436,6 +461,7 @@ public class PonyEditorCLI {
             case "-clone-gait":
             case "-sprite":
             case "-sprite-frames":
+            case "-scale":
             case "-lifts":
             case "-mirror-facing":
             case "-start":

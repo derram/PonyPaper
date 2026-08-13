@@ -21,8 +21,8 @@ This tool is capable of creating and editting the XML files that represent custo
 ## Sprites
 For each action that your pony can perform, the app requires a sprite each for the left- and right-facing directions. The editor can import sprites in three ways.
 
-1. You can import a GIF animation designed for use in Desktop Ponies. The editor will convert such files into a left-to-right PNG strip so that the app can use them.
-2. You can import a folder of PNG frames, or multi-select the frames, with **Import frames**. The editor packs them into that same strip: one uniform cell per frame, each frame drawn **bottom-centre** on a transparent canvas, **no padding between cells**. Cell width is the max frame width; cell height is `max(frameH + lift)`. **Lift** is optional pixels of air under a frame (0 = on the ground) so hop / jump cycles can be built from same-sized crops. Sheet width is exactly `frameCount × cellWidth`. Timings default to `10` (hundredths of a second) for each frame; existing timings are kept when the count already matches. Prefer this over building a sheet by hand.
+1. You can import a GIF animation with **Import image**. The editor coalesces the frames and opens the same pack dialog as **Import frames** (scale, lift, preview). Default scale is **100%** (native pixels). Choose **50% (Desktop Ponies)** if the GIF is full-size Desktop Ponies art and you want it to match built-in ponies. Frame delays become the timings list. To import a whole Desktop Ponies character (pony.ini + all GIFs at 50%), use **File → Import from Desktop-Ponies…** instead.
+2. You can import a folder of PNG frames, or multi-select the frames, with **Import frames**. The editor packs them into that same strip: one uniform cell per frame, each frame drawn **bottom-centre** on a transparent canvas, **no padding between cells**. Cell width is the max frame width; cell height is `max(frameH + lift)`. **Scale** is 100% by default, or 50% to match built-in size. **Lift** is optional pixels of air under a frame (0 = on the ground) so hop / jump cycles can be built from same-sized crops. Sheet width is exactly `frameCount × cellWidth`. Timings default to `10` (hundredths of a second) for each frame; existing timings are kept when the count already matches. Prefer this over building a sheet by hand.
 3. You can import a finished spritesheet: a single PNG, all frames left to right, plus a timings list whose length is the frame count. See [the built-in spritesheets](/res/drawable) for examples. The wallpaper splits the sheet with integer division (`sheetWidth / timings.length`) — extra pixels on the right are dropped, and gutters between frames will slice the animation wrong. Do not add padding between cells.
 
 The file [twilight-sparkle.xml](/custom/twilight-sparkle.xml) contains a copy of the built-in Twilight Sparkle. Twilight can be either a unicorn or an alicorn and can both fly and teleport, so she has examples of many possible details in creating ponies.
@@ -55,7 +55,7 @@ The Ant `build.xml` in this directory is deprecated and will refuse to run; use 
 
 ### GIF → spritesheet converter (standalone)
 
-Same conversion the editor uses when you import a Desktop Ponies GIF (`ImageImport`: coalesce frames, half-scale, pack left-to-right, emit timings in hundredths of a second):
+Same conversion the editor uses when you import a GIF (`ImageImport`: coalesce frames, pack left-to-right, emit timings in hundredths of a second). Default scale is native size; pass `--half` for the 50% Desktop Ponies folder-import scale:
 
 ```bash
 # Via the editor JAR
@@ -66,7 +66,7 @@ java -jar custom/build/libs/customponies.jar \
 java -cp custom/build/libs/customponies.jar \
   uk.cpjsmith.ponypaper.custom.GifToSpritesheet walk_left.gif
 
-# Options: -q (quiet), -t timings.txt (write timings file), -h (help)
+# Options: -q (quiet), -t timings.txt, --scale 100|50, --half, -h (help)
 # Timings (comma-separated cs) are always printed to stdout.
 ```
 
@@ -74,7 +74,7 @@ If the output path is omitted, the converter writes `INPUT` with a `.png` extens
 
 ### PNG frames → spritesheet packer (standalone)
 
-Same packing the editor uses for **Import frames** (`ImageImport.fromFrameFiles`: natural-sort, pad mixed sizes bottom-centre, optional per-frame lift, pack left-to-right with no gutters, default timings 10 cs):
+Same packing the editor uses for **Import frames** (`ImageImport.fromFrameFiles`: natural-sort, pad mixed sizes bottom-centre, optional 50% scale, optional per-frame lift, pack left-to-right with no gutters, default timings 10 cs):
 
 ```bash
 # Folder of frames
@@ -89,7 +89,7 @@ java -jar custom/build/libs/customponies.jar \
 java -jar custom/build/libs/customponies.jar \
   -pack-sheet hop_left.png --lifts 0,8,16,20,16,8,0 hop_left_frames/
 
-# Options: -q (quiet), -t timings.txt, --timing-cs N, --strict-size, --lifts N,N,..., -h (help)
+# Options: -q (quiet), -t timings.txt, --timing-cs N, --strict-size, --scale 100|50, --half, --lifts N,N,..., -h (help)
 # Timings (comma-separated cs) are always printed to stdout.
 ```
 
@@ -114,6 +114,17 @@ java -jar custom/build/libs/customponies.jar \
   -save oc.xml
 ```
 
+Use `-scale 50` before `-sprite` / `-sprite-frames` when the source is full-size Desktop Ponies art and you want built-in pony size (folder import already does this):
+
+```bash
+java -jar custom/build/libs/customponies.jar \
+  -action walk \
+  -scale 50 \
+  -sprite left walk_left.gif \
+  -mirror-facing left \
+  -save oc.xml
+```
+
 `-mirror-facing left` flops **each cell** of the left sheet onto the right (same frame order — not a whole-image `-flop`, which would play the clip backwards). Explicit `<anchorx>` is rewritten as `cellWidth − x`; unset X stays unset.
 
 ### Using the GUI
@@ -125,7 +136,7 @@ It can be started by launching the JAR from the file manager (if `.jar` is assoc
 **File → Import from Desktop-Ponies…** (Ctrl+I) opens a folder chooser. Select a character directory that contains a `pony.ini` and GIF sprites (as shipped in [Desktop Ponies](https://github.com/RoosterDragon/Desktop-Ponies) under `Content/Ponies/<Name>/`). The editor will:
 
 * create actions from importable behaviors (group 0, no multi-pony follow targets)
-* convert left/right GIFs into PonyPaper spritesheets and fill frame timings
+* convert left/right GIFs into PonyPaper spritesheets at **50%** scale (so they match built-in ponies) and fill frame timings
 * build **start** / **next waiting** / **next moving** / **next drag** lists from Chance, Speed, and Movement
 * map simple teleport chains (e.g. Twilight’s warp) to `teleport-out` / `teleport-in`
 * use a `Dragged` behavior for drag when present
@@ -158,7 +169,7 @@ On the left side of the editor is the list of actions. You can create a new acti
 * Loop animation: Checked by default. Uncheck for **one-shot transition** clips (intros, outros, reactions). After one full play of the sheet, the pony picks the next waiting/moving/drag action for the current motion and keeps the existing wait timer or travel target. See [One-shot / transition actions](#one-shot--transition-actions) below. CLI: `-loop false`.
 * Sprites from: When set to another action’s name, this action is an **alias**: it reuses that action’s left/right bitmaps and timings, and only stores its own speed and next-action lists. Use this for stroll/walk variants of one trot sheet without embedding the PNG three times. The owner must not itself be an alias (no chains). Leave empty when this action owns its sprites. **Clone as gait…** creates a named alias in one step.
 * Gaits: Optional load-time bag of `speed:weight` entries (e.g. `0.5:1,0.7:3,1:1`). When set, every reference to this action in start/next lists is expanded into weighted speed variants that share this action’s sprites—the same idea as built-in discrete gaits, without listing separate actions. Use the **Ground** button for the built-in ground bag (stroll 1/5, walk 3/5, full 1/5) or **Idle** for a 50/50 full vs walk-rate stand bag. Leave empty for a single fixed speed.
-* Left/right sprite: The text field simply states whether an image has been loaded or not. **Preview** displays the strip and highlights frames from the timings count. **Mirror to right** / **Mirror to left** (beside Preview) builds the opposite facing by flopping each cell — same frame order and timings, not a whole-image flip. Confirm if the destination already has a sheet. **Import image** loads one GIF (converted) or one already-packed PNG strip. **Import frames** opens a folder or a multi-selection of PNGs, then a pack dialog: set per-frame **lift** (pixels up from the ground line; drag the preview, spinner, or **Apply hop** for a parabola), confirm cell/sheet size, pack, and open Preview so you can check the split. Lift is baked into the PNG — the wallpaper does not store per-frame offsets. **Export Spritesheet** writes the packed PNG. Aliases show the owner’s image; importing or mirroring on an alias detaches it into a full owner.
+* Left/right sprite: The text field simply states whether an image has been loaded or not. **Preview** displays the strip and highlights frames from the timings count. **Mirror to right** / **Mirror to left** (beside Preview) builds the opposite facing by flopping each cell — same frame order and timings, not a whole-image flip. Confirm if the destination already has a sheet. **Import image** loads one already-packed PNG strip as-is, or one GIF (coalesced, then the same pack dialog as Import frames). **Import frames** opens a folder or a multi-selection of PNGs, then that pack dialog: **Scale** 100% (native) or 50% (Desktop Ponies), per-frame **lift** (pixels up from the ground line; drag the preview, spinner, or **Apply hop** for a parabola), confirm cell/sheet size, pack, and open Preview so you can check the split. Cells taller than typical built-ins show a size warning. Lift and scale are baked into the PNG — the wallpaper does not store per-frame offsets. **Export Spritesheet** writes the packed PNG. Aliases show the owner’s image; importing or mirroring on an alias detaches it into a full owner.
 * Left/right timings: The list of durations for each frame of the animation. These are represented in hundredths of a second and seperated by commas. GIF import and **Import frames** fill this in automatically.
 * Next moving/waiting actions: The comma-seperated list of possible actions the pony can transition to when it decides to move or wait. Note that the same action can be used for more than one of these states; for example, many pegasi reuse the same flying action for both movement and hovering in-place. The reserved tokens **`none`** or **`-`** mean “no real successor” for that list (see [One-shot / transition actions](#one-shot--transition-actions)).
 * Drag override: Optional per-action replacement for **Default drag**. Leave empty to inherit the pony-level default. Set it only when this action should use a different drag clip (or list).

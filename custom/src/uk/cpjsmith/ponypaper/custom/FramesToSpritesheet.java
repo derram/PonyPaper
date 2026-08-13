@@ -79,6 +79,23 @@ public final class FramesToSpritesheet {
                 options.rejectMixedSizes = true;
                 continue;
             }
+            if ("--half".equals(arg)) {
+                options.scalePercent = ImageImport.SCALE_DESKTOP_PONIES;
+                continue;
+            }
+            if ("--scale".equals(arg)) {
+                if (i + 1 >= args.length) {
+                    System.err.println("Option " + arg + " requires 100 or 50.");
+                    return 2;
+                }
+                try {
+                    options.scalePercent = ImageImport.parseScalePercent(args[++i]);
+                } catch (IOException e) {
+                    System.err.println("Invalid --scale: " + e.getMessage());
+                    return 2;
+                }
+                continue;
+            }
             if ("--lifts".equals(arg)) {
                 if (i + 1 >= args.length) {
                     System.err.println("Option " + arg + " requires a comma-separated list.");
@@ -125,6 +142,7 @@ public final class FramesToSpritesheet {
                 System.err.println("Frames: " + frames
                         + "  cell: " + packed.cellWidth + "×" + packed.cellHeight
                         + "  sheet: " + (frames * packed.cellWidth) + "×" + packed.cellHeight
+                        + "  scale: " + options.scalePercent + "%"
                         + "  timings (cs): " + timings);
                 if (options.lifts != null) {
                     System.err.println("Lifts: " + ImageImport.formatLifts(options.lifts));
@@ -155,6 +173,8 @@ public final class FramesToSpritesheet {
         System.out.println("  -t, --timings FILE   Also write comma-separated frame timings to FILE");
         System.out.println("  --timing-cs N        Duration for every frame (hundredths of a second, default 10)");
         System.out.println("  --strict-size        Fail if frame pixel sizes differ (default: pad to max, bottom-centre)");
+        System.out.println("  --scale 100|50       Linear size before packing (default 100 / native pixels)");
+        System.out.println("  --half               Same as --scale 50 (Desktop Ponies → built-in size)");
         System.out.println("  --lifts N,N,...      Pixels up from the baseline for each frame (0 = on the ground).");
         System.out.println("                       Length must match the frame count. Omit for all zeros.");
         System.out.println();

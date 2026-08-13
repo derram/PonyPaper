@@ -8,8 +8,9 @@ import java.nio.file.Files;
  * Standalone GIF → PonyPaper spritesheet converter.
  *
  * <p>Uses {@link ImageImport} — the same path the custom editor uses when you
- * import a Desktop Ponies GIF — so coalescing, transparency, half-scale, and
- * left-to-right packing stay identical.
+ * import a GIF — so coalescing, transparency, and left-to-right packing stay
+ * identical. Default scale is native size; {@code --half} matches the Desktop
+ * Ponies folder importer.
  *
  * <p>Usage:
  * <pre>
@@ -36,6 +37,7 @@ public final class GifToSpritesheet {
         File timingsFile = null;
         File input = null;
         File output = null;
+        ImageImport.PackOptions options = new ImageImport.PackOptions();
 
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
@@ -53,6 +55,23 @@ public final class GifToSpritesheet {
                     return 2;
                 }
                 timingsFile = new File(args[++i]);
+                continue;
+            }
+            if ("--half".equals(arg)) {
+                options.scalePercent = ImageImport.SCALE_DESKTOP_PONIES;
+                continue;
+            }
+            if ("--scale".equals(arg)) {
+                if (i + 1 >= args.length) {
+                    System.err.println("Option " + arg + " requires 100 or 50.");
+                    return 2;
+                }
+                try {
+                    options.scalePercent = ImageImport.parseScalePercent(args[++i]);
+                } catch (IOException e) {
+                    System.err.println("Invalid --scale: " + e.getMessage());
+                    return 2;
+                }
                 continue;
             }
             if (arg.startsWith("-")) {
@@ -84,7 +103,7 @@ public final class GifToSpritesheet {
         }
 
         try {
-            ImageImport imported = ImageImport.load(input);
+            ImageImport imported = ImageImport.load(input, options);
             if (imported.timings == null) {
                 // Non-GIF: still write the raw bytes if the user asked, but warn.
                 System.err.println("Warning: " + input.getName()
@@ -107,6 +126,10 @@ public final class GifToSpritesheet {
                             ? 0
                             : imported.timings.split(",", -1).length;
                     System.err.println("Frames: " + frames
+                            + (imported.cellWidth > 0
+                                    ? "  cell: " + imported.cellWidth + "×" + imported.cellHeight
+                                    : "")
+                            + "  scale: " + options.scalePercent + "%"
                             + "  timings (cs): " + imported.timings);
                 }
                 if (timingsFile != null) {
@@ -140,9 +163,11 @@ public final class GifToSpritesheet {
         System.out.println("  -h, --help           Show this help");
         System.out.println("  -q, --quiet          Suppress status on stderr (timings still on stdout)");
         System.out.println("  -t, --timings FILE   Also write comma-separated frame timings to FILE");
+        System.out.println("  --scale 100|50       Linear size (default 100 / native pixels)");
+        System.out.println("  --half               Same as --scale 50 (Desktop Ponies → built-in size)");
         System.out.println();
         System.out.println("If OUTPUT is omitted, writes INPUT with the extension replaced by .png.");
         System.out.println("Frame timings (hundredths of a second, comma-separated) are printed to stdout.");
-        System.out.println("The GIF is coalesced, scaled to half size, and packed left-to-right.");
+        System.out.println("The GIF is coalesced and packed left-to-right. Default is native size.");
     }
 }
