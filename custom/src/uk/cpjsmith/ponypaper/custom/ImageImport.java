@@ -1,21 +1,29 @@
 package uk.cpjsmith.ponypaper.custom;
 
+import java.awt.AlphaComposite;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import javax.imageio.ImageIO;
 
 /**
  * Loads sprite images for the custom pony editor.
  *
- * <p>Static PNG (or other) files are passed through as-is. Animated GIFs —
+ * <p>Static PNG (or other) files are passed through as-is. Individual PNG
+ * frames can be packed into that same strip via {@link #fromFrames} /
+ * {@link #fromFrameFiles}: uniform cells, bottom-centre alignment, no
+ * inter-frame padding. Animated GIFs —
  * typically Desktop Ponies sprites — are decoded, fully coalesced (so each
  * frame is a complete image, not a dirty-rectangle delta), scaled to half
  * size for PonyPaper, and packed left-to-right into a single PNG spritesheet
@@ -30,21 +38,451 @@ import javax.imageio.ImageIO;
  */
 public class ImageImport {
 
+    /** Default per-frame duration when packing stills (hundredths of a second). */
+    public static final int DEFAULT_FRAME_TIMING_CS = 10;
+
     public final byte[] loadedImage;
     public final String timings;
+    /**
+     * Packed cell width in pixels, or {@code 0} when unknown (raw file
+     * pass-through).
+     */
+    public final int cellWidth;
+    /**
+     * Packed cell height in pixels, or {@code 0} when unknown (raw file
+     * pass-through).
+     */
+    public final int cellHeight;
+
+    /**
+     * Options for {@link #fromFrames} / {@link #fromFrameFiles}.
+     */
+    public static final class PackOptions {
+        /** Per-frame duration in hundredths of a second (minimum 1). */
+        public int defaultTimingCs = DEFAULT_FRAME_TIMING_CS;
+        /**
+         * When true, refuse frames that are not all the same size instead of
+         * padding to the max canvas.
+         */
+        public boolean rejectMixedSizes = false;
+    }
+
+    /**
+     * Cell size and mixed-size flag for a list of already-decoded frames.
+     */
+    public static final class PackPreview {
+        public final int frameCount;
+        public final int cellWidth;
+        public final int cellHeight;
+        public final boolean mixedSizes;
+
+        PackPreview(int frameCount, int cellWidth, int cellHeight, boolean mixedSizes) {
+            this.frameCount = frameCount;
+            this.cellWidth = cellWidth;
+            this.cellHeight = cellHeight;
+            this.mixedSizes = mixedSizes;
+        }
+
+        /** {@code frameCount × cellWidth}. */
+        public int sheetWidth() {
+            return frameCount * cellWidth;
+        }
+    }
 
     private ImageImport(byte[] loadedImage, String timings) {
+        this(loadedImage, timings, 0, 0);
+    }
+
+    private ImageImport(byte[] loadedImage, String timings, int cellWidth, int cellHeight) {
         this.loadedImage = loadedImage;
         this.timings = timings;
+        this.cellWidth = cellWidth;
+        this.cellHeight = cellHeight;
     }
 
     public static ImageImport load(File file) throws IOException {
-        String filename = file.getName().toLowerCase();
+        String filename = file.getName().toLowerCase(Locale.ROOT);
         if (filename.endsWith(".gif")) {
             return loadGIF(file);
         } else {
             return new ImageImport(Files.readAllBytes(file.toPath()), null);
         }
+    }
+
+    /**
+     * Number of timing entries in a comma-separated timings string. Empty or
+     * null yields 0.
+     */
+    public static int countTimings(String timings) {
+        if (timings == null || timings.trim().isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (String part : timings.split(",", -1)) {
+            if (!part.trim().isEmpty()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Natural-order compare for frame filenames so {@code walk_2} precedes
+     * {@code walk_10}. Letter runs are case-insensitive; digit runs compare
+     * as integers.
+     */
+    public static int naturalCompare(String a, String b) {
+        String sa = a != null ? a : "";
+        String sb = b != null ? b : "";
+        int ia = 0;
+        int ib = 0;
+        int na = sa.length();
+        int nb = sb.length();
+        while (ia < na && ib < nb) {
+            char ca = sa.charAt(ia);
+            char cb = sb.charAt(ib);
+            if (isAsciiDigit(ca) && isAsciiDigit(cb)) {
+                int startA = ia;
+                int startB = ib;
+                while (ia < na && isAsciiDigit(sa.charAt(ia))) {
+                    ia++;
+                }
+                while (ib < nb && isAsciiDigit(sb.charAt(ib))) {
+                    ib++;
+                }
+                int va = startA;
+                int vb = startB;
+                while (va < ia - 1 && sa.charAt(va) == '0') {
+                    va++;
+                }
+                while (vb < ib - 1 && sb.charAt(vb) == '0') {
+                    vb++;
+                }
+                int lenA = ia - va;
+                int lenB = ib - vb;
+                if (lenA != lenB) {
+                    return lenA - lenB;
+                }
+                int cmp = sa.substring(va, ia).compareTo(sb.substring(vb, ib));
+                if (cmp != 0) {
+                    return cmp;
+                }
+                continue;
+            }
+            int cmp = Character.toLowerCase(ca) - Character.toLowerCase(cb);
+            if (cmp != 0) {
+                return cmp;
+            }
+            ia++;
+            ib++;
+        }
+        return (na - ia) - (nb - ib);
+    }
+
+    private static boolean isAsciiDigit(char c) {
+        return c >= '0' && c <= '9';
+    }
+
+    /**
+     * PNG files in {@code dir} (non-recursive), natural-sorted by name.
+     */
+    public static List<File> listFrameImageFiles(File dir) throws IOException {
+        if (dir == null || !dir.isDirectory()) {
+            throw new IOException("Not a directory: " + dir);
+        }
+        File[] listed = dir.listFiles();
+        if (listed == null) {
+            throw new IOException("Cannot list " + dir);
+        }
+        List<File> out = new ArrayList<File>();
+        for (File f : listed) {
+            if (f.isFile() && isPngName(f.getName())) {
+                out.add(f);
+            }
+        }
+        if (out.isEmpty()) {
+            throw new IOException("No PNG frames in " + dir.getName());
+        }
+        sortFrameFiles(out);
+        return out;
+    }
+
+    /**
+     * Resolves a folder or a list of PNG files to a natural-sorted frame list.
+     * Does not mix a folder with loose files.
+     */
+    public static List<File> collectFrameFiles(List<File> selected) throws IOException {
+        if (selected == null || selected.isEmpty()) {
+            throw new IOException("No frames selected.");
+        }
+        List<File> files = new ArrayList<File>();
+        List<File> dirs = new ArrayList<File>();
+        for (File f : selected) {
+            if (f == null) {
+                continue;
+            }
+            if (f.isDirectory()) {
+                dirs.add(f);
+            } else {
+                files.add(f);
+            }
+        }
+        if (!dirs.isEmpty() && !files.isEmpty()) {
+            throw new IOException("Select either a folder or image files, not both.");
+        }
+        if (dirs.size() > 1) {
+            throw new IOException("Select a single folder of frames.");
+        }
+        if (dirs.size() == 1) {
+            return listFrameImageFiles(dirs.get(0));
+        }
+        List<File> pngs = new ArrayList<File>();
+        for (File f : files) {
+            String name = f.getName();
+            if (isPngName(name)) {
+                pngs.add(f);
+            } else if (name.toLowerCase(Locale.ROOT).endsWith(".gif")) {
+                throw new IOException("GIF animations are not individual frames: " + name
+                        + ". Use Import image / -sprite for GIFs.");
+            }
+        }
+        if (pngs.isEmpty()) {
+            throw new IOException("No PNG frames selected.");
+        }
+        sortFrameFiles(pngs);
+        return pngs;
+    }
+
+    static void sortFrameFiles(List<File> files) {
+        Collections.sort(files, new Comparator<File>() {
+            @Override
+            public int compare(File a, File b) {
+                return naturalCompare(a.getName(), b.getName());
+            }
+        });
+    }
+
+    private static boolean isPngName(String name) {
+        return name != null && name.toLowerCase(Locale.ROOT).endsWith(".png");
+    }
+
+    /**
+     * Decodes PNG frame files in the given order (already sorted by the caller).
+     */
+    public static List<BufferedImage> loadFrameImages(List<File> files) throws IOException {
+        if (files == null || files.isEmpty()) {
+            throw new IOException("No frames to load.");
+        }
+        List<BufferedImage> frames = new ArrayList<BufferedImage>(files.size());
+        for (File file : files) {
+            String name = file.getName();
+            if (name.toLowerCase(Locale.ROOT).endsWith(".gif")) {
+                throw new IOException("GIF animations are not individual frames: " + name
+                        + ". Use Import image / -sprite for GIFs.");
+            }
+            BufferedImage img = ImageIO.read(file);
+            if (img == null) {
+                throw new IOException("Could not decode " + name);
+            }
+            frames.add(ensureArgb(img));
+        }
+        return frames;
+    }
+
+    public static PackPreview inspectFrames(List<BufferedImage> frames) throws IOException {
+        if (frames == null || frames.isEmpty()) {
+            throw new IOException("No frames to pack.");
+        }
+        int cellW = 0;
+        int cellH = 0;
+        boolean mixed = false;
+        BufferedImage first = frames.get(0);
+        if (first == null) {
+            throw new IOException("Null frame");
+        }
+        int firstW = first.getWidth();
+        int firstH = first.getHeight();
+        for (BufferedImage frame : frames) {
+            if (frame == null) {
+                throw new IOException("Null frame");
+            }
+            int w = frame.getWidth();
+            int h = frame.getHeight();
+            if (w < 1 || h < 1) {
+                throw new IOException("Frame has no size");
+            }
+            if (w != firstW || h != firstH) {
+                mixed = true;
+            }
+            if (w > cellW) {
+                cellW = w;
+            }
+            if (h > cellH) {
+                cellH = h;
+            }
+        }
+        return new PackPreview(frames.size(), cellW, cellH, mixed);
+    }
+
+    /**
+     * Packs frames left-to-right into a PonyPaper strip: cell size is the max
+     * frame width × max frame height, each frame is drawn bottom-centre in its
+     * cell, and there is no gutter between cells.
+     */
+    public static ImageImport fromFrames(List<BufferedImage> frames, PackOptions options)
+            throws IOException {
+        PackPreview preview = inspectFrames(frames);
+        PackOptions opts = options != null ? options : new PackOptions();
+        if (opts.rejectMixedSizes && preview.mixedSizes) {
+            throw new IOException("Frame sizes differ; expected "
+                    + preview.cellWidth + "×" + preview.cellHeight + " for every frame.");
+        }
+        int timingCs = Math.max(1, opts.defaultTimingCs);
+        int cellW = preview.cellWidth;
+        int cellH = preview.cellHeight;
+        int n = preview.frameCount;
+
+        BufferedImage sheet = new BufferedImage(n * cellW, cellH, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = sheet.createGraphics();
+        g.setComposite(AlphaComposite.SrcOver);
+        StringBuilder timings = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            BufferedImage frame = frames.get(i);
+            int dx = i * cellW + (cellW - frame.getWidth()) / 2;
+            int dy = cellH - frame.getHeight();
+            g.drawImage(frame, dx, dy, null);
+            if (i > 0) {
+                timings.append(',');
+            }
+            timings.append(timingCs);
+        }
+        g.dispose();
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        if (!ImageIO.write(sheet, "png", out)) {
+            throw new IOException("Failed to encode spritesheet PNG");
+        }
+        return new ImageImport(out.toByteArray(), timings.toString(), cellW, cellH);
+    }
+
+    /**
+     * Collects, natural-sorts, decodes, and packs PNG frames (files and/or one
+     * folder).
+     */
+    public static ImageImport fromFrameFiles(List<File> selected, PackOptions options)
+            throws IOException {
+        List<File> files = collectFrameFiles(selected);
+        return fromFrames(loadFrameImages(files), options);
+    }
+
+    /**
+     * Horizontal flip of a single frame (does not reverse animation order).
+     */
+    public static BufferedImage flopFrame(BufferedImage src) {
+        if (src == null) {
+            throw new IllegalArgumentException("src");
+        }
+        int w = src.getWidth();
+        int h = src.getHeight();
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = out.createGraphics();
+        g.drawImage(src, w, 0, 0, h, 0, 0, w, h, null);
+        g.dispose();
+        return out;
+    }
+
+    public static List<BufferedImage> flopEachFrame(List<BufferedImage> frames) {
+        if (frames == null) {
+            throw new IllegalArgumentException("frames");
+        }
+        List<BufferedImage> out = new ArrayList<BufferedImage>(frames.size());
+        for (BufferedImage frame : frames) {
+            out.add(flopFrame(frame));
+        }
+        return out;
+    }
+
+    /**
+     * Splits a left-to-right strip into {@code frameCount} cells using the same
+     * integer division as the wallpaper ({@code width / frameCount}).
+     */
+    public static List<BufferedImage> splitSheet(BufferedImage sheet, int frameCount)
+            throws IOException {
+        if (sheet == null) {
+            throw new IOException("No sheet");
+        }
+        if (frameCount < 1) {
+            throw new IOException("frameCount must be >= 1");
+        }
+        int sheetW = sheet.getWidth();
+        int sheetH = sheet.getHeight();
+        if (sheetW < 1 || sheetH < 1) {
+            throw new IOException("Sheet has no size");
+        }
+        int frameW = Math.max(1, sheetW / frameCount);
+        List<BufferedImage> frames = new ArrayList<BufferedImage>(frameCount);
+        for (int i = 0; i < frameCount; i++) {
+            int x = i * frameW;
+            int w = Math.min(frameW, sheetW - x);
+            if (w <= 0) {
+                throw new IOException("Sheet too narrow for " + frameCount + " frames");
+            }
+            BufferedImage cell = new BufferedImage(frameW, sheetH, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = cell.createGraphics();
+            g.drawImage(sheet, 0, 0, w, sheetH, x, 0, x + w, sheetH, null);
+            g.dispose();
+            frames.add(cell);
+        }
+        return frames;
+    }
+
+    /**
+     * Flops each cell of a packed strip and restacks in the same order.
+     * Timings are copied when {@code timings} is non-empty; otherwise default
+     * timings of length {@code frameCount} are used.
+     */
+    public static ImageImport mirrorSheet(byte[] pngBytes, int frameCount, String timings)
+            throws IOException {
+        if (pngBytes == null || pngBytes.length == 0) {
+            throw new IOException("No spritesheet to mirror");
+        }
+        if (frameCount < 1) {
+            throw new IOException("frameCount must be >= 1");
+        }
+        BufferedImage sheet = ImageIO.read(new ByteArrayInputStream(pngBytes));
+        if (sheet == null) {
+            throw new IOException("Could not decode spritesheet");
+        }
+        List<BufferedImage> frames = splitSheet(sheet, frameCount);
+        PackOptions opts = new PackOptions();
+        ImageImport packed = fromFrames(flopEachFrame(frames), opts);
+        String outTimings = timings;
+        if (countTimings(outTimings) != frameCount) {
+            outTimings = packed.timings;
+        }
+        return new ImageImport(packed.loadedImage, outTimings, packed.cellWidth, packed.cellHeight);
+    }
+
+    public static ImageImport mirrorImport(ImageImport imported) throws IOException {
+        if (imported == null) {
+            throw new IOException("No spritesheet to mirror");
+        }
+        int n = countTimings(imported.timings);
+        if (n < 1) {
+            throw new IOException("Cannot mirror a sheet without frame timings");
+        }
+        return mirrorSheet(imported.loadedImage, n, imported.timings);
+    }
+
+    static BufferedImage ensureArgb(BufferedImage src) {
+        if (src.getType() == BufferedImage.TYPE_INT_ARGB) {
+            return src;
+        }
+        BufferedImage out = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = out.createGraphics();
+        g.drawImage(src, 0, 0, null);
+        g.dispose();
+        return out;
     }
 
     private static ImageImport loadGIF(File file) throws IOException {
@@ -87,7 +525,7 @@ public class ImageImport {
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ImageIO.write(sheet, "png", out);
-        return new ImageImport(out.toByteArray(), timings.toString());
+        return new ImageImport(out.toByteArray(), timings.toString(), frameWidth, frameHeight);
     }
 
     // -------------------------------------------------------------------------

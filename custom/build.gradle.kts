@@ -52,3 +52,14 @@ tasks.named<Jar>("jar") {
         archiveFile.get().asFile.setExecutable(true, false)
     }
 }
+
+tasks.register<JavaExec>("testPacker") {
+    group = "verification"
+    description = "Run ImageImport still-frame packer checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.ImageImportPackTest")
+}
+
+tasks.named("check") {
+    dependsOn("testPacker")
+}

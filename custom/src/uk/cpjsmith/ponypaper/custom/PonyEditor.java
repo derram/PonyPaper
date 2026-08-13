@@ -819,10 +819,20 @@ public class PonyEditor {
             System.out.println("    Convert a GIF to a PonyPaper spritesheet (standalone; ignores other options).");
             System.out.println("    Same ImageImport path as Import image / Desktop-Ponies import.");
             System.out.println("    Run with -gif-to-sheet -help for converter options.");
+            System.out.println("-pack-sheet [options] OUTPUT.png FRAME.png...|DIR");
+            System.out.println("    Pack PNG frames (or a folder of them) into a left-to-right spritesheet.");
+            System.out.println("    Same ImageImport packer as Import frames. Run with -pack-sheet -help.");
         } else if ("-gif-to-sheet".equals(args[0])) {
             String[] converterArgs = new String[args.length - 1];
             System.arraycopy(args, 1, converterArgs, 0, converterArgs.length);
             int status = GifToSpritesheet.run(converterArgs);
+            if (status != 0) {
+                System.exit(status);
+            }
+        } else if ("-pack-sheet".equals(args[0])) {
+            String[] packerArgs = new String[args.length - 1];
+            System.arraycopy(args, 1, packerArgs, 0, packerArgs.length);
+            int status = FramesToSpritesheet.run(packerArgs);
             if (status != 0) {
                 System.exit(status);
             }
