@@ -1175,8 +1175,7 @@ public class PonyEditorGUI extends JPanel {
             }
             notes.append(".");
             notes.append("\n\nScale is 100% by default. Choose 50% (Desktop Ponies) to match built-in pony size.");
-            notes.append("\n\nLift is pixels of air under a frame (0 = on the ground). ")
-                    .append("It is baked into the sheet — leave <anchory> empty so feet stay on the ground line.");
+            notes.append("\n\nLift is pixels of air under a frame (0 = on the ground). ");
 
             String[] names = new String[gif.frames.size()];
             for (int i = 0; i < gif.frames.size(); i++) {
@@ -2049,8 +2048,8 @@ public class PonyEditorGUI extends JPanel {
     
     private static void createAndShowGUI(PonyEditor existing, File initialFile, boolean dirty) {
         JFrame frame = new JFrame();
-        frame.setMinimumSize(new Dimension(600, 450));
-        frame.setPreferredSize(new Dimension(800, 600));
+        frame.setMinimumSize(new Dimension(600, 600));
+        frame.setPreferredSize(new Dimension(800, 700));
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         
         PonyEditorGUI contentPane = new PonyEditorGUI(frame, existing, initialFile, dirty);
