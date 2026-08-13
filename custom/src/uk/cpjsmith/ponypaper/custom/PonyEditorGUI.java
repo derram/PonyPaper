@@ -20,6 +20,7 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
@@ -49,6 +50,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
+import javax.swing.filechooser.FileFilter;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 public class PonyEditorGUI extends JPanel {
@@ -206,6 +208,12 @@ public class PonyEditorGUI extends JPanel {
             }
         };
 
+        ActionListener importFramesLeftListener = new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                importFrames("left");
+            }
+        };
+
         ActionListener exportLeftListener = new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 exportSpritesheet("left");
@@ -234,6 +242,12 @@ public class PonyEditorGUI extends JPanel {
         ActionListener importRightListener = new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 importImage("right");
+            }
+        };
+
+        ActionListener importFramesRightListener = new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                importFrames("right");
             }
         };
 
@@ -301,6 +315,7 @@ public class PonyEditorGUI extends JPanel {
         JTextField imageLeftField;
         JButton imageLeftPreview;
         JButton imageLeftImport;
+        JButton imageLeftImportFrames;
         JButton imageLeftExport;
         JTextField timingsLeftField;
         JButton timingsLeftMinus;
@@ -308,6 +323,7 @@ public class PonyEditorGUI extends JPanel {
         JTextField imageRightField;
         JButton imageRightPreview;
         JButton imageRightImport;
+        JButton imageRightImportFrames;
         JButton imageRightExport;
         JTextField timingsRightField;
         JButton timingsRightMinus;
@@ -523,6 +539,10 @@ public class PonyEditorGUI extends JPanel {
             
             imageLeftImport = new JButton("Import image");
             imageLeftImport.addActionListener(importLeftListener);
+            imageLeftImportFrames = new JButton("Import frames");
+            imageLeftImportFrames.setToolTipText(
+                    "Build a spritesheet from a folder or several PNG frames (no padding math).");
+            imageLeftImportFrames.addActionListener(importFramesLeftListener);
             imageLeftExport = new JButton("Export Spritesheet");
             imageLeftExport.setToolTipText("Save the left spritesheet as a PNG file.");
             imageLeftExport.addActionListener(exportLeftListener);
@@ -530,7 +550,7 @@ public class PonyEditorGUI extends JPanel {
             c.weighty = 0.5;
             c.anchor = GridBagConstraints.NORTH;
             c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapImportExportButtons(imageLeftImport, imageLeftExport), c);
+            add(wrapImportExportButtons(imageLeftImport, imageLeftImportFrames, imageLeftExport), c);
             
             JLabel timingsLeftLabel = new JLabel("Left timings:");
             c = getConstraints(0, 11);
@@ -577,6 +597,10 @@ public class PonyEditorGUI extends JPanel {
             
             imageRightImport = new JButton("Import image");
             imageRightImport.addActionListener(importRightListener);
+            imageRightImportFrames = new JButton("Import frames");
+            imageRightImportFrames.setToolTipText(
+                    "Build a spritesheet from a folder or several PNG frames (no padding math).");
+            imageRightImportFrames.addActionListener(importFramesRightListener);
             imageRightExport = new JButton("Export Spritesheet");
             imageRightExport.setToolTipText("Save the right spritesheet as a PNG file.");
             imageRightExport.addActionListener(exportRightListener);
@@ -584,7 +608,7 @@ public class PonyEditorGUI extends JPanel {
             c.weighty = 0.5;
             c.anchor = GridBagConstraints.NORTH;
             c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapImportExportButtons(imageRightImport, imageRightExport), c);
+            add(wrapImportExportButtons(imageRightImport, imageRightImportFrames, imageRightExport), c);
             
             JLabel timingsRightLabel = new JLabel("Right timings:");
             c = getConstraints(0, 15);
@@ -827,11 +851,15 @@ public class PonyEditorGUI extends JPanel {
             return button;
         }
 
-        private static JPanel wrapImportExportButtons(JButton importButton, JButton exportButton) {
-            JPanel row = new JPanel(new java.awt.GridLayout(1, 2, 4, 0));
-            row.add(importButton);
-            row.add(exportButton);
-            return row;
+        private static JPanel wrapImportExportButtons(
+                JButton importButton, JButton importFramesButton, JButton exportButton) {
+            JPanel col = new JPanel(new GridLayout(2, 1, 0, 4));
+            JPanel top = new JPanel(new GridLayout(1, 2, 4, 0));
+            top.add(importButton);
+            top.add(importFramesButton);
+            col.add(top);
+            col.add(exportButton);
+            return col;
         }
 
         private static JPanel wrapTimingsField(JTextField field, JButton minus, JButton plus) {
@@ -1030,6 +1058,115 @@ public class PonyEditorGUI extends JPanel {
         }
 
         /**
+         * Packs a folder of PNG frames or a multi-selection into a left-to-right
+         * spritesheet for {@code direction}. Confirms cell size, then opens Preview
+         * so hover-split can verify the timing count.
+         */
+        void importFrames(String direction) {
+            if (currentIndex < 0) {
+                return;
+            }
+            FileFilter previousFilter = fc.getFileFilter();
+            boolean previousMulti = fc.isMultiSelectionEnabled();
+            int previousMode = fc.getFileSelectionMode();
+            fc.setMultiSelectionEnabled(true);
+            fc.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
+            fc.setAcceptAllFileFilterUsed(true);
+            FileFilter pngOrDir = new PngFramesFilter();
+            fc.setFileFilter(pngOrDir);
+            int result = fc.showOpenDialog(this);
+            File[] chosen = fc.getSelectedFiles();
+            File single = fc.getSelectedFile();
+            fc.setMultiSelectionEnabled(previousMulti);
+            fc.setFileSelectionMode(previousMode);
+            fc.resetChoosableFileFilters();
+            if (previousFilter != null) {
+                fc.setFileFilter(previousFilter);
+            }
+            if (result != JFileChooser.APPROVE_OPTION) {
+                return;
+            }
+
+            List<File> selected = new ArrayList<File>();
+            if (chosen != null && chosen.length > 0) {
+                selected.addAll(Arrays.asList(chosen));
+            } else if (single != null) {
+                selected.add(single);
+            }
+            if (selected.isEmpty()) {
+                return;
+            }
+
+            try {
+                List<File> files = ImageImport.collectFrameFiles(selected);
+                List<java.awt.image.BufferedImage> frames = ImageImport.loadFrameImages(files);
+                ImageImport.PackPreview preview = ImageImport.inspectFrames(frames);
+                int existingCount = ImageImport.countTimings(editor.getActionTimings(currentIndex, direction));
+                StringBuilder msg = new StringBuilder();
+                msg.append("Pack ").append(preview.frameCount)
+                        .append(preview.frameCount == 1 ? " frame" : " frames")
+                        .append(" into a ")
+                        .append(preview.cellWidth).append("×").append(preview.cellHeight)
+                        .append(" strip (sheet ")
+                        .append(preview.sheetWidth()).append("×").append(preview.cellHeight)
+                        .append(")?\n\n");
+                msg.append(summarizeFrameFiles(files));
+                if (preview.mixedSizes) {
+                    msg.append("\n\nFrame sizes differ; smaller frames will be padded bottom-centre to ")
+                            .append(preview.cellWidth).append("×").append(preview.cellHeight)
+                            .append(".");
+                }
+                if (existingCount == preview.frameCount) {
+                    msg.append("\n\nExisting timings (").append(existingCount)
+                            .append(" entries) will be kept.");
+                } else {
+                    msg.append("\n\nTimings will be set to ").append(preview.frameCount)
+                            .append(" × ").append(ImageImport.DEFAULT_FRAME_TIMING_CS)
+                            .append(" (hundredths of a second).");
+                }
+                int confirm = JOptionPane.showConfirmDialog(
+                        this,
+                        msg.toString(),
+                        "Import Frames (" + direction + ")",
+                        JOptionPane.OK_CANCEL_OPTION,
+                        JOptionPane.PLAIN_MESSAGE);
+                if (confirm != JOptionPane.OK_OPTION) {
+                    return;
+                }
+
+                editor.loadActionSpriteFrames(currentIndex, direction, files, null);
+                setAction(currentIndex);
+                hasChanges = true;
+                previewImage(
+                        editor.getActionImage(currentIndex, direction),
+                        editor.getActionTimings(currentIndex, direction));
+            } catch (PonyEditor.GenericException e) {
+                JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        e.getMessage(),
+                        "Import Frames Failed",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        }
+
+        private static String summarizeFrameFiles(List<File> files) {
+            StringBuilder sb = new StringBuilder();
+            int shown = Math.min(files.size(), 8);
+            for (int i = 0; i < shown; i++) {
+                if (i > 0) {
+                    sb.append('\n');
+                }
+                sb.append(files.get(i).getName());
+            }
+            if (files.size() > shown) {
+                sb.append("\n… +").append(files.size() - shown).append(" more");
+            }
+            return sb.toString();
+        }
+
+        /**
          * Saves the current action's spritesheet for {@code direction} as a PNG file.
          * Aliases export the owner's sheet. Empty or undecodable images are rejected.
          */
@@ -1112,6 +1249,7 @@ public class PonyEditorGUI extends JPanel {
             imageLeftField.setEnabled(enabled);
             imageLeftPreview.setEnabled(enabled);
             imageLeftImport.setEnabled(enabled);
+            imageLeftImportFrames.setEnabled(enabled);
             imageLeftExport.setEnabled(enabled);
             timingsLeftField.setEnabled(enabled);
             timingsLeftMinus.setEnabled(enabled);
@@ -1119,6 +1257,7 @@ public class PonyEditorGUI extends JPanel {
             imageRightField.setEnabled(enabled);
             imageRightPreview.setEnabled(enabled);
             imageRightImport.setEnabled(enabled);
+            imageRightImportFrames.setEnabled(enabled);
             imageRightExport.setEnabled(enabled);
             timingsRightField.setEnabled(enabled);
             timingsRightMinus.setEnabled(enabled);
@@ -1128,6 +1267,30 @@ public class PonyEditorGUI extends JPanel {
             nextDragField.setEnabled(enabled);
         }
         
+    }
+
+    /**
+     * Lets the frames chooser show folders (a {@link FileNameExtensionFilter}
+     * for {@code png} hides directories on some look-and-feels).
+     */
+    private static final class PngFramesFilter extends FileFilter {
+        @Override
+        public boolean accept(File f) {
+            if (f.isDirectory()) {
+                return true;
+            }
+            String name = f.getName();
+            int dot = name.lastIndexOf('.');
+            if (dot < 0) {
+                return false;
+            }
+            return "png".equalsIgnoreCase(name.substring(dot + 1));
+        }
+
+        @Override
+        public String getDescription() {
+            return "PNG frames or folder";
+        }
     }
 
     /**

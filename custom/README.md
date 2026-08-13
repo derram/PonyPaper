@@ -19,10 +19,11 @@ Files for some of my own favourite fan characters are available at http://cpjsmi
 This tool is capable of creating and editting the XML files that represent custom ponies, selecting the desired sprites and behaviours of the pony.
 
 ## Sprites
-For each action that your pony can perform, the app requires a sprite each for the left- and right-facing directions. The editor can import sprites in two formats.
+For each action that your pony can perform, the app requires a sprite each for the left- and right-facing directions. The editor can import sprites in three ways.
 
-1. You can import a GIF animation designed for use in Desktop Ponies. The editor will convert such files into the second format so that the app can use them.
-2. This is the format that the wallpaper app requires. Each spritesheet is a single PNG image, containing all of the frames of the animation, layed out left to right. See [the built-in spritesheets](/res/drawable) for examples. This is used together with a list of numbers specifying how long each frame lasts, in hundredths of a second. (The length of this array is also used to determine the number of frames).
+1. You can import a GIF animation designed for use in Desktop Ponies. The editor will convert such files into a left-to-right PNG strip so that the app can use them.
+2. You can import a folder of PNG frames, or multi-select the frames, with **Import frames**. The editor packs them into that same strip: one uniform cell per frame (max width × max height), each frame drawn **bottom-centre** on a transparent canvas, **no padding between cells**. Sheet width is exactly `frameCount × cellWidth`. Timings default to `10` (hundredths of a second) for each frame; existing timings are kept when the count already matches. Prefer this over building a sheet by hand.
+3. You can import a finished spritesheet: a single PNG, all frames left to right, plus a timings list whose length is the frame count. See [the built-in spritesheets](/res/drawable) for examples. The wallpaper splits the sheet with integer division (`sheetWidth / timings.length`) — extra pixels on the right are dropped, and gutters between frames will slice the animation wrong. Do not add padding between cells.
 
 The file [twilight-sparkle.xml](/custom/twilight-sparkle.xml) contains a copy of the built-in Twilight Sparkle. Twilight can be either a unicorn or an alicorn and can both fly and teleport, so she has examples of many possible details in creating ponies.
 
@@ -71,6 +72,35 @@ java -cp custom/build/libs/customponies.jar \
 
 If the output path is omitted, the converter writes `INPUT` with a `.png` extension beside the input.
 
+### PNG frames → spritesheet packer (standalone)
+
+Same packing the editor uses for **Import frames** (`ImageImport.fromFrameFiles`: natural-sort, pad mixed sizes bottom-centre, pack left-to-right with no gutters, default timings 10 cs):
+
+```bash
+# Folder of frames
+java -jar custom/build/libs/customponies.jar \
+  -pack-sheet walk_left.png walk_left_frames/
+
+# Explicit files (any order; they are natural-sorted)
+java -jar custom/build/libs/customponies.jar \
+  -pack-sheet walk_left.png walk_2.png walk_10.png walk_1.png
+
+# Options: -q (quiet), -t timings.txt, --timing-cs N, --strict-size, -h (help)
+# Timings (comma-separated cs) are always printed to stdout.
+```
+
+Into a pony from the sequential CLI:
+
+```bash
+java -jar custom/build/libs/customponies.jar \
+  -action walk \
+  -sprite-frames left walk_left_frames/ \
+  -mirror-facing left \
+  -save oc.xml
+```
+
+`-mirror-facing left` flops **each cell** of the left sheet onto the right (same frame order — not a whole-image `-flop`, which would play the clip backwards). Explicit `<anchorx>` is rewritten as `cellWidth − x`; unset X stays unset.
+
 ### Using the GUI
 
 It can be started by launching the JAR from the file manager (if `.jar` is associated with Java) or from the command line with `java -jar …`.
@@ -113,8 +143,8 @@ On the left side of the editor is the list of actions. You can create a new acti
 * Loop animation: Checked by default. Uncheck for **one-shot transition** clips (intros, outros, reactions). After one full play of the sheet, the pony picks the next waiting/moving/drag action for the current motion and keeps the existing wait timer or travel target. See [One-shot / transition actions](#one-shot--transition-actions) below. CLI: `-loop false`.
 * Sprites from: When set to another action’s name, this action is an **alias**: it reuses that action’s left/right bitmaps and timings, and only stores its own speed and next-action lists. Use this for stroll/walk variants of one trot sheet without embedding the PNG three times. The owner must not itself be an alias (no chains). Leave empty when this action owns its sprites. **Clone as gait…** creates a named alias in one step.
 * Gaits: Optional load-time bag of `speed:weight` entries (e.g. `0.5:1,0.7:3,1:1`). When set, every reference to this action in start/next lists is expanded into weighted speed variants that share this action’s sprites—the same idea as built-in discrete gaits, without listing separate actions. Use the **Ground** button for the built-in ground bag (stroll 1/5, walk 3/5, full 1/5) or **Idle** for a 50/50 full vs walk-rate stand bag. Leave empty for a single fixed speed.
-* Left/right sprite: The text field simply states whether an image has been loaded or not. You can use the 'Preview' button to display the image and the 'Import image' button to load a new one. Once you have entered the timings, moving the cursor over the preview will highlight the frames, allowing you to verify that the correct number of times have been entered. Aliases show the owner’s image; importing on an alias detaches it into a full owner.
-* Left/right timings: The list of durations for each frame of the animation. These are represented in hundredths of a second and seperated by commas. Note: if you import a GIF animation, this field will be filled in automatically.
+* Left/right sprite: The text field simply states whether an image has been loaded or not. **Preview** displays the strip and highlights frames from the timings count. **Import image** loads one GIF (converted) or one already-packed PNG strip. **Import frames** opens a folder or a multi-selection of PNGs, confirms the cell/sheet size, packs them, and opens Preview so you can check the split. **Export Spritesheet** writes the packed PNG. Aliases show the owner’s image; importing on an alias detaches it into a full owner.
+* Left/right timings: The list of durations for each frame of the animation. These are represented in hundredths of a second and seperated by commas. GIF import and **Import frames** fill this in automatically.
 * Next moving/waiting actions: The comma-seperated list of possible actions the pony can transition to when it decides to move or wait. Note that the same action can be used for more than one of these states; for example, many pegasi reuse the same flying action for both movement and hovering in-place. The reserved tokens **`none`** or **`-`** mean “no real successor” for that list (see [One-shot / transition actions](#one-shot--transition-actions)).
 * Drag override: Optional per-action replacement for **Default drag**. Leave empty to inherit the pony-level default. Set it only when this action should use a different drag clip (or list).
 
