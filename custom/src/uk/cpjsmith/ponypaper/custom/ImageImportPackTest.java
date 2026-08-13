@@ -34,6 +34,13 @@ public final class ImageImportPackTest {
         failures += run("inspectIncludesLiftInCellHeight", ImageImportPackTest::testInspectIncludesLiftInCellHeight);
         failures += run("liftsLengthMismatch", ImageImportPackTest::testLiftsLengthMismatch);
         failures += run("negativeLiftRejected", ImageImportPackTest::testNegativeLiftRejected);
+        failures += run("scale50HalvesCell", ImageImportPackTest::testScale50HalvesCell);
+        failures += run("scale100IsIdentity", ImageImportPackTest::testScale100IsIdentity);
+        failures += run("scaleInvalidRejected", ImageImportPackTest::testScaleInvalidRejected);
+        failures += run("parseScalePercent", ImageImportPackTest::testParseScalePercent);
+        failures += run("explicitTimingsCs", ImageImportPackTest::testExplicitTimingsCs);
+        failures += run("gifLoadIsNativeSize", ImageImportPackTest::testGifLoadIsNativeSize);
+        failures += run("gifLoadHalfScale", ImageImportPackTest::testGifLoadHalfScale);
         if (failures > 0) {
             System.err.println(failures + " packer check(s) failed.");
             System.exit(1);
@@ -277,6 +284,92 @@ public final class ImageImportPackTest {
             if (!e.getMessage().contains(">= 0")) {
                 throw new AssertionError("unexpected message: " + e.getMessage());
             }
+        }
+    }
+
+    private static void testScale50HalvesCell() throws IOException {
+        BufferedImage a = solid(10, 8, 0xffff0000);
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        opts.scalePercent = ImageImport.SCALE_DESKTOP_PONIES;
+        ImageImport packed = ImageImport.fromFrames(Arrays.asList(a), opts);
+        assertEq("cellW", 5, packed.cellWidth);
+        assertEq("cellH", 4, packed.cellHeight);
+        BufferedImage sheet = decode(packed.loadedImage);
+        assertEq("sheetW", 5, sheet.getWidth());
+        assertEq("sheetH", 4, sheet.getHeight());
+        assertEq("nearest red", 0xffff0000, sheet.getRGB(2, 2));
+    }
+
+    private static void testScale100IsIdentity() throws IOException {
+        BufferedImage a = solid(10, 8, 0xff00ff00);
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        opts.scalePercent = ImageImport.SCALE_NATIVE;
+        ImageImport packed = ImageImport.fromFrames(Arrays.asList(a), opts);
+        assertEq("cellW", 10, packed.cellWidth);
+        assertEq("cellH", 8, packed.cellHeight);
+    }
+
+    private static void testScaleInvalidRejected() throws IOException {
+        BufferedImage a = solid(4, 4, 0xff0000ff);
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        opts.scalePercent = 25;
+        try {
+            ImageImport.fromFrames(Arrays.asList(a), opts);
+            throw new AssertionError("expected invalid scale failure");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("100 or 50")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void testParseScalePercent() throws IOException {
+        assertEq("100", ImageImport.SCALE_NATIVE, ImageImport.parseScalePercent("100"));
+        assertEq("50%", ImageImport.SCALE_DESKTOP_PONIES, ImageImport.parseScalePercent("50%"));
+        assertEq("half", ImageImport.SCALE_DESKTOP_PONIES, ImageImport.parseScalePercent("half"));
+        assertEq("native", ImageImport.SCALE_NATIVE, ImageImport.parseScalePercent("native"));
+        try {
+            ImageImport.parseScalePercent("75");
+            throw new AssertionError("expected 75 to fail");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("100 or 50")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void testExplicitTimingsCs() throws IOException {
+        BufferedImage a = solid(4, 4, 0xff112233);
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        opts.timingsCs = new int[] {3, 0, 12};
+        ImageImport packed = ImageImport.fromFrames(Arrays.asList(a, a, a), opts);
+        assertEq("gif-like timings (0→1)", "3,1,12", packed.timings);
+    }
+
+    private static void testGifLoadIsNativeSize() throws Exception {
+        File gif = Files.createTempFile("pp-gif-native-", ".gif").toFile();
+        try {
+            ImageIO.write(solid(8, 6, 0xffff0000), "gif", gif);
+            ImageImport imported = ImageImport.load(gif);
+            assertEq("cellW native", 8, imported.cellWidth);
+            assertEq("cellH native", 6, imported.cellHeight);
+            assertEq("one timing", 1, ImageImport.countTimings(imported.timings));
+        } finally {
+            gif.delete();
+        }
+    }
+
+    private static void testGifLoadHalfScale() throws Exception {
+        File gif = Files.createTempFile("pp-gif-half-", ".gif").toFile();
+        try {
+            ImageIO.write(solid(8, 6, 0xff00ff00), "gif", gif);
+            ImageImport.PackOptions opts = new ImageImport.PackOptions();
+            opts.scalePercent = ImageImport.SCALE_DESKTOP_PONIES;
+            ImageImport imported = ImageImport.load(gif, opts);
+            assertEq("cellW half", 4, imported.cellWidth);
+            assertEq("cellH half", 3, imported.cellHeight);
+        } finally {
+            gif.delete();
         }
     }
 

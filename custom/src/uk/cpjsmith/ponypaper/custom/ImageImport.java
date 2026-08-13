@@ -24,11 +24,12 @@ import javax.imageio.ImageIO;
  * frames can be packed into that same strip via {@link #fromFrames} /
  * {@link #fromFrameFiles}: uniform cells, bottom-centre alignment, optional
  * per-frame lift (pixels of air under the sprite), no inter-frame padding.
- * Animated GIFs —
- * typically Desktop Ponies sprites — are decoded, fully coalesced (so each
- * frame is a complete image, not a dirty-rectangle delta), scaled to half
- * size for PonyPaper, and packed left-to-right into a single PNG spritesheet
- * with matching frame timings.
+ * Animated GIFs are decoded, fully coalesced (so each frame is a complete
+ * image, not a dirty-rectangle delta), and packed left-to-right into a
+ * single PNG spritesheet with matching frame timings. Scale is explicit:
+ * {@link #SCALE_NATIVE} (default) or {@link #SCALE_DESKTOP_PONIES} (50%,
+ * used by the Desktop Ponies folder importer so stock ponies match built-in
+ * sheet size).
  *
  * <p>Desktop Ponies GIFs are often heavily optimised: partial frames, mixed
  * disposal methods, and occasionally a transparent colour index that lies
@@ -41,6 +42,21 @@ public class ImageImport {
 
     /** Default per-frame duration when packing stills (hundredths of a second). */
     public static final int DEFAULT_FRAME_TIMING_CS = 10;
+
+    /** Pack at the source pixel size. */
+    public static final int SCALE_NATIVE = 100;
+
+    /**
+     * Half linear size — Desktop Ponies GIFs vs typical built-in PonyPaper
+     * sheets. Integer division, same as the old silent GIF shrink.
+     */
+    public static final int SCALE_DESKTOP_PONIES = 50;
+
+    /**
+     * Built-in sheets top out around this height. Taller packed cells will
+     * draw roughly 2× a stock pony on the wallpaper.
+     */
+    public static final int LARGE_CELL_HEIGHT_PX = 80;
 
     public final byte[] loadedImage;
     public final String timings;
@@ -73,6 +89,36 @@ public class ImageImport {
          * {@code >= 0}. Cell height becomes {@code max(frameH + lift)}.
          */
         public int[] lifts;
+        /**
+         * Linear scale applied before packing. {@link #SCALE_NATIVE} (default)
+         * or {@link #SCALE_DESKTOP_PONIES}.
+         */
+        public int scalePercent = SCALE_NATIVE;
+        /**
+         * Optional per-frame timings in hundredths of a second. When
+         * {@code null}, every frame uses {@link #defaultTimingCs}. Length
+         * must match the frame count; each value is clamped to {@code >= 1}.
+         */
+        public int[] timingsCs;
+    }
+
+    /**
+     * Coalesced GIF frames at the file's logical size (no scale, not packed).
+     */
+    public static final class GifFrames {
+        public final List<BufferedImage> frames;
+        /** Per-frame delay in hundredths of a second. */
+        public final int[] timingsCs;
+        public final int logicalWidth;
+        public final int logicalHeight;
+
+        GifFrames(List<BufferedImage> frames, int[] timingsCs,
+                int logicalWidth, int logicalHeight) {
+            this.frames = frames;
+            this.timingsCs = timingsCs;
+            this.logicalWidth = logicalWidth;
+            this.logicalHeight = logicalHeight;
+        }
     }
 
     /**
@@ -109,12 +155,136 @@ public class ImageImport {
     }
 
     public static ImageImport load(File file) throws IOException {
+        return load(file, null);
+    }
+
+    /**
+     * Loads a PNG (or other still) as raw bytes, or a GIF as a packed
+     * spritesheet. GIF scale / lifts / override timings come from
+     * {@code options}; {@code null} means native size and the GIF's own delays.
+     */
+    public static ImageImport load(File file, PackOptions options) throws IOException {
         String filename = file.getName().toLowerCase(Locale.ROOT);
         if (filename.endsWith(".gif")) {
-            return loadGIF(file);
-        } else {
-            return new ImageImport(Files.readAllBytes(file.toPath()), null);
+            GifFrames gif = loadGifFrames(file);
+            PackOptions opts = options != null ? options : new PackOptions();
+            if (opts.timingsCs == null) {
+                opts.timingsCs = gif.timingsCs;
+            }
+            return fromFrames(gif.frames, opts);
         }
+        return new ImageImport(Files.readAllBytes(file.toPath()), null);
+    }
+
+    /**
+     * Coalesced GIF frames at logical size. Does not scale or pack.
+     */
+    public static GifFrames loadGifFrames(File file) throws IOException {
+        byte[] data = Files.readAllBytes(file.toPath());
+        GifAnimation animation = GifAnimation.decode(data);
+        int frameCount = animation.frames.size();
+        if (frameCount == 0) {
+            throw new IOException("GIF has no frames: " + file);
+        }
+        List<BufferedImage> frames = new ArrayList<BufferedImage>(frameCount);
+        int[] timingsCs = new int[frameCount];
+        for (int i = 0; i < frameCount; i++) {
+            GifFrame frame = animation.frames.get(i);
+            frames.add(frame.argb);
+            timingsCs[i] = frame.delayCs;
+        }
+        return new GifFrames(frames, timingsCs, animation.logicalWidth, animation.logicalHeight);
+    }
+
+    public static int normalizeScalePercent(int scalePercent) throws IOException {
+        if (scalePercent != SCALE_NATIVE && scalePercent != SCALE_DESKTOP_PONIES) {
+            throw new IOException("Scale must be 100 or 50 (got " + scalePercent + ").");
+        }
+        return scalePercent;
+    }
+
+    /**
+     * Accepts {@code 100}, {@code 50}, {@code 100%}, {@code half}, {@code native}.
+     */
+    public static int parseScalePercent(String text) throws IOException {
+        if (text == null || text.trim().isEmpty()) {
+            throw new IOException("Scale is empty.");
+        }
+        String t = text.trim();
+        if ("half".equalsIgnoreCase(t)
+                || "dp".equalsIgnoreCase(t)
+                || "desktop".equalsIgnoreCase(t)) {
+            return SCALE_DESKTOP_PONIES;
+        }
+        if ("native".equalsIgnoreCase(t)
+                || "full".equalsIgnoreCase(t)) {
+            return SCALE_NATIVE;
+        }
+        if (t.endsWith("%")) {
+            t = t.substring(0, t.length() - 1).trim();
+        }
+        int value;
+        try {
+            value = Integer.parseInt(t);
+        } catch (NumberFormatException e) {
+            throw new IOException("Invalid scale: " + text);
+        }
+        return normalizeScalePercent(value);
+    }
+
+    public static boolean isLargeCell(int cellHeight) {
+        return cellHeight > LARGE_CELL_HEIGHT_PX;
+    }
+
+    public static String largeCellWarning() {
+        return "This will draw about 2× a built-in pony.";
+    }
+
+    /**
+     * Nearest-neighbour scale. {@link #SCALE_NATIVE} returns {@code frames}
+     * itself. Other allowed percents allocate new images.
+     */
+    public static List<BufferedImage> scaleFrames(List<BufferedImage> frames, int scalePercent)
+            throws IOException {
+        int scale = normalizeScalePercent(scalePercent);
+        if (frames == null || frames.isEmpty()) {
+            throw new IOException("No frames to scale.");
+        }
+        if (scale == SCALE_NATIVE) {
+            return frames;
+        }
+        List<BufferedImage> out = new ArrayList<BufferedImage>(frames.size());
+        for (int i = 0; i < frames.size(); i++) {
+            BufferedImage frame = frames.get(i);
+            if (frame == null) {
+                throw new IOException("Null frame");
+            }
+            out.add(scaleImage(frame, scale));
+        }
+        return out;
+    }
+
+    public static BufferedImage scaleImage(BufferedImage src, int scalePercent) throws IOException {
+        int scale = normalizeScalePercent(scalePercent);
+        if (src == null) {
+            throw new IOException("Null frame");
+        }
+        if (scale == SCALE_NATIVE) {
+            return src;
+        }
+        int w = Math.max(1, src.getWidth() * scale / 100);
+        int h = Math.max(1, src.getHeight() * scale / 100);
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = out.createGraphics();
+        g.setRenderingHint(
+                RenderingHints.KEY_INTERPOLATION,
+                RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+        g.setRenderingHint(
+                RenderingHints.KEY_RENDERING,
+                RenderingHints.VALUE_RENDER_QUALITY);
+        g.drawImage(src, 0, 0, w, h, null);
+        g.dispose();
+        return out;
     }
 
     /**
@@ -481,30 +651,50 @@ public class ImageImport {
     public static ImageImport fromFrames(List<BufferedImage> frames, PackOptions options)
             throws IOException {
         PackOptions opts = options != null ? options : new PackOptions();
-        PackPreview preview = inspectFrames(frames, opts.lifts);
+        int scalePercent = normalizeScalePercent(opts.scalePercent);
+        List<BufferedImage> scaled = scaleFrames(frames, scalePercent);
+        PackPreview preview = inspectFrames(scaled, opts.lifts);
         if (opts.rejectMixedSizes && preview.mixedSizes) {
             throw new IOException("Frame sizes differ; every frame must be the same size.");
         }
-        int timingCs = Math.max(1, opts.defaultTimingCs);
         int cellW = preview.cellWidth;
         int cellH = preview.cellHeight;
         int n = preview.frameCount;
         int[] lifts = normalizeLifts(opts.lifts, n);
+        String timings = buildTimings(opts, n);
 
-        BufferedImage sheet = packSheetImage(frames, cellW, cellH, lifts);
-        StringBuilder timings = new StringBuilder();
-        for (int i = 0; i < n; i++) {
-            if (i > 0) {
-                timings.append(',');
-            }
-            timings.append(timingCs);
-        }
+        BufferedImage sheet = packSheetImage(scaled, cellW, cellH, lifts);
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         if (!ImageIO.write(sheet, "png", out)) {
             throw new IOException("Failed to encode spritesheet PNG");
         }
-        return new ImageImport(out.toByteArray(), timings.toString(), cellW, cellH);
+        return new ImageImport(out.toByteArray(), timings, cellW, cellH);
+    }
+
+    private static String buildTimings(PackOptions opts, int n) throws IOException {
+        if (opts.timingsCs != null) {
+            if (opts.timingsCs.length != n) {
+                throw new IOException("Expected " + n + " timings, got " + opts.timingsCs.length + ".");
+            }
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < n; i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append(Math.max(1, opts.timingsCs[i]));
+            }
+            return sb.toString();
+        }
+        int timingCs = Math.max(1, opts.defaultTimingCs);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(timingCs);
+        }
+        return sb.toString();
     }
 
     /**
@@ -627,48 +817,7 @@ public class ImageImport {
         return out;
     }
 
-    private static ImageImport loadGIF(File file) throws IOException {
-        byte[] data = Files.readAllBytes(file.toPath());
-        GifAnimation animation = GifAnimation.decode(data);
 
-        int frameCount = animation.frames.size();
-        if (frameCount == 0) {
-            throw new IOException("GIF has no frames: " + file);
-        }
-
-        // PonyPaper sprites are half the Desktop Ponies resolution.
-        int frameWidth = Math.max(1, animation.logicalWidth / 2);
-        int frameHeight = Math.max(1, animation.logicalHeight / 2);
-
-        BufferedImage sheet = new BufferedImage(
-                frameCount * frameWidth, frameHeight, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D sheetG = sheet.createGraphics();
-        sheetG.setRenderingHint(
-                RenderingHints.KEY_INTERPOLATION,
-                RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-        sheetG.setRenderingHint(
-                RenderingHints.KEY_RENDERING,
-                RenderingHints.VALUE_RENDER_QUALITY);
-
-        StringBuilder timings = new StringBuilder();
-        for (int i = 0; i < frameCount; i++) {
-            GifFrame frame = animation.frames.get(i);
-            sheetG.drawImage(
-                    frame.argb,
-                    i * frameWidth, 0, (i + 1) * frameWidth, frameHeight,
-                    0, 0, animation.logicalWidth, animation.logicalHeight,
-                    null);
-            if (i != 0) {
-                timings.append(',');
-            }
-            timings.append(frame.delayCs);
-        }
-        sheetG.dispose();
-
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        ImageIO.write(sheet, "png", out);
-        return new ImageImport(out.toByteArray(), timings.toString(), frameWidth, frameHeight);
-    }
 
     // -------------------------------------------------------------------------
     // GIF decoder (coalesced full frames)
