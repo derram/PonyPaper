@@ -50,6 +50,7 @@ public class Settings extends PreferenceActivity {
     private static final String URL_AUTHOR = "http://cpjsmith.uk";
     private static final String URL_DESKTOP_PONIES = "https://github.com/RoosterDragon/Desktop-Ponies";
     private static final String URL_DP_TEAM = "http://desktop-pony-team.deviantart.com/";
+    private static final String URL_GROK_BUILD = "https://x.ai/cli";
     private static final String URL_LEXEND = "https://github.com/googlefonts/lexend";
     private static final String URL_OFL_SITE = "https://openfontlicense.org";
     private static final String URL_CC_BY_NC_SA = "http://creativecommons.org/licenses/by-nc-sa/3.0/";
@@ -173,6 +174,7 @@ public class Settings extends PreferenceActivity {
         bindUrlPreference("pref_link_author", URL_AUTHOR);
         bindUrlPreference("pref_link_desktop_ponies", URL_DESKTOP_PONIES);
         bindUrlPreference("pref_link_dp_team", URL_DP_TEAM);
+        bindUrlPreference("pref_link_grok_build", URL_GROK_BUILD);
         bindUrlPreference("pref_link_lexend", URL_LEXEND);
         bindUrlPreference("pref_link_ofl_site", URL_OFL_SITE);
         bindUrlPreference("pref_link_cc", URL_CC_BY_NC_SA);

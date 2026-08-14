@@ -34,6 +34,8 @@
     <string name="pref_link_desktop_ponies_summary">RoosterDragon/Desktop-Ponies — sprite source</string>
     <string name="pref_link_dp_team_title">Desktop Ponies team</string>
     <string name="pref_link_dp_team_summary">Artwork contributors on DeviantArt</string>
+    <string name="pref_link_grok_build_title">Grok Build</string>
+    <string name="pref_link_grok_build_summary">x.ai/cli — AI coding assistant used on this project</string>
     <string name="pref_link_lexend_title">Lexend font</string>
     <string name="pref_link_lexend_summary">googlefonts/lexend — screensaver clock typeface</string>
     <string name="pref_link_ofl_site_title">SIL Open Font License</string>

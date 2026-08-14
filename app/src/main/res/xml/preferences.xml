@@ -258,6 +258,9 @@
                 <Preference android:key="pref_link_dp_team"
                             android:title="@string/pref_link_dp_team_title"
                             android:summary="@string/pref_link_dp_team_summary" />
+                <Preference android:key="pref_link_grok_build"
+                            android:title="@string/pref_link_grok_build_title"
+                            android:summary="@string/pref_link_grok_build_summary" />
                 <Preference android:key="pref_link_lexend"
                             android:title="@string/pref_link_lexend_title"
                             android:summary="@string/pref_link_lexend_summary" />
