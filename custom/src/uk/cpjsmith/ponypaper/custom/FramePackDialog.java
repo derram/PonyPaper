@@ -51,9 +51,10 @@ import javax.swing.event.ListSelectionListener;
 
 /**
  * Modal dialog: review imported frames (PNG stills or coalesced GIF frames),
- * choose native vs Desktop Ponies 50% scale, set per-frame lift, and pack.
- * Lift {@code 0} is the usual bottom-centre alignment; positive lift bakes a
- * hop into a taller cell. Returns {@code null} on cancel.
+ * choose native vs Desktop Ponies 50% scale, rearrange playback order, set
+ * per-frame lift, and pack. Lift {@code 0} is the usual bottom-centre
+ * alignment; positive lift bakes a hop into a taller cell. Returns
+ * {@code null} on cancel.
  */
 public final class FramePackDialog extends JDialog {
 
@@ -62,15 +63,18 @@ public final class FramePackDialog extends JDialog {
 
     /**
      * User choices after Pack. Lift values are in <em>output</em> pixels
-     * (after scale).
+     * (after scale) and follow playback order. {@link #order} is a
+     * permutation of source indices ({@code 0..n-1}).
      */
     public static final class Result {
         public final int[] lifts;
         public final int scalePercent;
+        public final int[] order;
 
-        Result(int[] lifts, int scalePercent) {
+        Result(int[] lifts, int scalePercent, int[] order) {
             this.lifts = lifts;
             this.scalePercent = scalePercent;
+            this.order = order;
         }
     }
 
@@ -91,7 +95,10 @@ public final class FramePackDialog extends JDialog {
 
     private final List<BufferedImage> frames;
     private final List<String> names;
+    /** Lift of the frame at each playback slot (travels with the frame). */
     private final int[] lifts;
+    /** Source index at each playback slot. */
+    private final int[] order;
     private final String notes;
     private final JLabel headerLabel;
     private final JLabel warningLabel;
@@ -102,6 +109,9 @@ public final class FramePackDialog extends JDialog {
     private final JSpinner hopPeakSpinner;
     private final SpinnerNumberModel liftModel;
     private final JComboBox<ScaleItem> scaleCombo;
+    private final JButton moveUpButton;
+    private final JButton moveDownButton;
+    private final JButton resetOrderButton;
     private int scalePercent;
     private List<BufferedImage> scaledFrames;
     private boolean updatingSpinner;
@@ -118,6 +128,10 @@ public final class FramePackDialog extends JDialog {
         this.notes = notes != null ? notes : "";
         this.names = new ArrayList<String>(frames.size());
         this.lifts = new int[frames.size()];
+        this.order = new int[frames.size()];
+        for (int i = 0; i < frames.size(); i++) {
+            this.order[i] = i;
+        }
         int initialScale = defaultScalePercent == ImageImport.SCALE_DESKTOP_PONIES
                 ? ImageImport.SCALE_DESKTOP_PONIES
                 : ImageImport.SCALE_NATIVE;
@@ -229,7 +243,7 @@ public final class FramePackDialog extends JDialog {
             @Override
             public void actionPerformed(ActionEvent e) {
                 packed = true;
-                result = new Result(lifts.clone(), scalePercent);
+                result = new Result(lifts.clone(), scalePercent, order.clone());
                 dispose();
             }
         });
@@ -244,8 +258,71 @@ public final class FramePackDialog extends JDialog {
             }
         });
 
+        boolean canReorder = frames.size() >= 2;
+        moveUpButton = new JButton("Move up");
+        moveUpButton.setToolTipText("Play this frame earlier (Alt+Up).");
+        moveUpButton.setEnabled(false);
+        moveUpButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                moveSelected(-1);
+            }
+        });
+        moveDownButton = new JButton("Move down");
+        moveDownButton.setToolTipText("Play this frame later (Alt+Down).");
+        moveDownButton.setEnabled(false);
+        moveDownButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                moveSelected(1);
+            }
+        });
+        JButton reverseButton = new JButton("Reverse");
+        reverseButton.setToolTipText("Play the clip backwards. Lifts stay on their frames.");
+        reverseButton.setEnabled(canReorder);
+        reverseButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                reverseOrder();
+            }
+        });
+        resetOrderButton = new JButton("Reset order");
+        resetOrderButton.setToolTipText("Restore the imported / natural-sorted order. Lifts stay on their frames.");
+        resetOrderButton.setEnabled(false);
+        resetOrderButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                resetOrder();
+            }
+        });
+
+        frameList.registerKeyboardAction(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                moveSelected(-1);
+            }
+        }, KeyStroke.getKeyStroke(KeyEvent.VK_UP, KeyEvent.ALT_DOWN_MASK),
+                JComponent.WHEN_FOCUSED);
+        frameList.registerKeyboardAction(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                moveSelected(1);
+            }
+        }, KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, KeyEvent.ALT_DOWN_MASK),
+                JComponent.WHEN_FOCUSED);
+
+        JPanel orderButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        orderButtons.add(moveUpButton);
+        orderButtons.add(moveDownButton);
+        orderButtons.add(reverseButton);
+        orderButtons.add(resetOrderButton);
+
         JPanel listPane = new JPanel(new BorderLayout());
+        JLabel listLabel = new JLabel("Animation order (Alt+↑/↓ to move)");
+        listLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
+        listPane.add(listLabel, BorderLayout.NORTH);
         listPane.add(new JScrollPane(frameList), BorderLayout.CENTER);
+        listPane.add(orderButtons, BorderLayout.SOUTH);
         listPane.setPreferredSize(new Dimension(280, 240));
 
         JPanel previewPane = new JPanel(new BorderLayout());
@@ -393,8 +470,83 @@ public final class FramePackDialog extends JDialog {
     }
 
     private int selectedIndex() {
-        Integer value = frameList.getSelectedValue();
-        return value != null ? value.intValue() : -1;
+        return frameList.getSelectedIndex();
+    }
+
+    private int sourceIndex(int playback) {
+        return playback >= 0 && playback < order.length ? order[playback] : -1;
+    }
+
+    private BufferedImage frameAtPlayback(int playback) {
+        int src = sourceIndex(playback);
+        return src >= 0 ? packFrames().get(src) : null;
+    }
+
+    private List<BufferedImage> playbackFrames() throws IOException {
+        return ImageImport.permute(packFrames(), order);
+    }
+
+    private void swapPlayback(int a, int b) {
+        int tmpOrder = order[a];
+        order[a] = order[b];
+        order[b] = tmpOrder;
+        int tmpLift = lifts[a];
+        lifts[a] = lifts[b];
+        lifts[b] = tmpLift;
+    }
+
+    private void moveSelected(int delta) {
+        int from = selectedIndex();
+        int to = from + delta;
+        if (from < 0 || to < 0 || to >= order.length) {
+            return;
+        }
+        swapPlayback(from, to);
+        frameList.setSelectedIndex(to);
+        frameList.ensureIndexIsVisible(to);
+        refreshAll();
+    }
+
+    private void reverseOrder() {
+        int n = order.length;
+        if (n < 2) {
+            return;
+        }
+        int selected = selectedIndex();
+        for (int i = 0; i < n / 2; i++) {
+            swapPlayback(i, n - 1 - i);
+        }
+        if (selected >= 0) {
+            frameList.setSelectedIndex(n - 1 - selected);
+            frameList.ensureIndexIsVisible(n - 1 - selected);
+        }
+        refreshAll();
+    }
+
+    private void resetOrder() {
+        int n = order.length;
+        int[] sourceLifts = new int[n];
+        for (int p = 0; p < n; p++) {
+            sourceLifts[order[p]] = lifts[p];
+        }
+        int selectedSrc = sourceIndex(selectedIndex());
+        for (int i = 0; i < n; i++) {
+            order[i] = i;
+            lifts[i] = sourceLifts[i];
+        }
+        if (selectedSrc >= 0) {
+            frameList.setSelectedIndex(selectedSrc);
+            frameList.ensureIndexIsVisible(selectedSrc);
+        }
+        refreshAll();
+    }
+
+    private void updateOrderButtons() {
+        int index = selectedIndex();
+        int n = order.length;
+        moveUpButton.setEnabled(index > 0);
+        moveDownButton.setEnabled(index >= 0 && index < n - 1);
+        resetOrderButton.setEnabled(!ImageImport.isIdentityOrder(order));
     }
 
     private void setLift(int index, int value) {
@@ -419,11 +571,12 @@ public final class FramePackDialog extends JDialog {
         }
         cellPreview.repaint();
         stripPreview.repaint();
+        updateOrderButtons();
     }
 
     private void refreshAll() {
         try {
-            List<BufferedImage> toPack = packFrames();
+            List<BufferedImage> toPack = playbackFrames();
             ImageImport.PackPreview preview = ImageImport.inspectFrames(toPack, lifts);
             headerLabel.setText(String.format(
                     "Pack %d frame%s into %d×%d cells (sheet %d×%d) at %d%%.",
@@ -462,14 +615,16 @@ public final class FramePackDialog extends JDialog {
         public Component getListCellRendererComponent(
                 JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            int i = value instanceof Integer ? ((Integer) value).intValue() : index;
-            if (i < 0 || i >= frames.size()) {
+            int playback = index;
+            if (playback < 0 || playback >= frames.size()) {
                 return this;
             }
-            BufferedImage frame = packFrames().get(i);
+            BufferedImage frame = frameAtPlayback(playback);
+            int src = sourceIndex(playback);
             setIcon(new ImageIcon(thumbnail(frame)));
             setText(String.format("%d. %s  (%d×%d, lift %d)",
-                    i + 1, names.get(i), frame.getWidth(), frame.getHeight(), lifts[i]));
+                    playback + 1, names.get(src), frame.getWidth(), frame.getHeight(),
+                    lifts[playback]));
             return this;
         }
     }
@@ -614,7 +769,7 @@ public final class FramePackDialog extends JDialog {
                 if (index < 0) {
                     return;
                 }
-                BufferedImage frame = packFrames().get(index);
+                BufferedImage frame = frameAtPlayback(index);
                 Rectangle bounds = cellBounds();
                 paintChecker(g2, bounds);
                 g2.setColor(new Color(0x66, 0x66, 0x66));
