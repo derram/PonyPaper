@@ -538,6 +538,108 @@ public class ImageImport {
     }
 
     /**
+     * {@code 0, 1, …, n-1}. {@code n} must be {@code >= 1}.
+     */
+    public static int[] identityOrder(int n) throws IOException {
+        if (n < 1) {
+            throw new IOException("No frames to order.");
+        }
+        int[] out = new int[n];
+        for (int i = 0; i < n; i++) {
+            out[i] = i;
+        }
+        return out;
+    }
+
+    /**
+     * True when {@code order} is {@code 0..n-1}. {@code null} is identity
+     * when {@code n >= 0}.
+     */
+    public static boolean isIdentityOrder(int[] order, int n) {
+        if (order == null) {
+            return n >= 0;
+        }
+        if (n < 0 || order.length != n) {
+            return false;
+        }
+        for (int i = 0; i < n; i++) {
+            if (order[i] != i) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * True when {@code order} is {@code null} or {@code 0, 1, …, length-1}.
+     */
+    public static boolean isIdentityOrder(int[] order) {
+        return isIdentityOrder(order, order == null ? 0 : order.length);
+    }
+
+    /**
+     * Copies {@code order} and checks it is a permutation of {@code 0..n-1}.
+     * {@code null} becomes the identity.
+     */
+    public static int[] normalizeOrder(int[] order, int n) throws IOException {
+        if (n < 1) {
+            throw new IOException("No frames to order.");
+        }
+        if (order == null) {
+            return identityOrder(n);
+        }
+        if (order.length != n) {
+            throw new IOException("Expected " + n + " order indices, got " + order.length + ".");
+        }
+        boolean[] seen = new boolean[n];
+        int[] out = new int[n];
+        for (int i = 0; i < n; i++) {
+            int src = order[i];
+            if (src < 0 || src >= n) {
+                throw new IOException("Order index out of range: " + src + ".");
+            }
+            if (seen[src]) {
+                throw new IOException("Duplicate order index: " + src + ".");
+            }
+            seen[src] = true;
+            out[i] = src;
+        }
+        return out;
+    }
+
+    /**
+     * Items in playback order. {@code order} is a permutation of source
+     * indices; {@code null} is identity. Does not mutate {@code items}.
+     */
+    public static <T> List<T> permute(List<T> items, int[] order) throws IOException {
+        if (items == null || items.isEmpty()) {
+            throw new IOException("No frames to order.");
+        }
+        int[] perm = normalizeOrder(order, items.size());
+        List<T> out = new ArrayList<T>(perm.length);
+        for (int i = 0; i < perm.length; i++) {
+            out.add(items.get(perm[i]));
+        }
+        return out;
+    }
+
+    /**
+     * Values in playback order. {@code order} is a permutation of source
+     * indices; {@code null} is identity. Does not mutate {@code values}.
+     */
+    public static int[] permute(int[] values, int[] order) throws IOException {
+        if (values == null || values.length == 0) {
+            throw new IOException("No values to order.");
+        }
+        int[] perm = normalizeOrder(order, values.length);
+        int[] out = new int[perm.length];
+        for (int i = 0; i < perm.length; i++) {
+            out[i] = values[perm[i]];
+        }
+        return out;
+    }
+
+    /**
      * Parabolic hop: {@code 0} at both ends, {@code peak} at the middle.
      * A single frame yields {@code {0}}. {@code peak} is clamped to
      * {@code >= 0}.

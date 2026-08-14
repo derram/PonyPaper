@@ -41,6 +41,9 @@ public final class ImageImportPackTest {
         failures += run("explicitTimingsCs", ImageImportPackTest::testExplicitTimingsCs);
         failures += run("gifLoadIsNativeSize", ImageImportPackTest::testGifLoadIsNativeSize);
         failures += run("gifLoadHalfScale", ImageImportPackTest::testGifLoadHalfScale);
+        failures += run("permuteOrder", ImageImportPackTest::testPermuteOrder);
+        failures += run("permutePacksInGivenOrder", ImageImportPackTest::testPermutePacksInGivenOrder);
+        failures += run("permuteTimingsTravel", ImageImportPackTest::testPermuteTimingsTravel);
         if (failures > 0) {
             System.err.println(failures + " packer check(s) failed.");
             System.exit(1);
@@ -357,6 +360,79 @@ public final class ImageImportPackTest {
         } finally {
             gif.delete();
         }
+    }
+
+    private static void testPermuteOrder() throws IOException {
+        int[] id = ImageImport.normalizeOrder(null, 4);
+        assertEq("null order length", 4, id.length);
+        assertEq("null is identity", true, ImageImport.isIdentityOrder(id));
+        assertEq("null,n identity", true, ImageImport.isIdentityOrder(null, 3));
+        assertEq("explicit identity", true, ImageImport.isIdentityOrder(new int[] {0, 1, 2}));
+        assertEq("reversed not identity", false, ImageImport.isIdentityOrder(new int[] {2, 1, 0}));
+        assertEq("wrong length not identity", false, ImageImport.isIdentityOrder(new int[] {0, 1}, 3));
+
+        List<String> items = Arrays.asList("a", "b", "c");
+        List<String> permuted = ImageImport.permute(items, new int[] {2, 0, 1});
+        assertEq("list[0]", "c", permuted.get(0));
+        assertEq("list[1]", "a", permuted.get(1));
+        assertEq("list[2]", "b", permuted.get(2));
+        assertEq("source unchanged", "a", items.get(0));
+
+        List<String> same = ImageImport.permute(items, new int[] {0, 1, 2});
+        assertEq("identity[0]", "a", same.get(0));
+        assertEq("identity[2]", "c", same.get(2));
+
+        int[] vals = ImageImport.permute(new int[] {10, 20, 30}, new int[] {2, 0, 1});
+        assertEq("int[0]", 30, vals[0]);
+        assertEq("int[1]", 10, vals[1]);
+        assertEq("int[2]", 20, vals[2]);
+
+        try {
+            ImageImport.normalizeOrder(new int[] {0, 0, 1}, 3);
+            throw new AssertionError("expected duplicate order to fail");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("Duplicate")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+        try {
+            ImageImport.normalizeOrder(new int[] {0, 3}, 2);
+            throw new AssertionError("expected out-of-range order to fail");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("out of range")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+        try {
+            ImageImport.normalizeOrder(new int[] {0}, 2);
+            throw new AssertionError("expected length mismatch to fail");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("Expected 2")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void testPermutePacksInGivenOrder() throws IOException {
+        BufferedImage red = solid(8, 8, 0xffff0000);
+        BufferedImage blue = solid(8, 8, 0xff0000ff);
+        List<BufferedImage> frames = ImageImport.permute(
+                Arrays.asList(red, blue), new int[] {1, 0});
+        ImageImport packed = ImageImport.fromFrames(frames, new ImageImport.PackOptions());
+        BufferedImage sheet = decode(packed.loadedImage);
+        assertEq("sheetW", 16, sheet.getWidth());
+        assertEq("first cell is blue", 0xff0000ff, sheet.getRGB(4, 4));
+        assertEq("second cell is red", 0xffff0000, sheet.getRGB(12, 4));
+    }
+
+    private static void testPermuteTimingsTravel() throws IOException {
+        BufferedImage a = solid(4, 4, 0xff00ff00);
+        int[] order = {2, 0, 1};
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        opts.timingsCs = ImageImport.permute(new int[] {3, 7, 11}, order);
+        ImageImport packed = ImageImport.fromFrames(
+                ImageImport.permute(Arrays.asList(a, a, a), order), opts);
+        assertEq("timings follow frames", "11,3,7", packed.timings);
     }
 
     private static void testGifLoadHalfScale() throws Exception {
