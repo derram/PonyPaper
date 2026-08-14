@@ -91,8 +91,11 @@ public class SpriteSheet {
     /**
      * Release the pixel buffer held by this sheet. Safe to call more than once;
      * after this, the sheet must not be drawn until reloaded.
+     *
+     * <p>Shared sheets are recycled only by {@link SpriteCache} when the last
+     * pin is dropped. Direct callers must own the bitmap exclusively.
      */
-    public void recycle() {
+    void recycle() {
         if (bitmap != null && !bitmap.isRecycled()) {
             bitmap.recycle();
         }
