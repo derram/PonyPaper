@@ -8,6 +8,7 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Image;
+import java.awt.image.BufferedImage;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
@@ -198,7 +199,7 @@ public class PonyEditorGUI extends JPanel {
         
         ActionListener previewLeftListener = new ActionListener() {
             public void actionPerformed(ActionEvent e) {
-                previewImage(editor.getActionImage(currentIndex, "left"), editor.getActionTimings(currentIndex, "left"));
+                previewImage("left");
             }
         };
 
@@ -241,7 +242,7 @@ public class PonyEditorGUI extends JPanel {
         
         ActionListener previewRightListener = new ActionListener() {
             public void actionPerformed(ActionEvent e) {
-                previewImage(editor.getActionImage(currentIndex, "right"), editor.getActionTimings(currentIndex, "right"));
+                previewImage("right");
             }
         };
 
@@ -929,19 +930,102 @@ public class PonyEditorGUI extends JPanel {
             }
         }
         
-        void previewImage(String b64Image, String timings) {
+        void previewImage(String direction) {
+            if (currentIndex < 0) {
+                return;
+            }
+            if (!"left".equals(direction) && !"right".equals(direction)) {
+                return;
+            }
             try {
+                String b64Image = editor.getActionImage(currentIndex, direction);
+                String timings = editor.getActionTimings(currentIndex, direction);
                 Base64.Decoder b64Dec = Base64.getDecoder();
                 byte[] rawImage = b64Dec.decode(b64Image);
                 Image image = ImageIO.read(new ByteArrayInputStream(rawImage));
                 if (image == null) throw new IllegalArgumentException();
                 int frames = frameCountFromTimings(timings);
-                JOptionPane.showMessageDialog(this, new SpriteSheetPreview(image, frames), "Image Preview", JOptionPane.PLAIN_MESSAGE);
+                String[] options = { "Open in Packer", "OK" };
+                int choice = JOptionPane.showOptionDialog(
+                        this,
+                        new SpriteSheetPreview(image, frames),
+                        "Image Preview",
+                        JOptionPane.DEFAULT_OPTION,
+                        JOptionPane.PLAIN_MESSAGE,
+                        null,
+                        options,
+                        options[1]);
+                if (choice == 0) {
+                    openSheetInPacker(direction, image, frames, timings);
+                }
             } catch (IllegalArgumentException e) {
                 JOptionPane.showMessageDialog(this, "The image could not be decoded. Please load a new image.", "Image Error", JOptionPane.ERROR_MESSAGE);
             } catch (IOException e) {
                 JOptionPane.showMessageDialog(this, "The image could not be decoded. Please load a new image.", "Image Error", JOptionPane.ERROR_MESSAGE);
             }
+        }
+
+        /**
+         * Splits the previewed strip into cells (same integer division as the
+         * wallpaper) and opens the pack dialog so the sheet can be reordered,
+         * lifted, or scaled.
+         */
+        void openSheetInPacker(String direction, Image image, int frameCount, String timings) {
+            try {
+                BufferedImage sheet = SpriteSheetPreview.toBufferedImage(image);
+                List<BufferedImage> frames = ImageImport.splitSheet(sheet, frameCount);
+                int existingCount = ImageImport.countTimings(timings);
+                StringBuilder notes = new StringBuilder();
+                notes.append("Split this ").append(direction)
+                        .append(" spritesheet into ").append(frames.size())
+                        .append(" cell").append(frames.size() == 1 ? "" : "s")
+                        .append(" using the current timings.");
+                if (existingCount == frames.size()) {
+                    notes.append("\n\nExisting timings (").append(existingCount)
+                            .append(" entries) will be kept if you leave the imported order.");
+                } else {
+                    notes.append("\n\nTimings will be set to ").append(frames.size())
+                            .append(" × ").append(ImageImport.DEFAULT_FRAME_TIMING_CS)
+                            .append(" (hundredths of a second).");
+                }
+                notes.append("\n\nList order is playback order — Move up/down, Reverse, or Alt+↑/↓.");
+                notes.append("\n\nScale is 100% by default (cells are already packed). ")
+                        .append("Choose 50% (Desktop Ponies) only if you want to shrink this sheet.");
+                notes.append("\n\nLift is pixels of air under a cell (0 = keep the sprite grounded). ");
+
+                String[] names = new String[frames.size()];
+                for (int i = 0; i < names.length; i++) {
+                    names[i] = "frame " + (i + 1);
+                }
+                FramePackDialog.Result packed = FramePackDialog.showDialog(
+                        this,
+                        "Pack Spritesheet (" + direction + ")",
+                        names,
+                        frames,
+                        notes.toString(),
+                        ImageImport.SCALE_NATIVE);
+                if (packed == null) {
+                    return;
+                }
+
+                applyPackedFrames(direction, frames, timingsCsForPack(timings, frames.size()), packed);
+            } catch (PonyEditor.GenericException e) {
+                JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        e.getMessage(),
+                        "Open in Packer Failed",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        }
+
+        private static int[] timingsCsForPack(String timings, int frameCount) {
+            int[] parsed = ActionFrameSource.parseTimings(timings);
+            if (parsed.length == frameCount) {
+                return parsed;
+            }
+            return null;
         }
 
         /**
@@ -1120,9 +1204,7 @@ public class PonyEditorGUI extends JPanel {
                 editor.mirrorActionSprite(currentIndex, fromDirection);
                 setAction(currentIndex);
                 hasChanges = true;
-                previewImage(
-                        editor.getActionImage(currentIndex, toDirection),
-                        editor.getActionTimings(currentIndex, toDirection));
+                previewImage(toDirection);
             } catch (PonyEditor.GenericException e) {
                 JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
             }
@@ -1222,9 +1304,7 @@ public class PonyEditorGUI extends JPanel {
             }
             setAction(currentIndex);
             hasChanges = true;
-            previewImage(
-                    editor.getActionImage(currentIndex, direction),
-                    editor.getActionTimings(currentIndex, direction));
+            previewImage(direction);
         }
 
         /**
