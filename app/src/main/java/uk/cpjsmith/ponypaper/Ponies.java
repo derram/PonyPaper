@@ -124,6 +124,19 @@ public class Ponies {
     public void reset() {
         for (Pony pony : activePonies) pony.reset();
     }
+
+    /**
+     * Unpin every pony's sprite sheets so {@link SpriteCache} can recycle
+     * bitmaps no other host still holds. Call before dropping this herd.
+     */
+    public void unloadSprites() {
+        for (Pony pony : activePonies) {
+            pony.unloadActions();
+        }
+        for (int i = 0; i < inactivePonies.size(); i++) {
+            inactivePonies.get(i).unloadActions();
+        }
+    }
     
     /**
      * Updates all active ponies for the elapsed time and draws them on the

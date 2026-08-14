@@ -113,6 +113,14 @@ public class Pony {
         posX = 0;
         posY = 0;
         frameTime = 0;
+        unloadActions();
+    }
+
+    /**
+     * Unpin every action's sheets. Safe when already unloaded. Used by
+     * {@link #reset()} and when a host drops the herd.
+     */
+    public void unloadActions() {
         for (int i = 0; i < allActions.length; i++) {
             allActions[i].unload();
         }

@@ -237,10 +237,26 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         getPreferences().unregisterOnSharedPreferenceChangeListener(this);
         handler.removeCallbacks(drawFrameCallback);
-        ponies = null;
-        background = null;
+        dropHerd();
         thermalEmergency = false;
         thermalThrottle = false;
+    }
+
+    /**
+     * Unload the current herd and background. Cache pins drop so sheets still
+     * used by another host (e.g. dream vs wallpaper) stay decoded.
+     */
+    private void dropHerd() {
+        if (ponies != null) {
+            ponies.unloadSprites();
+            ponies = null;
+        }
+        if (background != null) {
+            if (!background.isRecycled()) {
+                background.recycle();
+            }
+            background = null;
+        }
     }
 
     /**
@@ -508,8 +524,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
         if (thermalEmergency) {
             handler.removeCallbacks(drawFrameCallback);
-            ponies = null;
-            background = null;
+            dropHerd();
             if (active && surface.isDrawingEnabled() && !frozen) {
                 paintSolidFrame(THERMAL_SAFE_COLOUR);
             }
@@ -523,8 +538,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         // Skip while frozen so exit fade does not drop bitmaps mid-transition.
         if (!frozen && (wasEmergency || wasThrottle != thermalThrottle
                 || wasEffectivePonies != nowEffectivePonies)) {
-            ponies = null;
-            background = null;
+            dropHerd();
         }
 
         handler.removeCallbacks(drawFrameCallback);
@@ -584,7 +598,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         // Rebuild when herd size or image-background policy changes.
         // Leave the herd alone while frozen (exit fade holds the last buffer).
         if (!frozen && (ponies == null || wasEffective != nowEffective || wasSig != nowSig)) {
-            ponies = null;
+            dropHerd();
         }
 
         handler.removeCallbacks(drawFrameCallback);
@@ -597,7 +611,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private void reapplyPowerProfilePrefs(SharedPreferences prefs) {
         applyTargetFps(prefs);
         if (!frozen) {
-            ponies = null;
+            dropHerd();
         }
         handler.removeCallbacks(drawFrameCallback);
         if (active && !frozen) {
@@ -625,7 +639,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             return;
         }
         if (!frozen) {
-            ponies = null;
+            dropHerd();
         }
     }
 

@@ -19,7 +19,8 @@ import java.util.Random;
  * <p>Each action carries a {@link #speed} factor used both as travel speed
  * (when moving) and as animation playback rate (moving or idle). Multiple
  * actions may share one sprite sheet via {@link #PonyAction(PonyAction, float)}
- * so gait/idle variants do not load duplicate bitmaps.
+ * so gait/idle variants do not load duplicate bitmaps. Distinct pony
+ * instances (wallpaper vs dream) share decoded sheets via {@link SpriteCache}.
  */
 public class PonyAction {
     
@@ -357,9 +358,11 @@ public class PonyAction {
     /**
      * Load the sprites into memory. After this is called, all the methods of
      * this class become functional. It will also consume far more memory.
-     * 
-     * <p>Alias actions only pin the source's sheets; the source owns recycle.
-     * 
+     *
+     * <p>Owner actions pin left/right sheets in {@link SpriteCache} (shared
+     * with other hosts). Alias actions only pin the source; the source owns
+     * the cache pins.
+     *
      * @see #unload()
      */
     public void load() {
@@ -368,42 +371,57 @@ public class PonyAction {
             sprites = spriteSource.sprites;
             return;
         }
-        // Already loaded (idempotent so aliases can load the owner first).
+        // Already pinned by this instance (idempotent so aliases can load the
+        // owner first without a second cache pin).
         if (sprites != null) {
             return;
         }
         if (res != null) {
             TypedArray array = res.obtainTypedArray(arrayId);
-            
-            int leftDrawableId = array.getResourceId(0, 0);
-            int leftTimingId = array.getResourceId(1, 0);
-            int rightDrawableId = array.getResourceId(2, 0);
-            int rightTimingId = array.getResourceId(3, 0);
-            
-            sprites = new SpriteSheet[] {
-                new SpriteSheet(res, leftDrawableId, leftTimingId),
-                new SpriteSheet(res, rightDrawableId, rightTimingId)
-            };
-            
-            array.recycle();
+            try {
+                int leftDrawableId = array.getResourceId(0, 0);
+                int leftTimingId = array.getResourceId(1, 0);
+                int rightDrawableId = array.getResourceId(2, 0);
+                int rightTimingId = array.getResourceId(3, 0);
+                SpriteSheet left = SpriteCache.pinResource(res, leftDrawableId, leftTimingId);
+                try {
+                    sprites = new SpriteSheet[] {
+                        left,
+                        SpriteCache.pinResource(res, rightDrawableId, rightTimingId)
+                    };
+                } catch (RuntimeException e) {
+                    SpriteCache.unpin(left);
+                    throw e;
+                }
+            } finally {
+                array.recycle();
+            }
         } else if (definition != null) {
-            sprites = new SpriteSheet[] {
-                new SpriteSheet(Base64.decode(definition.images.get("left"), 0),
-                                parseInts(definition.timings.get("left"))),
-                new SpriteSheet(Base64.decode(definition.images.get("right"), 0),
-                                parseInts(definition.timings.get("right")))
-            };
+            SpriteSheet left = SpriteCache.pinBytes(
+                    Base64.decode(definition.images.get("left"), 0),
+                    parseInts(definition.timings.get("left")));
+            try {
+                sprites = new SpriteSheet[] {
+                    left,
+                    SpriteCache.pinBytes(
+                            Base64.decode(definition.images.get("right"), 0),
+                            parseInts(definition.timings.get("right")))
+                };
+            } catch (RuntimeException e) {
+                SpriteCache.unpin(left);
+                throw e;
+            }
         }
     }
     
     /**
-     * Unload the sprites from memory. Recycles each sheet's {@link android.graphics.Bitmap}
-     * so native pixel buffers are freed promptly when ponies cycle off-screen
-     * (not only after GC). Some methods of this class will cease to function
-     * until {@link #load()} is called again.
-     * 
-     * <p>Alias actions only drop their reference; the owning action recycles.
-     * 
+     * Unload the sprites from memory. Owner actions unpin their cache entries
+     * so native pixel buffers are freed when no other host still holds the
+     * sheet (not only after GC). Some methods of this class will cease to
+     * function until {@link #load()} is called again.
+     *
+     * <p>Alias actions only drop their reference; the owning action unpins.
+     *
      * @see #load()
      */
     public void unload() {
@@ -413,9 +431,7 @@ public class PonyAction {
         }
         if (sprites != null) {
             for (int i = 0; i < sprites.length; i++) {
-                if (sprites[i] != null) {
-                    sprites[i].recycle();
-                }
+                SpriteCache.unpin(sprites[i]);
             }
             sprites = null;
         }
