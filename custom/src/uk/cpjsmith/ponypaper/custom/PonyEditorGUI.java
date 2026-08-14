@@ -1171,9 +1171,11 @@ public class PonyEditorGUI extends JPanel {
                     .append(" at ").append(gif.logicalWidth).append("×").append(gif.logicalHeight).append(".");
             notes.append("\n\nGIF delays will be used as timings");
             if (existingCount == gif.frames.size()) {
-                notes.append(" unless you keep the existing ").append(existingCount).append(" entries");
+                notes.append(" unless you keep the existing ").append(existingCount)
+                        .append(" entries (reordering frames replaces them)");
             }
             notes.append(".");
+            notes.append("\n\nList order is playback order — Move up/down, Reverse, or Alt+↑/↓.");
             notes.append("\n\nScale is 100% by default. Choose 50% (Desktop Ponies) to match built-in pony size.");
             notes.append("\n\nLift is pixels of air under a frame (0 = on the ground). ");
 
@@ -1193,11 +1195,31 @@ public class PonyEditorGUI extends JPanel {
                 return;
             }
 
+            applyPackedFrames(direction, gif.frames, gif.timingsCs, packed);
+        }
+
+        /**
+         * Packs {@code sourceFrames} in {@code packed.order}. Per-frame timings
+         * (GIF delays) are permuted with the frames. Reordering replaces any
+         * existing action timings of the same length — those numbers are
+         * playback slots, not images.
+         */
+        void applyPackedFrames(String direction, List<java.awt.image.BufferedImage> sourceFrames,
+                int[] sourceTimingsCs, FramePackDialog.Result packed)
+                throws IOException, PonyEditor.GenericException {
+            List<java.awt.image.BufferedImage> frames =
+                    ImageImport.permute(sourceFrames, packed.order);
             ImageImport.PackOptions options = new ImageImport.PackOptions();
             options.lifts = packed.lifts;
             options.scalePercent = packed.scalePercent;
-            options.timingsCs = gif.timingsCs;
-            editor.loadActionSpriteFromFrames(currentIndex, direction, gif.frames, options);
+            if (sourceTimingsCs != null) {
+                options.timingsCs = ImageImport.permute(sourceTimingsCs, packed.order);
+            }
+            ImageImport imported = editor.loadActionSpriteFromFrames(
+                    currentIndex, direction, frames, options);
+            if (!ImageImport.isIdentityOrder(packed.order)) {
+                editor.setActionTimings(currentIndex, direction, imported.timings);
+            }
             setAction(currentIndex);
             hasChanges = true;
             previewImage(
@@ -1257,12 +1279,13 @@ public class PonyEditorGUI extends JPanel {
                 }
                 if (existingCount == preview.frameCount) {
                     notes.append("\n\nExisting timings (").append(existingCount)
-                            .append(" entries) will be kept.");
+                            .append(" entries) will be kept if you leave the imported order.");
                 } else {
                     notes.append("\n\nTimings will be set to ").append(preview.frameCount)
                             .append(" × ").append(ImageImport.DEFAULT_FRAME_TIMING_CS)
                             .append(" (hundredths of a second).");
                 }
+                notes.append("\n\nList order is playback order — Move up/down, Reverse, or Alt+↑/↓.");
                 notes.append("\n\nScale is 100% by default. Choose 50% (Desktop Ponies) if these frames are full-size Desktop Ponies art.");
                 notes.append("\n\nLift is pixels of air under a frame (0 = on the ground). ")
                         .append("It is baked into the sheet — leave <anchory> empty so feet stay on the ground line.");
@@ -1278,15 +1301,7 @@ public class PonyEditorGUI extends JPanel {
                     return;
                 }
 
-                ImageImport.PackOptions options = new ImageImport.PackOptions();
-                options.lifts = packed.lifts;
-                options.scalePercent = packed.scalePercent;
-                editor.loadActionSpriteFrames(currentIndex, direction, files, options);
-                setAction(currentIndex);
-                hasChanges = true;
-                previewImage(
-                        editor.getActionImage(currentIndex, direction),
-                        editor.getActionTimings(currentIndex, direction));
+                applyPackedFrames(direction, frames, null, packed);
             } catch (PonyEditor.GenericException e) {
                 JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
             } catch (IOException e) {
