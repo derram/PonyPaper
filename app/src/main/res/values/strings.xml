@@ -62,4 +62,49 @@
     <string name="license_load_error_title">Could not load license</string>
     <string name="license_load_error_message">The OFL text could not be read from app assets. See https://openfontlicense.org for the SIL Open Font License.</string>
     <string name="dialog_ok">OK</string>
+    <string name="dialog_cancel">Cancel</string>
+
+    <string name="pref_add_custom_title">Add custom pony</string>
+    <string name="pref_add_custom_summary">Import a pony XML, or a library zip</string>
+    <string name="pref_export_library_title">Export library</string>
+    <string name="pref_export_library_summary">Save all custom ponies and the background image as a zip</string>
+    <string name="pref_import_library_title">Import library</string>
+    <string name="pref_import_library_summary">Merge ponies (and background) from a previously exported zip</string>
+    <string name="pref_library_folder_title">Character library folder</string>
+    <string name="pref_library_folder_summary_unset">Not set. Custom ponies are deleted if you uninstall the app</string>
+    <string name="pref_library_folder_summary_set">%1$s — survives uninstall; tap to sync or change</string>
+    <string name="pref_library_folder_summary_lost">Permission lost. Tap to reconnect the same folder</string>
+
+    <string name="library_export_empty_title">Nothing to export</string>
+    <string name="library_export_empty_message">Add a custom pony or a background image first.</string>
+    <string name="library_export_failed_title">Export failed</string>
+    <string name="library_export_ok_title">Library exported</string>
+    <string name="library_export_ok_message">Saved custom ponies and background to the selected file.</string>
+    <string name="library_import_failed_title">Import failed</string>
+    <string name="library_import_ok_title">Library imported</string>
+    <string name="library_import_ok_message">Added %1$d custom %2$s%3$s%4$s.</string>
+    <string name="library_import_pony_one">pony</string>
+    <string name="library_import_pony_many">ponies</string>
+    <string name="library_import_background"> and the background image</string>
+    <string name="library_import_skipped"> (%1$d skipped)</string>
+    <string name="library_import_nothing">No custom ponies or background were found in that zip.</string>
+
+    <string name="library_folder_dialog_title">Character library folder</string>
+    <string name="library_folder_sync">Sync now</string>
+    <string name="library_folder_change">Change folder</string>
+    <string name="library_folder_disconnect">Disconnect</string>
+    <string name="library_sync_ok_title">Library synced</string>
+    <string name="library_sync_ok_message">Copied %1$d in from the folder and %2$d out to the folder.</string>
+    <string name="library_sync_none_message">Working copy and folder are already in sync.</string>
+    <string name="library_sync_failed_title">Library sync failed</string>
+    <string name="library_sync_lost_title">Reconnect library folder</string>
+    <string name="library_sync_lost_message">Android dropped access to the library folder (this happens after a reinstall). Choose the same folder again to restore custom ponies.</string>
+    <string name="library_pick_failed_title">Could not open folder picker</string>
+    <string name="library_pick_failed_message">This device has no document picker. Use Export library / Import library instead.</string>
+    <string name="library_connected_title">Library folder set</string>
+    <string name="library_connected_message">Custom ponies in this folder survive uninstall. After a reinstall, open settings and reconnect the same folder.</string>
+    <string name="library_disconnected_title">Library folder disconnected</string>
+    <string name="library_disconnected_message">The working copy on this device is unchanged. New imports will not be written to a folder until you choose one again.</string>
+    <string name="library_busy_title">Please wait</string>
+    <string name="library_busy_message">Another file operation is still running.</string>
 </resources>

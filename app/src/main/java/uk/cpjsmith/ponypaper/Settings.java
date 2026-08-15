@@ -26,23 +26,18 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.charset.Charset;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Random;
-import javax.xml.parsers.DocumentBuilder;
-import org.w3c.dom.Document;
 
 public class Settings extends PreferenceActivity {
     
     static final int SELECT_BACKGROUND = 0;
     static final int SELECT_CUSTOM = 1;
+    static final int EXPORT_LIBRARY = 2;
+    static final int IMPORT_LIBRARY = 3;
+    static final int PICK_LIBRARY_FOLDER = 4;
 
     private static final String URL_THIS_FORK = "https://github.com/derram/PonyPaper";
     private static final String URL_RELEASES = "https://github.com/derram/PonyPaper/releases";
@@ -61,40 +56,43 @@ public class Settings extends PreferenceActivity {
         super.onCreate(null);
         addPreferencesFromResource(R.xml.preferences);
         
-        File dir = getExternalFilesDir(null);
-        File[] customFiles = new File[0];
-        if (dir != null) {
-            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
-            
-            File[] files = dir.listFiles(AllPonies.xmlFilter);
-            if (files == null) files = new File[0];
-            Arrays.sort(files);
-            customFiles = files;
-            PreferenceCategory customCat = (PreferenceCategory)findPreference("pref_custom");
-            for (int i = 0; i < files.length; i++) {
-                String fileName = files[i].getName();
-                String prefKey = "pref_custom_" + fileName;
-                
-                if (!prefs.contains(prefKey)) {
-                    SharedPreferences.Editor editor = prefs.edit();
-                    editor.putBoolean(prefKey, true);
-                    editor.commit();
-                }
-                
-                CheckBoxPreference checkbox = new CheckBoxPreference(this);
-                checkbox.setKey(prefKey);
-                checkbox.setTitle(fileName);
-                customCat.addPreference(checkbox);
-            }
-        }
-        
+        File[] customFiles = CustomStorage.listCustomXml(this);
+        ensureCustomCheckboxes(customFiles);
         refreshWaifuList(customFiles);
+        updateLibraryFolderSummary();
         
         findPreference("pref_add_custom").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
             public boolean onPreferenceClick(Preference preference) {
                 Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
                 intent.setType("*/*");
+                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
                 startActivityForResult(Intent.createChooser(intent, "Select Custom Pony"), SELECT_CUSTOM);
+                return true;
+            }
+        });
+
+        findPreference("pref_export_library").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+            public boolean onPreferenceClick(Preference preference) {
+                startExportLibrary();
+                return true;
+            }
+        });
+
+        findPreference("pref_import_library").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+            public boolean onPreferenceClick(Preference preference) {
+                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                intent.setType("application/zip");
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                startActivityForResult(Intent.createChooser(intent, getString(R.string.pref_import_library_title)),
+                        IMPORT_LIBRARY);
+                return true;
+            }
+        });
+
+        findPreference("pref_library_folder").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+            public boolean onPreferenceClick(Preference preference) {
+                onLibraryFolderClicked();
                 return true;
             }
         });
@@ -102,13 +100,13 @@ public class Settings extends PreferenceActivity {
         findPreference("pref_background").setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
             public boolean onPreferenceChange(Preference preference, Object newValue) {
                 if ((Boolean)newValue) {
-                    File filesDir = getExternalFilesDir(null);
+                    File filesDir = CustomStorage.localDir(Settings.this);
                     if (filesDir == null) {
                         showAlertDialog("Background unavailable",
                                 "App storage is not available on this device right now.");
                         return false;
                     }
-                    if (!new File(filesDir, "background").exists()) {
+                    if (!new File(filesDir, CustomStorage.BACKGROUND_NAME).exists()) {
                         selectBackground();
                     }
                 }
@@ -144,6 +142,12 @@ public class Settings extends PreferenceActivity {
         }
 
         setupAboutAndLicenses();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        startLibrarySync(false);
     }
 
     /**
@@ -396,165 +400,380 @@ public class Settings extends PreferenceActivity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         switch (requestCode) {
             case SELECT_BACKGROUND:
-                if (resultCode == RESULT_OK) {
-                    Uri imageUri = data.getData();
-                    
-                    try {
-                        String hash = copyToLocalAndGetHash(imageUri, "background");
-                        
-                        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(this);
-                        SharedPreferences.Editor editor = sp.edit();
-                        editor.putString("pref_select_background", hash.toString());
-                        editor.commit();
-                    } catch (IOException e) {
-                        showAlertDialog("Failed to set background", "An I/O error occurred.");
-                    }
+                if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                    importBackground(data.getData());
                 }
                 break;
-                
+
             case SELECT_CUSTOM:
-                if (resultCode == RESULT_OK) {
-                    Uri ponyUri = data.getData();
-                    
-                    // Validate the pony before storing it.
-                    try {
-                        DocumentBuilder docBuilder = SecureXml.newDocumentBuilder();
-                        InputStream in = getContentResolver().openInputStream(ponyUri);
-                        Document document = docBuilder.parse(in);
-                        if (in != null) in.close();
-                        PonyDefinition definition = new PonyDefinition(document);
-                        definition.validate();
-                    } catch (Exception e) {
-                        showAlertDialog("Failed to add pony", "Selected file was not a valid custom pony definition.");
-                        break;
-                    }
-                    
-                    try {
-                        String fileName = sanitizeCustomPonyFileName(getFileName(ponyUri));
-                        if (fileName == null) {
-                            showAlertDialog("Failed to add pony", "Could not determine a safe file name for the selected pony.");
-                            break;
-                        }
-                        
-                        String hash = copyToLocalAndGetHash(ponyUri, fileName);
-                        
-                        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(this);
-                        SharedPreferences.Editor editor = sp.edit();
-                        String prefKey = "pref_custom_" + fileName;
-                        editor.putBoolean(prefKey, true);
-                        editor.putString("pref_add_custom", hash);
-                        editor.commit();
-                        if (findPreference(prefKey) == null) {
-                            CheckBoxPreference checkbox = new CheckBoxPreference(this);
-                            checkbox.setKey(prefKey);
-                            checkbox.setTitle(fileName);
-                            ((PreferenceCategory)findPreference("pref_custom")).addPreference(checkbox);
-                        }
-                        File dirAfter = getExternalFilesDir(null);
-                        File[] filesAfter = dirAfter != null ? dirAfter.listFiles(AllPonies.xmlFilter) : null;
-                        if (filesAfter != null) Arrays.sort(filesAfter);
-                        refreshWaifuList(filesAfter != null ? filesAfter : new File[0]);
-                    } catch (IOException e) {
-                        showAlertDialog("Failed to add pony", "An I/O error occurred.");
-                    }
+                if (resultCode == RESULT_OK && data != null) {
+                    handlePickedContent(collectUris(data));
+                }
+                break;
+
+            case IMPORT_LIBRARY:
+                if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                    importLibraryZip(data.getData());
+                }
+                break;
+
+            case EXPORT_LIBRARY:
+                if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                    exportLibraryZip(data.getData());
+                }
+                break;
+
+            case PICK_LIBRARY_FOLDER:
+                if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                    connectLibraryFolder(data.getData(), data.getFlags());
                 }
                 break;
         }
     }
     
-    private String copyToLocalAndGetHash(Uri sourceUri, String destName) throws IOException {
-        File dir = getExternalFilesDir(null);
-        if (dir == null) {
-            throw new IOException("External files directory unavailable");
+    private boolean storageBusy;
+    private boolean pendingLibrarySync;
+    private boolean pendingLibrarySyncShow;
+
+    private void ensureCustomCheckboxes(File[] customFiles) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        PreferenceCategory customCat = (PreferenceCategory) findPreference("pref_custom");
+        if (customCat == null || customFiles == null) return;
+        for (int i = 0; i < customFiles.length; i++) {
+            String fileName = customFiles[i].getName();
+            String prefKey = "pref_custom_" + fileName;
+            if (!prefs.contains(prefKey)) {
+                SharedPreferences.Editor editor = prefs.edit();
+                editor.putBoolean(prefKey, true);
+                editor.commit();
+            }
+            if (findPreference(prefKey) == null) {
+                CheckBoxPreference checkbox = new CheckBoxPreference(this);
+                checkbox.setKey(prefKey);
+                checkbox.setTitle(fileName);
+                customCat.addPreference(checkbox);
+            }
         }
-        // destName must already be a sanitized basename (no path separators).
-        File dest = new File(dir, destName);
-        if (!dest.getCanonicalFile().getParentFile().equals(dir.getCanonicalFile())) {
-            throw new IOException("Refusing to write outside app files directory");
+    }
+
+    private void refreshCustomPoniesUi() {
+        File[] files = CustomStorage.listCustomXml(this);
+        ensureCustomCheckboxes(files);
+        refreshWaifuList(files);
+    }
+
+    private void startExportLibrary() {
+        if (!CustomStorage.hasExportableFiles(this)) {
+            showAlertDialog(getString(R.string.library_export_empty_title),
+                    getString(R.string.library_export_empty_message));
+            return;
         }
-        
-        MessageDigest digester;
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/zip");
+        intent.putExtra(Intent.EXTRA_TITLE, defaultExportFileName());
         try {
-            digester = MessageDigest.getInstance("SHA-1");
-        } catch (NoSuchAlgorithmException e) {
-            digester = null;
+            startActivityForResult(intent, EXPORT_LIBRARY);
+        } catch (Exception e) {
+            showAlertDialog(getString(R.string.library_export_failed_title),
+                    getString(R.string.library_pick_failed_message));
         }
-        
-        InputStream in = getContentResolver().openInputStream(sourceUri);
-        if (in == null) {
-            throw new IOException("Could not open selected content");
-        }
-        try {
-            OutputStream out = new FileOutputStream(dest);
-            try {
-                byte[] buffer = new byte[1024];
-                int n;
-                while ((n = in.read(buffer)) >= 0) {
-                    out.write(buffer, 0, n);
-                    if (digester != null) digester.update(buffer, 0, n);
+    }
+
+    private static String defaultExportFileName() {
+        java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US);
+        return "PonyPaper-library-" + fmt.format(new java.util.Date()) + ".zip";
+    }
+
+    private void exportLibraryZip(final Uri dest) {
+        if (!beginStorageWork()) return;
+        new Thread(new Runnable() {
+            public void run() {
+                String error = null;
+                try {
+                    CustomStorage.exportZip(Settings.this, dest);
+                } catch (Exception e) {
+                    error = e.getMessage();
                 }
-            } finally {
-                out.close();
+                final String fail = error;
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        storageBusy = false;
+                        if (fail != null) {
+                            showAlertDialog(getString(R.string.library_export_failed_title), fail);
+                        } else {
+                            showAlertDialog(getString(R.string.library_export_ok_title),
+                                    getString(R.string.library_export_ok_message));
+                        }
+                    }
+                });
             }
-        } finally {
-            in.close();
-        }
-        
-        byte[] digest;
-        if (digester != null) {
-            digest = digester.digest();
-        } else {
-            digest = new byte[20];
-            new Random().nextBytes(digest);
-        }
-        StringBuilder hash = new StringBuilder();
-        for (int i = 0; i < digest.length; i++)
-            hash.append(String.format("%02x", (256 + digest[i]) % 256));
-        return hash.toString();
+        }, "ponypaper-export").start();
     }
-    
-    /**
-     * Produce a safe basename for custom pony XML under the app files directory.
-     * Strips path segments, rejects {@code ..}, allows only {@code [A-Za-z0-9._-]},
-     * and forces a {@code .xml} suffix.
-     *
-     * @return sanitized name, or null if nothing usable remains
-     */
-    static String sanitizeCustomPonyFileName(String raw) {
-        if (raw == null) return null;
-        String name = raw.trim();
-        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
-        if (slash >= 0) {
-            name = name.substring(slash + 1);
+
+    private void importLibraryZip(final Uri source) {
+        if (!beginStorageWork()) return;
+        new Thread(new Runnable() {
+            public void run() {
+                final CustomStorage.ZipImportResult result = CustomStorage.importZip(Settings.this, source);
+                if (result.error == null && (result.poniesAdded > 0 || result.backgroundImported)) {
+                    CustomStorage.SyncResult sync = CustomStorage.syncLibrary(Settings.this);
+                    if (sync.permissionLost) {
+                        // Keep imported local files; reconnect is separate.
+                    }
+                }
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        storageBusy = false;
+                        showZipImportResult(result);
+                        refreshCustomPoniesUi();
+                        if (result.poniesAdded > 0 || result.backgroundImported) {
+                            CustomStorage.bumpGeneration(Settings.this);
+                        }
+                    }
+                });
+            }
+        }, "ponypaper-import").start();
+    }
+
+    private void showZipImportResult(CustomStorage.ZipImportResult result) {
+        if (result.error != null) {
+            showAlertDialog(getString(R.string.library_import_failed_title), result.error);
+            return;
         }
-        if (name.isEmpty() || name.equals(".") || name.equals("..")) {
-            return null;
+        if (result.poniesAdded == 0 && !result.backgroundImported) {
+            showAlertDialog(getString(R.string.library_import_ok_title),
+                    getString(R.string.library_import_nothing));
+            return;
         }
-        if (name.regionMatches(true, name.length() - 4, ".xml", 0, 4)) {
-            name = name.substring(0, name.length() - 4);
+        String ponyWord = result.poniesAdded == 1
+                ? getString(R.string.library_import_pony_one)
+                : getString(R.string.library_import_pony_many);
+        String bg = result.backgroundImported ? getString(R.string.library_import_background) : "";
+        String skipped = result.skipped > 0
+                ? getString(R.string.library_import_skipped, result.skipped)
+                : "";
+        showAlertDialog(getString(R.string.library_import_ok_title),
+                getString(R.string.library_import_ok_message, result.poniesAdded, ponyWord, bg, skipped));
+    }
+
+    private void handlePickedContent(Uri[] uris) {
+        if (uris == null || uris.length == 0) return;
+        if (uris.length == 1 && CustomStorage.looksLikeZip(getFileName(uris[0]),
+                getContentResolver().getType(uris[0]))) {
+            importLibraryZip(uris[0]);
+            return;
         }
-        StringBuilder sb = new StringBuilder(name.length());
-        for (int i = 0; i < name.length(); i++) {
-            char ch = name.charAt(i);
-            if ((ch >= 'A' && ch <= 'Z')
-                    || (ch >= 'a' && ch <= 'z')
-                    || (ch >= '0' && ch <= '9')
-                    || ch == '.' || ch == '_' || ch == '-') {
-                sb.append(ch);
+        boolean anyZip = false;
+        for (int i = 0; i < uris.length; i++) {
+            if (CustomStorage.looksLikeZip(getFileName(uris[i]), getContentResolver().getType(uris[i]))) {
+                anyZip = true;
+                importLibraryZip(uris[i]);
             } else {
-                sb.append('_');
+                importSinglePony(uris[i]);
             }
         }
-        String base = sb.toString();
-        while (base.startsWith(".")) {
-            base = base.substring(1);
+        if (!anyZip) {
+            refreshCustomPoniesUi();
         }
-        if (base.isEmpty() || base.equals(".") || base.equals("..")) {
-            return null;
-        }
-        return base + ".xml";
     }
-    
+
+    private void importBackground(Uri imageUri) {
+        try {
+            String hash = CustomStorage.copyUriToLocal(this, imageUri, CustomStorage.BACKGROUND_NAME);
+            CustomStorage.writeThroughToLibrary(this, CustomStorage.localFile(this, CustomStorage.BACKGROUND_NAME));
+            SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(this).edit();
+            editor.putString("pref_select_background", hash);
+            editor.commit();
+        } catch (IOException e) {
+            showAlertDialog("Failed to set background", "An I/O error occurred.");
+        }
+    }
+
+    private void importSinglePony(Uri ponyUri) {
+        if (!CustomStorage.isValidCustomPonyUri(this, ponyUri)) {
+            showAlertDialog("Failed to add pony", "Selected file was not a valid custom pony definition.");
+            return;
+        }
+        try {
+            String fileName = CustomStorage.sanitizeCustomPonyFileName(getFileName(ponyUri));
+            if (fileName == null) {
+                showAlertDialog("Failed to add pony", "Could not determine a safe file name for the selected pony.");
+                return;
+            }
+            String hash = CustomStorage.copyUriToLocal(this, ponyUri, fileName);
+            CustomStorage.writeThroughToLibrary(this, CustomStorage.localFile(this, fileName));
+            SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(this).edit();
+            String prefKey = "pref_custom_" + fileName;
+            editor.putBoolean(prefKey, true);
+            editor.putString("pref_add_custom", hash);
+            editor.commit();
+            ensureCustomCheckboxes(new File[] { CustomStorage.localFile(this, fileName) });
+            refreshWaifuList(CustomStorage.listCustomXml(this));
+        } catch (IOException e) {
+            showAlertDialog("Failed to add pony", "An I/O error occurred.");
+        }
+    }
+
+    private Uri[] collectUris(Intent data) {
+        ClipData clip = data.getClipData();
+        if (clip != null && clip.getItemCount() > 0) {
+            ArrayList<Uri> list = new ArrayList<Uri>(clip.getItemCount());
+            for (int i = 0; i < clip.getItemCount(); i++) {
+                Uri uri = clip.getItemAt(i).getUri();
+                if (uri != null) list.add(uri);
+            }
+            return list.toArray(new Uri[list.size()]);
+        }
+        if (data.getData() != null) {
+            return new Uri[] { data.getData() };
+        }
+        return new Uri[0];
+    }
+
+    private void onLibraryFolderClicked() {
+        if (!CustomStorage.hasLibraryFolder(this)) {
+            pickLibraryFolder();
+            return;
+        }
+        if (!CustomStorage.canAccessLibrary(this)) {
+            showAlertDialog(getString(R.string.library_sync_lost_title),
+                    getString(R.string.library_sync_lost_message));
+            pickLibraryFolder();
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.library_folder_dialog_title);
+        CharSequence[] items = new CharSequence[] {
+                getString(R.string.library_folder_sync),
+                getString(R.string.library_folder_change),
+                getString(R.string.library_folder_disconnect)
+        };
+        builder.setItems(items, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                if (which == 0) {
+                    startLibrarySync(true);
+                } else if (which == 1) {
+                    pickLibraryFolder();
+                } else if (which == 2) {
+                    CustomStorage.releaseLibraryTree(Settings.this);
+                    updateLibraryFolderSummary();
+                    showAlertDialog(getString(R.string.library_disconnected_title),
+                            getString(R.string.library_disconnected_message));
+                }
+            }
+        });
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        builder.create().show();
+    }
+
+    private void pickLibraryFolder() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        try {
+            startActivityForResult(intent, PICK_LIBRARY_FOLDER);
+        } catch (Exception e) {
+            showAlertDialog(getString(R.string.library_pick_failed_title),
+                    getString(R.string.library_pick_failed_message));
+        }
+    }
+
+    private void connectLibraryFolder(final Uri treeUri, final int flags) {
+        try {
+            CustomStorage.setLibraryTreeUri(this, treeUri, flags);
+        } catch (SecurityException e) {
+            showAlertDialog(getString(R.string.library_sync_failed_title),
+                    "Could not keep access to that folder.");
+            return;
+        }
+        updateLibraryFolderSummary();
+        showAlertDialog(getString(R.string.library_connected_title),
+                getString(R.string.library_connected_message));
+        startLibrarySync(false);
+    }
+
+    private void startLibrarySync(final boolean showResult) {
+        if (!CustomStorage.hasLibraryFolder(this)) {
+            updateLibraryFolderSummary();
+            return;
+        }
+        if (storageBusy) {
+            pendingLibrarySync = true;
+            pendingLibrarySyncShow |= showResult;
+            return;
+        }
+        storageBusy = true;
+        new Thread(new Runnable() {
+            public void run() {
+                final CustomStorage.SyncResult result = CustomStorage.syncLibrary(Settings.this);
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        storageBusy = false;
+                        updateLibraryFolderSummary();
+                        if (result.permissionLost) {
+                            showAlertDialog(getString(R.string.library_sync_lost_title),
+                                    getString(R.string.library_sync_lost_message));
+                        } else if (result.error != null) {
+                            if (showResult) {
+                                showAlertDialog(getString(R.string.library_sync_failed_title), result.error);
+                            }
+                        } else {
+                            if (result.changed) {
+                                refreshCustomPoniesUi();
+                                CustomStorage.bumpGeneration(Settings.this);
+                            }
+                            if (showResult) {
+                                if (result.changed) {
+                                    showAlertDialog(getString(R.string.library_sync_ok_title),
+                                            getString(R.string.library_sync_ok_message,
+                                                    result.pulled, result.pushed));
+                                } else {
+                                    showAlertDialog(getString(R.string.library_sync_ok_title),
+                                            getString(R.string.library_sync_none_message));
+                                }
+                            }
+                        }
+                        if (pendingLibrarySync) {
+                            boolean show = pendingLibrarySyncShow;
+                            pendingLibrarySync = false;
+                            pendingLibrarySyncShow = false;
+                            startLibrarySync(show);
+                        }
+                    }
+                });
+            }
+        }, "ponypaper-libsync").start();
+    }
+
+    private void updateLibraryFolderSummary() {
+        Preference pref = findPreference("pref_library_folder");
+        if (pref == null) return;
+        if (!CustomStorage.hasLibraryFolder(this)) {
+            pref.setSummary(R.string.pref_library_folder_summary_unset);
+            return;
+        }
+        if (!CustomStorage.canAccessLibrary(this)) {
+            pref.setSummary(R.string.pref_library_folder_summary_lost);
+            return;
+        }
+        String label = CustomStorage.libraryFolderLabel(this);
+        if (label == null || label.length() == 0) label = "folder";
+        pref.setSummary(getString(R.string.pref_library_folder_summary_set, label));
+    }
+
+    private boolean beginStorageWork() {
+        if (storageBusy) {
+            showAlertDialog(getString(R.string.library_busy_title),
+                    getString(R.string.library_busy_message));
+            return false;
+        }
+        storageBusy = true;
+        return true;
+    }
+
     private void showAlertDialog(String title, String message) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle(title);
