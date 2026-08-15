@@ -93,6 +93,10 @@
                         android:entryValues="@array/pref_waifu_values"
                         android:defaultValue="" />
 
+        <Preference android:key="pref_ponies_toggle_all"
+                    android:title="@string/pref_disable_all_title"
+                    android:summary="@string/pref_ponies_disable_all_summary" />
+
         <PreferenceCategory android:key="pref_mane6"
                             android:title="Mane 6">
             <CheckBoxPreference android:key="pref_aj"

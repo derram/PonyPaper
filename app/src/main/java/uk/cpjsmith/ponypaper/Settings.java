@@ -51,6 +51,13 @@ public class Settings extends PreferenceActivity {
     private static final String URL_OFL_SITE = "https://openfontlicense.org";
     private static final String URL_CC_BY_NC_SA = "http://creativecommons.org/licenses/by-nc-sa/3.0/";
     private static final String OFL_ASSET_PATH = "font/OFL.txt";
+
+    private final SharedPreferences.OnSharedPreferenceChangeListener enableAllListener =
+            new SharedPreferences.OnSharedPreferenceChangeListener() {
+                public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
+                    refreshEnableAllToggles();
+                }
+            };
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,6 +68,9 @@ public class Settings extends PreferenceActivity {
         ensureCustomCheckboxes(customFiles);
         refreshWaifuList(customFiles);
         updateLibraryFolderSummary();
+        setupEnableAllToggles();
+        PreferenceManager.getDefaultSharedPreferences(this)
+                .registerOnSharedPreferenceChangeListener(enableAllListener);
         
         findPreference("pref_add_custom").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
             public boolean onPreferenceClick(Preference preference) {
@@ -153,9 +163,114 @@ public class Settings extends PreferenceActivity {
     }
 
     @Override
+    protected void onDestroy() {
+        PreferenceManager.getDefaultSharedPreferences(this)
+                .unregisterOnSharedPreferenceChangeListener(enableAllListener);
+        super.onDestroy();
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         startLibrarySync(false);
+    }
+
+    private void setupEnableAllToggles() {
+        Preference poniesToggle = findPreference("pref_ponies_toggle_all");
+        if (poniesToggle != null) {
+            poniesToggle.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    applyPoniesToggle();
+                    return true;
+                }
+            });
+        }
+        refreshEnableAllToggles();
+    }
+
+    private void applyPoniesToggle() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        ArrayList<String> keys = builtInPonyKeys();
+        PonyEnableAll.apply(prefs, keys, PonyEnableAll.PREF_PONIES_SNAPSHOT);
+        syncCheckboxWidgets(builtInPonyCategories());
+        refreshEnableAllToggles();
+    }
+
+    private void refreshEnableAllToggles() {
+        updatePoniesToggle();
+    }
+
+    private void updatePoniesToggle() {
+        Preference toggle = findPreference("pref_ponies_toggle_all");
+        if (toggle == null) return;
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        ArrayList<String> keys = builtInPonyKeys();
+        PonyEnableAll.Action action = PonyEnableAll.nextAction(prefs, keys, PonyEnableAll.PREF_PONIES_SNAPSHOT);
+        switch (action) {
+            case DISABLE_ALL:
+                toggle.setTitle(R.string.pref_disable_all_title);
+                toggle.setSummary(R.string.pref_ponies_disable_all_summary);
+                break;
+            case RESTORE_PREVIOUS:
+                toggle.setTitle(R.string.pref_restore_previous_title);
+                int n = PonyEnableAll.restoreCount(prefs, keys, PonyEnableAll.PREF_PONIES_SNAPSHOT);
+                toggle.setSummary(getString(R.string.pref_ponies_restore_summary, n));
+                break;
+            case ENABLE_ALL:
+                toggle.setTitle(R.string.pref_enable_all_title);
+                toggle.setSummary(R.string.pref_ponies_enable_all_summary);
+                break;
+        }
+    }
+
+    private PreferenceCategory[] builtInPonyCategories() {
+        return new PreferenceCategory[] {
+                (PreferenceCategory) findPreference("pref_mane6"),
+                (PreferenceCategory) findPreference("pref_cmc"),
+                (PreferenceCategory) findPreference("pref_royalty"),
+                (PreferenceCategory) findPreference("pref_young6"),
+                (PreferenceCategory) findPreference("pref_other")
+        };
+    }
+
+    private ArrayList<String> builtInPonyKeys() {
+        return checkboxKeysIn(builtInPonyCategories());
+    }
+
+    private static ArrayList<String> checkboxKeysIn(PreferenceCategory[] cats) {
+        ArrayList<String> keys = new ArrayList<String>();
+        if (cats == null) return keys;
+        for (int c = 0; c < cats.length; c++) {
+            PreferenceCategory cat = cats[c];
+            if (cat == null) continue;
+            for (int i = 0; i < cat.getPreferenceCount(); i++) {
+                Preference pref = cat.getPreference(i);
+                if (pref instanceof CheckBoxPreference && pref.getKey() != null) {
+                    keys.add(pref.getKey());
+                }
+            }
+        }
+        return keys;
+    }
+
+    private void syncCheckboxWidgets(PreferenceCategory[] cats) {
+        if (cats == null) return;
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        for (int c = 0; c < cats.length; c++) {
+            PreferenceCategory cat = cats[c];
+            if (cat == null) continue;
+            for (int i = 0; i < cat.getPreferenceCount(); i++) {
+                Preference pref = cat.getPreference(i);
+                if (!(pref instanceof CheckBoxPreference)) continue;
+                String key = pref.getKey();
+                if (key == null) continue;
+                CheckBoxPreference checkbox = (CheckBoxPreference) pref;
+                boolean on = prefs.getBoolean(key, true);
+                if (checkbox.isChecked() != on) {
+                    checkbox.setChecked(on);
+                }
+            }
+        }
     }
 
     /**

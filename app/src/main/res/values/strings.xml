@@ -7,6 +7,12 @@
     <string name="pref_screen_display_summary">Herd size, appearance, power, and screen saver</string>
     <string name="pref_screen_ponies_title">Ponies</string>
     <string name="pref_screen_ponies_summary">Choose which ponies can appear</string>
+    <string name="pref_enable_all_title">Enable all</string>
+    <string name="pref_disable_all_title">Disable all</string>
+    <string name="pref_restore_previous_title">Restore previous</string>
+    <string name="pref_ponies_disable_all_summary">Saves this mix and turns every built-in off</string>
+    <string name="pref_ponies_restore_summary">Turns %1$d ponies back on</string>
+    <string name="pref_ponies_enable_all_summary">Turn on every built-in pony</string>
     <string name="pref_screen_library_title">Library</string>
     <string name="pref_screen_library_summary">Custom ponies, zip backup, and library folder</string>
     <string name="pref_screen_about_summary">Version, licenses, and credits</string>
