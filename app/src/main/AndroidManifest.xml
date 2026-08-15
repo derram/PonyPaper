@@ -46,7 +46,7 @@
             android:name=".Settings"
             android:label="@string/app_settings_name"
             android:exported="true"
-            android:theme="@android:style/Theme.DeviceDefault.Light"
+            android:theme="@style/Theme.PonyPaper.Settings"
             android:clearTaskOnLaunch="true"
             android:finishOnTaskLaunch="true"
             android:launchMode="singleTask">

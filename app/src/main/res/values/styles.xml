@@ -17,6 +17,13 @@
         <item name="android:taskToBackExitAnimation">@anim/no_anim</item>
     </style>
 
+    <!-- PreferenceActivity predates enforced edge-to-edge (targetSdk 35).
+         Opt this screen out so the action bar sits below the status bar and
+         the list sits above the nav bar. Ignored once we target SDK 36. -->
+    <style name="Theme.PonyPaper.Settings" parent="@android:style/Theme.DeviceDefault.Light">
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+    </style>
+
     <!-- Trampoline over the keyguard: dialog-like floating window so WM does not
          treat exit as a full-screen task wipe. Still transparent / no chrome. -->
     <style name="Theme.PonyPaper.UnlockRequest" parent="@android:style/Theme.Translucent.NoTitleBar">

@@ -3,6 +3,15 @@
     <string name="app_name">Pony Paper</string>
     <string name="description">Cartoon ponies wander across your screen.</string>
     <string name="app_settings_name">Pony Paper settings</string>
+    <string name="pref_screen_display_title">Display</string>
+    <string name="pref_screen_display_summary">Herd size, appearance, power, and screen saver</string>
+    <string name="pref_screen_ponies_title">Ponies</string>
+    <string name="pref_screen_ponies_summary">Choose which ponies can appear</string>
+    <string name="pref_screen_library_title">Library</string>
+    <string name="pref_screen_library_summary">Custom ponies, zip backup, and library folder</string>
+    <string name="pref_screen_about_summary">Version, licenses, and credits</string>
+    <string name="pref_appearance_category">Appearance</string>
+    <string name="pref_power_category">Power</string>
     <string name="pref_open_live_wallpaper_title">Live wallpaper settings</string>
     <string name="pref_open_live_wallpaper_summary">Open the system picker to set Pony Paper as your live wallpaper</string>
     <string name="pref_open_screensaver_title">Screen saver settings</string>
