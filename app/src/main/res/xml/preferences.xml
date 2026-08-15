@@ -243,8 +243,8 @@
     <PreferenceScreen android:key="pref_screen_library"
                       android:title="@string/pref_screen_library_title"
                       android:summary="@string/pref_screen_library_summary">
-        <PreferenceCategory android:key="pref_custom"
-                            android:title="Custom ponies">
+        <PreferenceCategory android:key="pref_library_actions"
+                            android:title="@string/pref_library_actions_category">
             <Preference android:key="pref_add_custom"
                         android:title="@string/pref_add_custom_title"
                         android:summary="@string/pref_add_custom_summary" />
@@ -260,6 +260,12 @@
             <Preference android:key="pref_library_folder"
                         android:title="@string/pref_library_folder_title"
                         android:summary="@string/pref_library_folder_summary_unset" />
+        </PreferenceCategory>
+        <PreferenceCategory android:key="pref_custom"
+                            android:title="@string/pref_custom_category">
+            <Preference android:key="pref_library_toggle_all"
+                        android:title="@string/pref_disable_all_title"
+                        android:summary="@string/pref_custom_toggle_empty_summary" />
         </PreferenceCategory>
     </PreferenceScreen>
 

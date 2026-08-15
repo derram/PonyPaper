@@ -185,6 +185,15 @@ public class Settings extends PreferenceActivity {
                 }
             });
         }
+        Preference customToggle = findPreference("pref_library_toggle_all");
+        if (customToggle != null) {
+            customToggle.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    applyCustomToggle();
+                    return true;
+                }
+            });
+        }
         refreshEnableAllToggles();
     }
 
@@ -196,8 +205,17 @@ public class Settings extends PreferenceActivity {
         refreshEnableAllToggles();
     }
 
+    private void applyCustomToggle() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        ArrayList<String> keys = customPonyKeys();
+        PonyEnableAll.apply(prefs, keys, PonyEnableAll.PREF_CUSTOM_SNAPSHOT);
+        syncCheckboxWidgets(customPonyCategories());
+        refreshEnableAllToggles();
+    }
+
     private void refreshEnableAllToggles() {
         updatePoniesToggle();
+        updateCustomToggle();
     }
 
     private void updatePoniesToggle() {
@@ -223,6 +241,36 @@ public class Settings extends PreferenceActivity {
         }
     }
 
+    private void updateCustomToggle() {
+        Preference toggle = findPreference("pref_library_toggle_all");
+        if (toggle == null) return;
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        ArrayList<String> keys = customPonyKeys();
+        if (keys.isEmpty()) {
+            toggle.setEnabled(false);
+            toggle.setTitle(R.string.pref_disable_all_title);
+            toggle.setSummary(R.string.pref_custom_toggle_empty_summary);
+            return;
+        }
+        toggle.setEnabled(true);
+        PonyEnableAll.Action action = PonyEnableAll.nextAction(prefs, keys, PonyEnableAll.PREF_CUSTOM_SNAPSHOT);
+        switch (action) {
+            case DISABLE_ALL:
+                toggle.setTitle(R.string.pref_disable_all_title);
+                toggle.setSummary(R.string.pref_custom_disable_all_summary);
+                break;
+            case RESTORE_PREVIOUS:
+                toggle.setTitle(R.string.pref_restore_previous_title);
+                int n = PonyEnableAll.restoreCount(prefs, keys, PonyEnableAll.PREF_CUSTOM_SNAPSHOT);
+                toggle.setSummary(getString(R.string.pref_custom_restore_summary, n));
+                break;
+            case ENABLE_ALL:
+                toggle.setTitle(R.string.pref_enable_all_title);
+                toggle.setSummary(R.string.pref_custom_enable_all_summary);
+                break;
+        }
+    }
+
     private PreferenceCategory[] builtInPonyCategories() {
         return new PreferenceCategory[] {
                 (PreferenceCategory) findPreference("pref_mane6"),
@@ -233,8 +281,18 @@ public class Settings extends PreferenceActivity {
         };
     }
 
+    private PreferenceCategory[] customPonyCategories() {
+        return new PreferenceCategory[] {
+                (PreferenceCategory) findPreference("pref_custom")
+        };
+    }
+
     private ArrayList<String> builtInPonyKeys() {
         return checkboxKeysIn(builtInPonyCategories());
+    }
+
+    private ArrayList<String> customPonyKeys() {
+        return checkboxKeysIn(customPonyCategories());
     }
 
     private static ArrayList<String> checkboxKeysIn(PreferenceCategory[] cats) {
@@ -562,13 +620,19 @@ public class Settings extends PreferenceActivity {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         PreferenceCategory customCat = (PreferenceCategory) findPreference("pref_custom");
         if (customCat == null || customFiles == null) return;
+        ArrayList<String> existing = new ArrayList<String>();
+        for (int i = 0; i < customFiles.length; i++) {
+            String prefKey = "pref_custom_" + customFiles[i].getName();
+            if (prefs.contains(prefKey)) existing.add(prefKey);
+        }
+        boolean defaultOn = PonyEnableAll.defaultNewCustomEnabled(prefs, existing);
+        SharedPreferences.Editor editor = null;
         for (int i = 0; i < customFiles.length; i++) {
             String fileName = customFiles[i].getName();
             String prefKey = "pref_custom_" + fileName;
             if (!prefs.contains(prefKey)) {
-                SharedPreferences.Editor editor = prefs.edit();
-                editor.putBoolean(prefKey, true);
-                editor.commit();
+                if (editor == null) editor = prefs.edit();
+                editor.putBoolean(prefKey, defaultOn);
             }
             if (findPreference(prefKey) == null) {
                 CheckBoxPreference checkbox = new CheckBoxPreference(this);
@@ -577,6 +641,7 @@ public class Settings extends PreferenceActivity {
                 customCat.addPreference(checkbox);
             }
         }
+        if (editor != null) editor.commit();
     }
 
     private void refreshCustomPoniesUi() {
@@ -584,6 +649,7 @@ public class Settings extends PreferenceActivity {
         pruneCustomCheckboxes(files);
         ensureCustomCheckboxes(files);
         refreshWaifuList(files);
+        refreshEnableAllToggles();
     }
 
     private void pruneCustomCheckboxes(File[] customFiles) {
@@ -599,7 +665,8 @@ public class Settings extends PreferenceActivity {
         for (int i = 0; i < customCat.getPreferenceCount(); i++) {
             Preference pref = customCat.getPreference(i);
             String key = pref.getKey();
-            if (key != null && key.startsWith("pref_custom_") && !live.contains(key)) {
+            if (pref instanceof CheckBoxPreference && key != null
+                    && key.startsWith("pref_custom_") && !live.contains(key)) {
                 stale.add(pref);
             }
         }
@@ -821,8 +888,7 @@ public class Settings extends PreferenceActivity {
             editor.putBoolean(prefKey, true);
             editor.putString("pref_add_custom", hash);
             editor.commit();
-            ensureCustomCheckboxes(new File[] { CustomStorage.localFile(this, fileName) });
-            refreshWaifuList(CustomStorage.listCustomXml(this));
+            refreshCustomPoniesUi();
         } catch (IOException e) {
             showAlertDialog("Failed to add pony", "An I/O error occurred.");
         }

@@ -79,6 +79,12 @@
     <string name="dialog_ok">OK</string>
     <string name="dialog_cancel">Cancel</string>
 
+    <string name="pref_library_actions_category">Library</string>
+    <string name="pref_custom_category">Custom ponies</string>
+    <string name="pref_custom_disable_all_summary">Saves this mix and turns every custom pony off</string>
+    <string name="pref_custom_restore_summary">Turns %1$d custom ponies back on</string>
+    <string name="pref_custom_enable_all_summary">Turn on every custom pony</string>
+    <string name="pref_custom_toggle_empty_summary">Add a custom pony first</string>
     <string name="pref_add_custom_title">Add custom pony</string>
     <string name="pref_add_custom_summary">Import a pony XML, or a library zip</string>
     <string name="pref_remove_custom_title">Remove custom pony</string>

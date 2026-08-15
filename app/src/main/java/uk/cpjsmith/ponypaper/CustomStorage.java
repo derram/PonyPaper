@@ -784,11 +784,13 @@ final class CustomStorage {
     static void clearPonyPreferences(Context context, String destName) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         SharedPreferences.Editor editor = prefs.edit();
-        editor.remove("pref_custom_" + destName);
+        String prefKey = "pref_custom_" + destName;
+        editor.remove(prefKey);
         String waifu = prefs.getString("pref_waifu", "");
-        if (("pref_custom_" + destName).equals(waifu)) {
+        if (prefKey.equals(waifu)) {
             editor.putString("pref_waifu", "");
         }
+        PonyEnableAll.removeKeyFromSnapshot(prefs, editor, PonyEnableAll.PREF_CUSTOM_SNAPSHOT, prefKey);
         editor.commit();
     }
 
