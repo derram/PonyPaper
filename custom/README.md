@@ -9,13 +9,14 @@ Once a pony has been created by the editor, load it into the wallpaper in any of
 * **Add custom pony** in Pony Paper settings and pick the XML (or several at once). A previously exported **library zip** is also accepted here.
 * **Import library** to merge a zip of custom ponies plus the optional background image. Use **Export library** first to keep a backup that survives uninstall and signing-key changes.
 * **Character library folder** (recommended): in settings, choose a folder you own (for example `Documents/PonyPaper`). The app copies ponies into its private working directory for the wallpaper, and writes new imports back to that folder. The folder is not deleted when you uninstall. After a reinstall, open settings and reconnect the same folder once.
-  * Drop extra XML files into that folder (USB, desktop editor, Syncthing, etc.). Opening settings or bringing the wallpaper back to the front syncs them. A `custom-ponies-go-here` marker is created in the folder so you can see you picked the right place.
+  * Drop extra XML files into that folder (USB, desktop editor, Syncthing, etc.). Opening settings or bringing the wallpaper back to the front syncs them. A `custom-ponies-go-here.txt` marker is created in the folder so you can see you picked the right place.
+  * After the first connect, the folder is the list of characters: deleting or renaming an XML there removes the old working copy on the next sync. Connecting a new or empty folder still copies existing working-copy ponies into it.
 * Advanced / `adb`: the live working copy is still the app-specific directory (deleted on uninstall; many file managers cannot browse it on Android 11+):
   * Release builds: `Android/data/io.github.derram.ponypaper/files`
   * Debug builds: `Android/data/io.github.derram.ponypaper.debug/files`
   * `adb push pony.xml /sdcard/Android/data/io.github.derram.ponypaper/files/`
 
-After the new pony is added, they can be enabled and disabled just like built-in ponies. To remove one completely, delete the XML from the working copy (and from the library folder if you use one).
+After the new pony is added, they can be enabled and disabled just like built-in ponies. Unchecking only hides them. Use **Remove custom pony** in settings to delete a file from the working copy and from the linked folder (if one is connected). You can also delete or rename the XML in the linked folder; the next sync follows that. Removing a pony while no folder is connected only clears the working copy — reconnecting the folder restores whatever is still in it.
 
 Files for some of my own favourite fan characters are available at http://cpjsmith.co.uk/downloads/ponypaper/.
 

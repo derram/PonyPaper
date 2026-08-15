@@ -75,6 +75,8 @@
 
     <string name="pref_add_custom_title">Add custom pony</string>
     <string name="pref_add_custom_summary">Import a pony XML, or a library zip</string>
+    <string name="pref_remove_custom_title">Remove custom pony</string>
+    <string name="pref_remove_custom_summary">Delete a pony from the working copy and the linked folder</string>
     <string name="pref_export_library_title">Export library</string>
     <string name="pref_export_library_summary">Save all custom ponies and the background image as a zip</string>
     <string name="pref_import_library_title">Import library</string>
@@ -103,7 +105,16 @@
     <string name="library_folder_change">Change folder</string>
     <string name="library_folder_disconnect">Disconnect</string>
     <string name="library_sync_ok_title">Library synced</string>
-    <string name="library_sync_ok_message">Copied %1$d in from the folder and %2$d out to the folder.</string>
+    <string name="library_sync_ok_message">Copied %1$d in from the folder, wrote %2$d out, and removed %3$d that are no longer in the folder.</string>
+    <string name="library_remove_empty_title">Nothing to remove</string>
+    <string name="library_remove_empty_message">There are no custom ponies in the working copy.</string>
+    <string name="library_remove_title">Remove custom pony</string>
+    <string name="library_remove_confirm_linked">Remove %1$s from the app and the linked library folder? This cannot be undone.</string>
+    <string name="library_remove_confirm_local">Remove %1$s from the app? This cannot be undone.</string>
+    <string name="library_remove_button">Remove</string>
+    <string name="library_remove_ok_title">Custom pony removed</string>
+    <string name="library_remove_ok_message">Deleted %1$s.</string>
+    <string name="library_remove_failed_title">Could not remove pony</string>
     <string name="library_sync_none_message">Working copy and folder are already in sync.</string>
     <string name="library_sync_failed_title">Library sync failed</string>
     <string name="library_sync_lost_title">Reconnect library folder</string>

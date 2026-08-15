@@ -244,6 +244,9 @@
             <Preference android:key="pref_add_custom"
                         android:title="@string/pref_add_custom_title"
                         android:summary="@string/pref_add_custom_summary" />
+            <Preference android:key="pref_remove_custom"
+                        android:title="@string/pref_remove_custom_title"
+                        android:summary="@string/pref_remove_custom_summary" />
             <Preference android:key="pref_export_library"
                         android:title="@string/pref_export_library_title"
                         android:summary="@string/pref_export_library_summary" />

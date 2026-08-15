@@ -30,6 +30,7 @@ import java.io.InputStream;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.HashSet;
 
 public class Settings extends PreferenceActivity {
     
@@ -68,6 +69,13 @@ public class Settings extends PreferenceActivity {
                 intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 startActivityForResult(Intent.createChooser(intent, "Select Custom Pony"), SELECT_CUSTOM);
+                return true;
+            }
+        });
+
+        findPreference("pref_remove_custom").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+            public boolean onPreferenceClick(Preference preference) {
+                onRemoveCustomClicked();
                 return true;
             }
         });
@@ -458,8 +466,98 @@ public class Settings extends PreferenceActivity {
 
     private void refreshCustomPoniesUi() {
         File[] files = CustomStorage.listCustomXml(this);
+        pruneCustomCheckboxes(files);
         ensureCustomCheckboxes(files);
         refreshWaifuList(files);
+    }
+
+    private void pruneCustomCheckboxes(File[] customFiles) {
+        PreferenceCategory customCat = (PreferenceCategory) findPreference("pref_custom");
+        if (customCat == null) return;
+        HashSet<String> live = new HashSet<String>();
+        if (customFiles != null) {
+            for (int i = 0; i < customFiles.length; i++) {
+                live.add("pref_custom_" + customFiles[i].getName());
+            }
+        }
+        ArrayList<Preference> stale = new ArrayList<Preference>();
+        for (int i = 0; i < customCat.getPreferenceCount(); i++) {
+            Preference pref = customCat.getPreference(i);
+            String key = pref.getKey();
+            if (key != null && key.startsWith("pref_custom_") && !live.contains(key)) {
+                stale.add(pref);
+            }
+        }
+        for (int i = 0; i < stale.size(); i++) {
+            customCat.removePreference(stale.get(i));
+        }
+    }
+
+    private void onRemoveCustomClicked() {
+        File[] files = CustomStorage.listCustomXml(this);
+        if (files == null || files.length == 0) {
+            showAlertDialog(getString(R.string.library_remove_empty_title),
+                    getString(R.string.library_remove_empty_message));
+            return;
+        }
+        final String[] names = new String[files.length];
+        for (int i = 0; i < files.length; i++) {
+            names[i] = files[i].getName();
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.library_remove_title);
+        builder.setItems(names, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                confirmRemoveCustom(names[which]);
+            }
+        });
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        builder.create().show();
+    }
+
+    private void confirmRemoveCustom(final String destName) {
+        boolean linked = CustomStorage.hasLibraryFolder(this);
+        String message = linked
+                ? getString(R.string.library_remove_confirm_linked, destName)
+                : getString(R.string.library_remove_confirm_local, destName);
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.library_remove_title);
+        builder.setMessage(message);
+        builder.setPositiveButton(R.string.library_remove_button, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                startRemoveCustom(destName);
+            }
+        });
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        builder.create().show();
+    }
+
+    private void startRemoveCustom(final String destName) {
+        if (!beginStorageWork()) return;
+        new Thread(new Runnable() {
+            public void run() {
+                final CustomStorage.RemoveResult result = CustomStorage.removeCustomPony(
+                        Settings.this, destName);
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        storageBusy = false;
+                        refreshCustomPoniesUi();
+                        if (result.error != null) {
+                            showAlertDialog(getString(R.string.library_remove_failed_title), result.error);
+                        } else {
+                            showAlertDialog(getString(R.string.library_remove_ok_title),
+                                    getString(R.string.library_remove_ok_message, destName));
+                        }
+                        if (pendingLibrarySync) {
+                            boolean show = pendingLibrarySyncShow;
+                            pendingLibrarySync = false;
+                            pendingLibrarySyncShow = false;
+                            startLibrarySync(show);
+                        }
+                    }
+                });
+            }
+        }, "ponypaper-libremove").start();
     }
 
     private void startExportLibrary() {
@@ -729,7 +827,7 @@ public class Settings extends PreferenceActivity {
                                 if (result.changed) {
                                     showAlertDialog(getString(R.string.library_sync_ok_title),
                                             getString(R.string.library_sync_ok_message,
-                                                    result.pulled, result.pushed));
+                                                    result.pulled, result.pushed, result.dropped));
                                 } else {
                                     showAlertDialog(getString(R.string.library_sync_ok_title),
                                             getString(R.string.library_sync_none_message));

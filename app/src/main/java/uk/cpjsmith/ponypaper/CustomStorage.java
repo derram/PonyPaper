@@ -19,9 +19,11 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -38,11 +40,18 @@ final class CustomStorage {
 
     static final String BACKGROUND_NAME = "background";
     static final String PLACEHOLDER_NAME = "custom-ponies-go-here";
+    /** SAF display name. Providers append {@code .txt} for {@code text/plain}. */
+    static final String PLACEHOLDER_LIBRARY_NAME = PLACEHOLDER_NAME + ".txt";
     /** Tree URI from {@link Intent#ACTION_OPEN_DOCUMENT_TREE}. */
     static final String PREF_LIBRARY_TREE_URI = "pref_library_tree_uri";
+    /** Last tree URI whose membership set is stored (kept after disconnect). */
+    static final String PREF_LIBRARY_SEEN_TREE = "pref_library_seen_tree_uri";
+    /** Dest names last seen in that tree. Used to honor folder-side deletes. */
+    static final String PREF_LIBRARY_SEEN_NAMES = "pref_library_seen_names";
     /** Touched so {@link PonySceneController} reloads the herd after file changes. */
     static final String PREF_LIBRARY_GENERATION = "pref_library_generation";
 
+    private static final Object LIBRARY_LOCK = new Object();
     private static final long MAX_ZIP_ENTRY_BYTES = 64L * 1024 * 1024;
     private static final long MAX_ZIP_TOTAL_BYTES = 256L * 1024 * 1024;
     private static final int COPY_BUFFER = 8192;
@@ -341,7 +350,7 @@ final class CustomStorage {
         if (slash >= 0) {
             name = name.substring(slash + 1);
         }
-        if (name.isEmpty() || name.equals(PLACEHOLDER_NAME)) {
+        if (name.isEmpty() || isLibraryMarkerName(name)) {
             return null;
         }
         if (BACKGROUND_NAME.equals(name)) {
@@ -411,8 +420,15 @@ final class CustomStorage {
     static final class SyncResult {
         int pulled;
         int pushed;
+        int dropped;
         boolean permissionLost;
         boolean changed;
+        String error;
+    }
+
+    static final class RemoveResult {
+        boolean localDeleted;
+        boolean libraryDeleted;
         String error;
     }
 
@@ -431,20 +447,36 @@ final class CustomStorage {
      * Persist a user-chosen document tree and drop any previous tree permission.
      */
     static void setLibraryTreeUri(Context context, Uri treeUri, int grantFlags) throws SecurityException {
-        ContentResolver cr = context.getContentResolver();
-        int flags = grantFlags & (Intent.FLAG_GRANT_READ_URI_PERMISSION
-                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        if (flags == 0) {
-            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+        synchronized (LIBRARY_LOCK) {
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+            String previousSeen = prefs.getString(PREF_LIBRARY_SEEN_TREE, "");
+            ContentResolver cr = context.getContentResolver();
+            int flags = grantFlags & (Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            if (flags == 0) {
+                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+            }
+            releaseLibraryTreeLocked(context);
+            cr.takePersistableUriPermission(treeUri, flags);
+            String newUri = treeUri.toString();
+            SharedPreferences.Editor editor = prefs.edit()
+                    .putString(PREF_LIBRARY_TREE_URI, newUri)
+                    .putString(PREF_LIBRARY_SEEN_TREE, newUri);
+            if (previousSeen == null || !newUri.equals(previousSeen)) {
+                editor.putStringSet(PREF_LIBRARY_SEEN_NAMES, new HashSet<String>());
+            }
+            editor.commit();
         }
-        releaseLibraryTree(context);
-        cr.takePersistableUriPermission(treeUri, flags);
-        PreferenceManager.getDefaultSharedPreferences(context).edit()
-                .putString(PREF_LIBRARY_TREE_URI, treeUri.toString())
-                .commit();
     }
 
     static void releaseLibraryTree(Context context) {
+        synchronized (LIBRARY_LOCK) {
+            releaseLibraryTreeLocked(context);
+        }
+    }
+
+    /** Drops persistable access and the active tree URI; keeps last-seen membership. */
+    private static void releaseLibraryTreeLocked(Context context) {
         ContentResolver cr = context.getContentResolver();
         Uri current = getLibraryTreeUri(context);
         if (current != null) {
@@ -502,10 +534,18 @@ final class CustomStorage {
     }
 
     /**
-     * Two-way sync: newer library files replace the working copy, and local-only
-     * files are copied into the tree so a first connect seeds the folder.
+     * Sync against the linked folder. After a successful list, the folder is
+     * membership: names that disappeared since last sync are dropped locally.
+     * Names never seen in this folder (first connect, or a new local import)
+     * are still pushed so an empty folder is seeded.
      */
     static SyncResult syncLibrary(Context context) {
+        synchronized (LIBRARY_LOCK) {
+            return syncLibraryLocked(context);
+        }
+    }
+
+    private static SyncResult syncLibraryLocked(Context context) {
         SyncResult result = new SyncResult();
         Uri tree = getLibraryTreeUri(context);
         if (tree == null) return result;
@@ -522,8 +562,8 @@ final class CustomStorage {
             } catch (IOException ignored) {
             }
 
-            File[] localXml = dir.listFiles(AllPonies.xmlFilter);
-            if (localXml == null) localXml = new File[0];
+            Set<String> lastSeen = loadSeenNames(context);
+            HashSet<String> folderNames = folderDestNames(children);
 
             // Pull library → local (match on sanitized name).
             for (int i = 0; i < children.size(); i++) {
@@ -539,11 +579,23 @@ final class CustomStorage {
                 }
             }
 
-            // Push local-only or newer local files → library.
+            // Drop working-copy files the folder used to have and no longer does.
+            for (String name : lastSeen) {
+                if (folderNames.contains(name)) continue;
+                if (deleteLocalMember(context, name)) {
+                    result.dropped++;
+                }
+            }
+
+            File[] localXml = dir.listFiles(AllPonies.xmlFilter);
+            if (localXml == null) localXml = new File[0];
+
+            // Push updates, and local-only names this folder has never seen.
             for (int i = 0; i < localXml.length; i++) {
                 File local = localXml[i];
+                if (!local.isFile()) continue;
                 LibraryChild match = findChildByDestName(children, local.getName());
-                if (shouldPushLocal(local, match)) {
+                if (shouldPushLocal(local, match, lastSeen)) {
                     writeLocalToLibrary(context, tree, children, local);
                     result.pushed++;
                 }
@@ -551,12 +603,24 @@ final class CustomStorage {
             File bg = new File(dir, BACKGROUND_NAME);
             if (bg.isFile() && bg.length() > 0) {
                 LibraryChild match = findChildByDestName(children, BACKGROUND_NAME);
-                if (shouldPushLocal(bg, match)) {
+                if (shouldPushLocal(bg, match, lastSeen)) {
                     writeLocalToLibrary(context, tree, children, bg);
                     result.pushed++;
                 }
             }
-            result.changed = result.pulled > 0 || result.pushed > 0;
+
+            HashSet<String> newSeen = folderDestNames(children);
+            for (String name : lastSeen) {
+                if (newSeen.contains(name)) continue;
+                try {
+                    if (localFile(context, name).isFile()) {
+                        newSeen.add(name);
+                    }
+                } catch (IOException ignored) {
+                }
+            }
+            saveSeenNames(context, newSeen);
+            result.changed = result.pulled > 0 || result.pushed > 0 || result.dropped > 0;
         } catch (SecurityException e) {
             result.permissionLost = true;
         } catch (Exception e) {
@@ -570,12 +634,59 @@ final class CustomStorage {
      * that sanitizes to the same name.
      */
     static void writeThroughToLibrary(Context context, File local) {
-        Uri tree = getLibraryTreeUri(context);
-        if (tree == null || local == null || !local.isFile()) return;
-        try {
-            List<LibraryChild> children = listLibraryChildren(context, tree);
-            writeLocalToLibrary(context, tree, children, local);
-        } catch (Exception ignored) {
+        synchronized (LIBRARY_LOCK) {
+            Uri tree = getLibraryTreeUri(context);
+            if (tree == null || local == null || !local.isFile()) return;
+            try {
+                List<LibraryChild> children = listLibraryChildren(context, tree);
+                writeLocalToLibrary(context, tree, children, local);
+                rememberLibraryName(context, local.getName());
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /**
+     * Delete a custom pony from the working copy and, if a folder is connected,
+     * from that folder. Checkboxes stay hide-only; this is the remove path.
+     */
+    static RemoveResult removeCustomPony(Context context, String destName) {
+        synchronized (LIBRARY_LOCK) {
+            RemoveResult result = new RemoveResult();
+            String safe = sanitizeCustomPonyFileName(destName);
+            if (safe == null || !safe.equals(destName)) {
+                result.error = "Invalid pony file name";
+                return result;
+            }
+            Uri tree = getLibraryTreeUri(context);
+            if (tree != null) {
+                try {
+                    List<LibraryChild> children = listLibraryChildren(context, tree);
+                    LibraryChild existing = findChildByDestName(children, safe);
+                    if (existing != null) {
+                        if (!deleteLibraryChild(context, children, existing)) {
+                            result.error = "Could not delete the file in the library folder.";
+                            return result;
+                        }
+                        result.libraryDeleted = true;
+                    }
+                } catch (SecurityException e) {
+                    result.error = "Lost access to the library folder. Reconnect it, or delete the file there.";
+                    return result;
+                } catch (Exception e) {
+                    result.error = e.getMessage() != null ? e.getMessage()
+                            : "Could not update the library folder.";
+                    return result;
+                }
+            }
+            if (!deleteLocalMember(context, safe)) {
+                result.error = "Could not delete the working copy.";
+                return result;
+            }
+            result.localDeleted = true;
+            forgetLibraryName(context, safe);
+            bumpGeneration(context);
+            return result;
         }
     }
 
@@ -594,10 +705,102 @@ final class CustomStorage {
         return null;
     }
 
-    private static boolean shouldPushLocal(File local, LibraryChild match) {
-        if (match == null) return true;
-        if (match.lastModified <= 0) return false;
-        return local.lastModified() > match.lastModified + 2000L;
+    private static boolean shouldPushLocal(File local, LibraryChild match, Set<String> lastSeen) {
+        if (match != null) {
+            if (match.lastModified <= 0) return false;
+            return local.lastModified() > match.lastModified + 2000L;
+        }
+        // Missing from the folder: seed/import only if this folder has never listed it.
+        return lastSeen == null || !lastSeen.contains(local.getName());
+    }
+
+    private static HashSet<String> folderDestNames(List<LibraryChild> children) {
+        HashSet<String> names = new HashSet<String>();
+        for (int i = 0; i < children.size(); i++) {
+            String dest = children.get(i).destName;
+            if (dest != null) names.add(dest);
+        }
+        return names;
+    }
+
+    private static HashSet<String> loadSeenNames(Context context) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        Set<String> stored = prefs.getStringSet(PREF_LIBRARY_SEEN_NAMES, null);
+        HashSet<String> names = new HashSet<String>();
+        if (stored != null) names.addAll(stored);
+        return names;
+    }
+
+    private static void saveSeenNames(Context context, Set<String> names) {
+        SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(context).edit()
+                .putStringSet(PREF_LIBRARY_SEEN_NAMES, new HashSet<String>(names));
+        Uri tree = getLibraryTreeUri(context);
+        if (tree != null) {
+            editor.putString(PREF_LIBRARY_SEEN_TREE, tree.toString());
+        }
+        editor.commit();
+    }
+
+    private static void rememberLibraryName(Context context, String destName) {
+        if (destName == null || destName.length() == 0) return;
+        Uri tree = getLibraryTreeUri(context);
+        if (tree == null) return;
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        String seenTree = prefs.getString(PREF_LIBRARY_SEEN_TREE, "");
+        if (!tree.toString().equals(seenTree)) return;
+        HashSet<String> names = loadSeenNames(context);
+        if (names.add(destName)) {
+            saveSeenNames(context, names);
+        }
+    }
+
+    private static void forgetLibraryName(Context context, String destName) {
+        HashSet<String> names = loadSeenNames(context);
+        if (names.remove(destName)) {
+            saveSeenNames(context, names);
+        }
+    }
+
+    /** Delete a working-copy member and its enable/waifu prefs. File already gone is success. */
+    private static boolean deleteLocalMember(Context context, String destName) {
+        try {
+            File local = localFile(context, destName);
+            if (local.isFile() && !local.delete()) {
+                return false;
+            }
+            if (BACKGROUND_NAME.equals(destName)) {
+                PreferenceManager.getDefaultSharedPreferences(context).edit()
+                        .putBoolean("pref_background", false)
+                        .commit();
+            } else {
+                clearPonyPreferences(context, destName);
+            }
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    static void clearPonyPreferences(Context context, String destName) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.remove("pref_custom_" + destName);
+        String waifu = prefs.getString("pref_waifu", "");
+        if (("pref_custom_" + destName).equals(waifu)) {
+            editor.putString("pref_waifu", "");
+        }
+        editor.commit();
+    }
+
+    private static boolean deleteLibraryChild(Context context, List<LibraryChild> children,
+            LibraryChild existing) {
+        try {
+            DocumentsContract.deleteDocument(context.getContentResolver(), existing.uri);
+            children.remove(existing);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static List<LibraryChild> listLibraryChildren(Context context, Uri treeUri)
@@ -677,6 +880,9 @@ final class CustomStorage {
 
     private static void writeLocalToLibrary(Context context, Uri treeUri,
             List<LibraryChild> children, File local) throws IOException {
+        if (local == null || !local.isFile()) {
+            throw new IOException("Nothing to write to the library folder");
+        }
         ContentResolver cr = context.getContentResolver();
         String destName = local.getName();
         LibraryChild existing = findChildByDestName(children, destName);
@@ -712,15 +918,80 @@ final class CustomStorage {
         children.add(child);
     }
 
+    /**
+     * True for the library breadcrumb and SAF uniquified copies:
+     * {@code custom-ponies-go-here}, {@code .txt}, and {@code (N)} variants.
+     */
+    static boolean isLibraryMarkerName(String displayName) {
+        if (displayName == null) return false;
+        String name = displayName.trim().toLowerCase(Locale.US);
+        if (!name.startsWith(PLACEHOLDER_NAME)) return false;
+        String rest = name.substring(PLACEHOLDER_NAME.length());
+        if (rest.startsWith(".txt")) {
+            rest = rest.substring(4);
+        } else if (rest.endsWith(".txt")) {
+            rest = rest.substring(0, rest.length() - 4);
+        }
+        rest = rest.trim();
+        if (rest.length() == 0) return true;
+        if (rest.charAt(0) != '(' || rest.charAt(rest.length() - 1) != ')') return false;
+        String inner = rest.substring(1, rest.length() - 1);
+        if (inner.length() == 0) return false;
+        for (int i = 0; i < inner.length(); i++) {
+            char ch = inner.charAt(i);
+            if (ch < '0' || ch > '9') return false;
+        }
+        return true;
+    }
+
+    private static int libraryMarkerRank(String displayName) {
+        if (displayName == null) return 2;
+        if (PLACEHOLDER_LIBRARY_NAME.equalsIgnoreCase(displayName.trim())) return 0;
+        if (PLACEHOLDER_NAME.equalsIgnoreCase(displayName.trim())) return 1;
+        return 2;
+    }
+
+    /**
+     * Ensure one visible marker exists. SAF {@code text/plain} create without
+     * {@code .txt} used to miss the existing file and spawn {@code (N)} copies.
+     */
     private static void writeLibraryMarker(Context context, Uri treeUri, List<LibraryChild> children) {
+        LibraryChild keep = null;
+        int keepRank = 3;
         for (int i = 0; i < children.size(); i++) {
-            if (PLACEHOLDER_NAME.equals(children.get(i).displayName)) return;
+            LibraryChild child = children.get(i);
+            if (!isLibraryMarkerName(child.displayName)) continue;
+            int rank = libraryMarkerRank(child.displayName);
+            if (keep == null || rank < keepRank) {
+                keep = child;
+                keepRank = rank;
+            }
+        }
+        if (keep != null) {
+            ContentResolver cr = context.getContentResolver();
+            for (int i = children.size() - 1; i >= 0; i--) {
+                LibraryChild child = children.get(i);
+                if (child == keep || !isLibraryMarkerName(child.displayName)) continue;
+                try {
+                    DocumentsContract.deleteDocument(cr, child.uri);
+                } catch (Exception ignored) {
+                }
+                children.remove(i);
+            }
+            return;
         }
         try {
             String treeDocId = DocumentsContract.getTreeDocumentId(treeUri);
             Uri parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocId);
-            DocumentsContract.createDocument(context.getContentResolver(), parent,
-                    "text/plain", PLACEHOLDER_NAME);
+            Uri created = DocumentsContract.createDocument(context.getContentResolver(), parent,
+                    "text/plain", PLACEHOLDER_LIBRARY_NAME);
+            if (created == null) return;
+            LibraryChild child = new LibraryChild();
+            child.uri = created;
+            child.displayName = PLACEHOLDER_LIBRARY_NAME;
+            child.destName = null;
+            child.lastModified = System.currentTimeMillis();
+            children.add(child);
         } catch (Exception ignored) {
         }
     }
