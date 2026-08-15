@@ -5,8 +5,8 @@
         android:name="android.software.live_wallpaper"
         android:required="true" />
 
-    <!-- File picks use the Storage Access Framework; app-private storage needs no
-         broad storage permission on modern APIs. Kept off intentionally. -->
+    <!-- File picks and the optional library folder use the Storage Access
+         Framework. App-private working copies need no broad storage permission. -->
 
     <application
         android:label="@string/app_name"

@@ -18,6 +18,7 @@ This repository is a **modernization fork** of the [Smithers888/PonyPaper](https
 - **Optional screen saver** — wallpaper and screensaver can be enabled/disabled independently, uses the same herd and settings; enable under system Display settings
 - **Optional screensaver clock** — large digital clock, with optional date, drawn over the herd; 12/24-hour follows the system setting
 - **Crash and stability fixes** — safer canvas handling, preference listener cleanup, hardened custom-pony import, sprite bitmap recycling
+- **Custom pony library** — export/import a zip of custom ponies and the background; optional user-owned folder (survives uninstall; reconnect once after reinstall)
 - **Waifu selector** — best pony should always come first
 
 <img src='screenshots/screen1.png' width='180'> <img src='screenshots/screen2.png' width='180'> <img src='screenshots/screen3.png' width='180'> <img src='screenshots/preview.png' width='180'>  <img src='screenshots/preferences1.png' width='180'> <img src='screenshots/preferences2.png' width='180'> <img src='screenshots/screensaver.png' width='180'> <img src='screenshots/custom.png' width='180'>
@@ -66,7 +67,7 @@ See [BUILDING.md](BUILDING.md) for debug builds, local signed releases, and the 
 
 - Compatible in spirit with [Desktop Ponies](https://github.com/RoosterDragon/Desktop-Ponies), with a smaller pony set and fewer features.
 - Enable/disable individual ponies; a few appear at once and rotate on/off screen.
-- Optional custom ponies (see [custom/README.md](custom/README.md)).
+- Optional custom ponies (see [custom/README.md](custom/README.md)). Export a zip backup from settings, or choose a **Character library folder** so the herd survives uninstall.
 - Optional background image, auto-pixellated to match the sprites.
 - Drag ponies with touch (enabled in this fork).
 

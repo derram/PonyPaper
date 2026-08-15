@@ -4,14 +4,18 @@ I.e. adding extra ponies (griffons, dragons, etc.) to PonyPaper that aren't avai
 ## Overview
 PonyPaper represent each custom pony as a single XML file.
 
-Once a pony has been created by the editor, it can be loaded into the wallpaper in either of two ways:
-* Connect your device to your computer and copy the .xml file into the app’s external files directory, then force the wallpaper to reload custom ponies by going to the wallpaper's preferences ensuring the custom pony is enabled. (Note: if you're in the right place, there should be a file already in this directory titled `custom-ponies-go-here`.)
+Once a pony has been created by the editor, load it into the wallpaper in any of these ways:
+
+* **Add custom pony** in Pony Paper settings and pick the XML (or several at once). A previously exported **library zip** is also accepted here.
+* **Import library** to merge a zip of custom ponies plus the optional background image. Use **Export library** first to keep a backup that survives uninstall and signing-key changes.
+* **Character library folder** (recommended): in settings, choose a folder you own (for example `Documents/PonyPaper`). The app copies ponies into its private working directory for the wallpaper, and writes new imports back to that folder. The folder is not deleted when you uninstall. After a reinstall, open settings and reconnect the same folder once.
+  * Drop extra XML files into that folder (USB, desktop editor, Syncthing, etc.). Opening settings or bringing the wallpaper back to the front syncs them. A `custom-ponies-go-here` marker is created in the folder so you can see you picked the right place.
+* Advanced / `adb`: the live working copy is still the app-specific directory (deleted on uninstall; many file managers cannot browse it on Android 11+):
   * Release builds: `Android/data/io.github.derram.ponypaper/files`
   * Debug builds: `Android/data/io.github.derram.ponypaper.debug/files`
-  * Upstream original (if still installed): `Android/data/uk.cpjsmith.ponypaper/files`
-* Have the XML file hosted on a website and download it with your device's web browser; then go to the wallpaper's preferences, choose "Add custom pony" and select the file from your downloads. (Note: This may or may not work for you; it works on my phone, but when I try it on a virtual device, I don't get an option to select from downloads. Not sure what's going on here.)
+  * `adb push pony.xml /sdcard/Android/data/io.github.derram.ponypaper/files/`
 
-After the new pony is added, they can be enabled and disabled just like built-in ponies. Currently the only way to remove them completely is to delete the XML file manually.
+After the new pony is added, they can be enabled and disabled just like built-in ponies. To remove one completely, delete the XML from the working copy (and from the library folder if you use one).
 
 Files for some of my own favourite fan characters are available at http://cpjsmith.co.uk/downloads/ponypaper/.
 

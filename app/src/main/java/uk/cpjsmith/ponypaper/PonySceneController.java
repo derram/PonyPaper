@@ -142,6 +142,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private boolean thermalEmergency = false;
     /** True while status is MODERATE (soft throttle; not emergency). */
     private boolean thermalThrottle = false;
+    /** True while a background library-folder sync is running. */
+    private boolean librarySyncInFlight = false;
     /** Token from {@link ThermalStatusSupport#register}; typed as Object for pre-Q safety. */
     private Object thermalListenerToken = null;
 
@@ -283,7 +285,31 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             surface.onThermalHardStop();
             return;
         }
+        requestLibrarySync();
         drawFrame();
+    }
+
+    /**
+     * Best-effort pull/push against the user-chosen library folder. Reloads the
+     * herd if files changed. Never blocks the frame loop on SAF I/O.
+     */
+    private void requestLibrarySync() {
+        if (librarySyncInFlight) return;
+        if (!CustomStorage.hasLibraryFolder(appContext)) return;
+        librarySyncInFlight = true;
+        new Thread(new Runnable() {
+            public void run() {
+                final CustomStorage.SyncResult result = CustomStorage.syncLibrary(appContext);
+                handler.post(new Runnable() {
+                    public void run() {
+                        librarySyncInFlight = false;
+                        if (result.changed && started) {
+                            dropHerd();
+                        }
+                    }
+                });
+            }
+        }, "ponypaper-libsync").start();
     }
 
     /**
