@@ -21,6 +21,8 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import javax.swing.BorderFactory;
@@ -64,6 +66,7 @@ public final class TransitionPreviewDialog extends JDialog {
     private final JComboBox<ActionItem> actionBCombo;
     private final JComboBox<String> directionCombo;
     private final JCheckBox onionCheck;
+    private final JCheckBox repeatCheck;
     private final JSlider scaleSlider;
     private final JSlider rateSlider;
     private final JLabel statusLabel;
@@ -108,6 +111,10 @@ public final class TransitionPreviewDialog extends JDialog {
         onionCheck.setToolTipText(
                 "When showing B (or paused on B), draw A's last frame semi-transparent "
                         + "at the same feet point so anchor pops are obvious.");
+
+        repeatCheck = new JCheckBox("Repeat A→B", false);
+        repeatCheck.setToolTipText(
+                "Play A then B over and over. Does not use each action's Loop while active flag.");
 
         scaleSlider = new JSlider(1, 8, 3);
         scaleSlider.setMajorTickSpacing(1);
@@ -163,6 +170,11 @@ public final class TransitionPreviewDialog extends JDialog {
         onionCheck.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 stage.repaint();
+                updateStatus();
+            }
+        });
+        repeatCheck.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
                 updateStatus();
             }
         });
@@ -263,6 +275,7 @@ public final class TransitionPreviewDialog extends JDialog {
         controls.add(playButton);
         controls.add(stepButton);
         controls.add(restartButton);
+        controls.add(repeatCheck);
         controls.add(closeButton);
 
         JPanel south = new JPanel(new BorderLayout());
@@ -360,10 +373,15 @@ public final class TransitionPreviewDialog extends JDialog {
         updatingUi = true;
         try {
             String dir = currentDirection();
-            DefaultComboBoxModel<ActionItem> modelB = new DefaultComboBoxModel<ActionItem>();
+            List<ActionItem> items = new ArrayList<ActionItem>();
             LinkedHashSet<Integer> seen = new LinkedHashSet<Integer>();
 
-            // Preferred neighbors from A's next lists, then all others.
+            // Same action is a valid B (cycle wrap / self-successor). Neighbors
+            // keep their next-list tags. Everything is then sorted by name.
+            if (aIndex >= 0 && ActionFrameSource.hasImage(editor, aIndex, dir)) {
+                items.add(new ActionItem(aIndex, editor.getActionName(aIndex), "same action"));
+                seen.add(aIndex);
+            }
             if (aIndex >= 0) {
                 for (Neighbor n : collectNeighbors(aIndex)) {
                     if (n.index == aIndex) {
@@ -373,17 +391,20 @@ public final class TransitionPreviewDialog extends JDialog {
                         continue;
                     }
                     if (seen.add(n.index)) {
-                        modelB.addElement(new ActionItem(n.index, editor.getActionName(n.index), n.tag));
+                        items.add(new ActionItem(n.index, editor.getActionName(n.index), n.tag));
                     }
                 }
             }
             for (ActionItem item : listActionsWithImage(dir)) {
-                if (item.index == aIndex) {
-                    continue;
-                }
                 if (seen.add(item.index)) {
-                    modelB.addElement(new ActionItem(item.index, item.name, null));
+                    items.add(new ActionItem(item.index, item.name, null));
                 }
+            }
+            sortActionItems(items);
+
+            DefaultComboBoxModel<ActionItem> modelB = new DefaultComboBoxModel<ActionItem>();
+            for (ActionItem item : items) {
+                modelB.addElement(item);
             }
 
             actionBCombo.setModel(modelB);
@@ -412,7 +433,7 @@ public final class TransitionPreviewDialog extends JDialog {
             List<String> moving = ActionFrameSource.parseActionNames(editor.getActionNext(aIndex, "moving"));
             for (String name : moving) {
                 int idx = editor.findAction(name);
-                if (containsIndex(modelB, idx)) {
+                if (idx != aIndex && containsIndex(modelB, idx)) {
                     return idx;
                 }
             }
@@ -425,6 +446,17 @@ public final class TransitionPreviewDialog extends JDialog {
                 if (idx != aIndex && containsIndex(modelB, idx)) {
                     return idx;
                 }
+            }
+        }
+        return firstOtherIndex(aIndex, modelB);
+    }
+
+    /** First B that is not A, or A if it is the only action with a sheet. */
+    private static int firstOtherIndex(int aIndex, DefaultComboBoxModel<ActionItem> modelB) {
+        for (int i = 0; i < modelB.getSize(); i++) {
+            int idx = modelB.getElementAt(i).index;
+            if (idx != aIndex) {
+                return idx;
             }
         }
         return modelB.getElementAt(0).index;
@@ -459,7 +491,20 @@ public final class TransitionPreviewDialog extends JDialog {
                 list.add(new ActionItem(i, editor.getActionName(i), null));
             }
         }
+        sortActionItems(list);
         return list;
+    }
+
+    private static void sortActionItems(List<ActionItem> items) {
+        Collections.sort(items, new Comparator<ActionItem>() {
+            public int compare(ActionItem a, ActionItem b) {
+                int byName = String.CASE_INSENSITIVE_ORDER.compare(a.name, b.name);
+                if (byName != 0) {
+                    return byName;
+                }
+                return Integer.compare(a.index, b.index);
+            }
+        });
     }
 
     private List<Neighbor> collectNeighbors(int aIndex) {
@@ -601,7 +646,8 @@ public final class TransitionPreviewDialog extends JDialog {
 
     /**
      * Advances the sequence clock. A plays one full cycle (even if looping),
-     * then B plays one full cycle and stops on its last frame.
+     * then B plays one full cycle. With Repeat A→B off, playback stops on B's
+     * last frame; with it on, leftover time wraps instantly back to A.
      */
     private void advanceByCs(float deltaCs) {
         if (sourceA == null) {
@@ -632,6 +678,10 @@ public final class TransitionPreviewDialog extends JDialog {
                     break;
                 }
                 // Keep residual time into B so handoff is continuous.
+            } else if (repeatCheck.isSelected() && sourceA != null) {
+                // Instant wrap B last → A first. Residual time carries like A→B.
+                phaseA = true;
+                animTimeCs -= sourceB.totalTimeCs;
             } else {
                 animTimeCs = sourceB.totalTimeCs - 0.001f;
                 if (animTimeCs < 0) {
@@ -684,6 +734,15 @@ public final class TransitionPreviewDialog extends JDialog {
                     dAx, dAy, aAbove, bAbove, aBelow, bBelow);
         }
 
+        String playState;
+        if (playing && repeatCheck.isSelected()) {
+            playState = "repeating";
+        } else if (playing) {
+            playState = "playing";
+        } else {
+            playState = "paused";
+        }
+
         statusLabel.setText(String.format(
                 "Phase %s: %s  frame %d/%d  t=%.0f/%d cs  %s%s%s",
                 phase,
@@ -692,7 +751,7 @@ public final class TransitionPreviewDialog extends JDialog {
                 cur.frameCount,
                 animTimeCs,
                 cur.totalTimeCs,
-                playing ? "playing" : "paused",
+                playState,
                 onionCheck.isSelected() && !phaseA ? "  ·  onion on" : "",
                 "  ·  " + anchors + handoff));
     }
