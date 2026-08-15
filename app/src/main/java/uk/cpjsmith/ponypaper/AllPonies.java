@@ -813,7 +813,7 @@ public class AllPonies {
     }
     
     private static void loadCustomPonies(Context context, SharedPreferences prefs, ArrayList<Pony> ponies) {
-        File dir = context.getExternalFilesDir(null);
+        File dir = CustomStorage.localDir(context);
         if (dir == null) return; // External storage is unavailable, so we can't load any custom ponies.
         
         try {
