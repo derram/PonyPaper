@@ -38,7 +38,7 @@ public class Pony {
     private static final float MOVE_SPEED_PER_SECOND = 75f;
     
     /** Idle wait range in milliseconds (was 25–274 frames at 25 FPS). */
-    private static final int WAIT_MIN_MS = 3000;
+    private static final int WAIT_MIN_MS = 2000;
     private static final int WAIT_EXTRA_MS = 10000;
     
     private final PonyAction[] allActions;
