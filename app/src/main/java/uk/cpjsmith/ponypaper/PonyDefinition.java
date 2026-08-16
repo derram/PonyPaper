@@ -847,9 +847,8 @@ public class PonyDefinition {
                 if (!hasWait) {
                     errors.add("Looping action " + name + " needs a real next waiting action.");
                 }
-                if (!hasMove) {
-                    errors.add("Looping action " + name + " needs a real next moving action.");
-                }
+                // Empty moving is allowed: sit/sleep/etc. re-pick waiting when
+                // the idle timer ends instead of starting travel.
                 if (!hasDrag) {
                     errors.add("Looping action " + name
                             + " needs a real next drag action (set Default drag or a drag override).");

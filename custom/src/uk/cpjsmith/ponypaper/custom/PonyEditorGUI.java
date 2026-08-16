@@ -673,7 +673,8 @@ public class PonyEditorGUI extends JPanel {
             
             nextWaitingField = new JTextField();
             nextWaitingField.setToolTipText("Comma-separated actions. Use none or - for no successor "
-                    + "(one-shots fall through to next moving). Tab completes the token under the caret.");
+                    + "(one-shots fall through to next moving). Looping actions still need a real "
+                    + "waiting list. Tab completes the token under the caret.");
             nextWaitingField.getDocument().addDocumentListener(nextWaitingListener);
             ActionNameCompleter.install(nextWaitingField, new ActionNameCompleter.CandidateSource() {
                 @Override
@@ -693,7 +694,8 @@ public class PonyEditorGUI extends JPanel {
             
             nextMovingField = new JTextField();
             nextMovingField.setToolTipText("Comma-separated actions. Use none or - for no successor "
-                    + "(one-shots fall through to next waiting). Tab completes the token under the caret.");
+                    + "(one-shots fall through to next waiting; looping idles stay idle and re-pick "
+                    + "waiting). Tab completes the token under the caret.");
             nextMovingField.getDocument().addDocumentListener(nextMovingListener);
             ActionNameCompleter.install(nextMovingField, new ActionNameCompleter.CandidateSource() {
                 @Override

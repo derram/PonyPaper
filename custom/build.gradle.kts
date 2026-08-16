@@ -60,6 +60,14 @@ tasks.register<JavaExec>("testPacker") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.ImageImportPackTest")
 }
 
+tasks.register<JavaExec>("testDefinition") {
+    group = "verification"
+    description = "Run PonyDefinition action-graph validation checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.PonyDefinitionValidateTest")
+}
+
 tasks.named("check") {
     dependsOn("testPacker")
+    dependsOn("testDefinition")
 }
