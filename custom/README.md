@@ -168,7 +168,7 @@ java -jar custom/build/libs/customponies.jar \
 If the working directory is the PonyPaper repo root (or next to a `Desktop-Ponies` checkout), the folder chooser prefers `../Desktop-Ponies/Content/Ponies`. Save dialogs append `.xml` when the extension is omitted.
 
 On the left side of the editor is the list of actions. You can create a new action or delete the selected action using the buttons underneath the list. Selecting an action in this list allows its properties to be edited on the right. These properties are:
-* Special type: This field should usually be left blank. the only current exceptions to this rule are actions related to teleporting; see the section on 'Teleporting', below.
+* Special type: Leave blank for normal walk/idle clips. Known values: `teleport-out` / `teleport-in` (see [Teleporting](#teleporting)) and `screen-in` / `screen-out` (see [Stationary enter / exit](#stationary-enter--exit)).
 * Anchors left/right (`<anchorx>` / `<anchory>`): Optional. Unscaled pixel coordinates of the pony’s feet on **each** spritesheet. X is from the **left** of that direction’s frame; Y is from the **top**. Leave empty (or omit the XML) for normal sheets that are already centre-bottom aligned. Set X when asymmetric VFX/padding would slide the body sideways; set Y on tall VFX sheets—especially teleports—so the body does not jump onto a shorter stand/walk sheet. **Do not use `<anchory>` to animate a hop** — that pins the feet and cancels the lift. Use **Import frames** lift (or `--lifts` / `-lifts`) so the hop is extra air *under* the sprite and the default feet row stays the cell bottom. Left and right **often differ** when sheets are mirrors (e.g. left X `40`, right X `frameWidth−40`). XML may use a bare tag to set both facings to the same value (`<anchory>59</anchory>`), or directed tags (`<anchorx direction="left">40</anchorx>`). CLI: `-anchorx 42`, `-anchorx left 40`, `-anchorx right none`, same for `-anchory`.
 * Speed: Travel and animation rate for this action (positive float; default `1`). While the pony is moving with this action, both how fast it crosses the screen and how fast the sheet plays are multiplied by this factor. While waiting, only animation rate is affected. Typical values match the built-in gaits: **`0.5` stroll**, **`0.7` walk**, **`1.0` trot** (full historical rate). Values above `1` are allowed for very fast characters.
 * Loop animation: Checked by default. Uncheck for **one-shot transition** clips (intros, outros, reactions). After one full play of the sheet, the pony picks the next waiting/moving/drag action for the current motion and keeps the existing wait timer or travel target. See [One-shot / transition actions](#one-shot--transition-actions) below. CLI: `-loop false`.
@@ -178,10 +178,10 @@ On the left side of the editor is the list of actions. You can create a new acti
 * Left/right timings: The list of durations for each frame of the animation. These are represented in hundredths of a second and seperated by commas. GIF import and **Import frames** fill this in automatically.
 * Next moving/waiting actions: The comma-seperated list of possible actions the pony can transition to when it decides to move or wait. Note that the same action can be used for more than one of these states; for example, many pegasi reuse the same flying action for both movement and hovering in-place. Repeating a name raises its chance. The reserved tokens **`none`** or **`-`** mean “no real successor” for that list (see [One-shot / transition actions](#one-shot--transition-actions)).
 
-  When a **looping** idle's wait timer expires, the pony picks from the **combined** next-waiting and next-moving lists. A waiting slot starts another idle (new 3–13 s timer); a moving slot starts travel. Characters with many wait poses and few movers therefore cycle idles instead of always walking away. On a looping idle, `moving=none` means the pose cannot start travel — the timer only re-picks waiting (use this for sit/sleep that should not walk away). A looping action still needs a real next **waiting** list.
+  When a **looping** idle's wait timer expires, the pony picks from the **combined** next-waiting and next-moving lists. A waiting slot starts another idle (new 3–13 s timer); a moving slot starts travel. Characters with many wait poses and few movers therefore cycle idles instead of always walking away. On a looping idle, `moving=none` means the pose cannot start travel or vanish — the timer only re-picks waiting (use this for sit/sleep that should not walk away). A looping action still needs a real next **waiting** list. Stationary appear/vanish clips are [screen-in / screen-out](#stationary-enter--exit).
 * Drag override: Optional per-action replacement for **Default drag**. Leave empty to inherit the pony-level default. Set it only when this action should use a different drag clip (or list).
 
-At the bottom is the list of **Start actions** (how the pony can enter the scene) and **Default drag** (the drag successors used by every action that has no drag override). Most ponies only need a single drag clip in Default drag.
+At the bottom is the list of **Start actions** (how the pony can enter the scene) and **Default drag** (the drag successors used by every action that has no drag override). Most ponies only need a single drag clip in Default drag. A start action that walks or teleports still spawns just off-screen and travels in; a `screen-in` start appears on-screen in place.
 
 In the action lists (either 'Start actions', 'Default drag', or 'Next [whatever] actions') the same action can be repeated multiple times to make it more likely to be selected. For example, the built-in Rainbow Dash has a start action list of `trot,fly,fly,fly`, so she will choose the 'fly' action three-quarters of the time. Fluttershy, who prefers to keep her hooves on the ground, has a start action list of `trot,trot,trot,fly`.
 
@@ -273,7 +273,7 @@ Use the reserved token **`none`** or **`-`** when a list should have no real act
   - Moving + empty moving → land and pick **waiting** (only if a real waiter exists)
 - **Wait timer expired** (looping idle): pick stay vs leave from the combined next-waiting and next-moving slot counts. Empty moving → stay waiting (re-roll timer; re-pick waiting). Does **not** fall through to invent travel. Legal on **looping** idles as well as one-shots.
 - **Arrive** + empty waiting → keep traveling if a real mover exists; otherwise stop in place.
-- At least one of waiting/moving must list a real action on a one-shot.
+- At least one of waiting/moving must list a real action on a one-shot, except **`screen-out`**: that clip leaves the scene, so both lists may be `none`.
 - **Looping** actions must have a real next **waiting** action. Next **moving** may be `none`/`-` so the pose cannot start travel.
 - Drag must always resolve to a real action: either **Default drag** or a per-action **Drag override**. `none`/`-` is not allowed for drag.
 - Start actions cannot be only `none`/`-`.
@@ -331,3 +331,45 @@ Teleporting requires two actions. The first should have a 'Special type' of `tel
 Teleport sheets are usually taller than stand/trot sheets because of sparkle VFX under (and above) the body. Without an explicit feet row, bottom-center anchoring treats the bottom of the VFX as the feet and the character will **drop** when the animation finishes. Set `<anchory>` on both the out and in actions to the Y of the hooves in the sheet (pixels from the top of a single frame). Measure on a mid-animation frame where the body is solid; see `twilight-sparkle.xml` for values that match the built-in Twilight teleports. A bare `<anchory>59</anchory>` applies to both left and right sheets; use `direction="left"` / `direction="right"` when the two sheets need different rows.
 
 If a sheet is also wider or padded unevenly (VFX mostly on one side), the body can **slide** sideways on action change or when turning. Set optional `<anchorx>` per facing (pixels from the left of that direction’s frame). Mirror pairs usually need different X values (`W − ax` on the flipped side). Leave unset to keep the default frame centre for that sheet.
+
+## Stationary enter / exit
+
+A character that never walks still has to enter and leave so the wallpaper can rotate the herd. Do **not** put a stand sheet on **Start actions** or **Next moving** as a normal action — that interpolates and the pony will slide. Use the specials instead.
+
+* `screen-in` — appear in place. Put it on **Start actions**. The pony spawns on-screen, plays the clip once (`MOTION_SPECIAL`, no travel), then picks next **waiting**.
+* `screen-out` — vanish in place. Put it on **Next moving** of poses that are allowed to leave. When wait-expiry picks that mover, the engine applies the same **1-in-8** destination roll walkers use for an off-screen target: 7/8 abort and keep idling (the wander that goes nowhere); 1/8 plays the clip and then marks the pony gone.
+
+`moving=none` on a looping idle still means that pose cannot start travel **or** vanish (sit/sleep). The graph must still be able to reach a leave: from start, via waiting and moving lists, some action’s next-moving must name a walk, `teleport-out`, or `screen-out`. Validation rejects idle-only ponies.
+
+Drag-to-edge skips the 1-in-8 roll and plays `screen-out` immediately (or walks off if the mover interpolates).
+
+Clips should be one-shots (`<loop>false</loop>`). They may use `<spritesfrom>` a stand sheet for a pop, or their own appear/vanish strip. Set `<anchory>` / `<anchorx>` when VFX would shift the body, same as teleports. Do not reuse `teleport-in` as an appear clip — that type plays at the current (off-screen) spawn point.
+
+Example (sit cannot leave; stand can vanish):
+
+```xml
+<action name="appear">
+    <specialtype>screen-in</specialtype>
+    <loop>false</loop>
+    <nextactions type="waiting">stand,sit</nextactions>
+    <nextactions type="moving">none</nextactions>
+</action>
+<action name="stand">
+    <nextactions type="waiting">stand,sit</nextactions>
+    <nextactions type="moving">vanish</nextactions>
+</action>
+<action name="sit">
+    <nextactions type="waiting">sit,sit,stand</nextactions>
+    <nextactions type="moving">none</nextactions>
+</action>
+<action name="vanish">
+    <specialtype>screen-out</specialtype>
+    <loop>false</loop>
+    <spritesfrom>stand</spritesfrom>
+    <nextactions type="waiting">none</nextactions>
+    <nextactions type="moving">none</nextactions>
+</action>
+<startactions>appear</startactions>
+```
+
+Mixed characters (mostly idle, sometimes walk) do not need `screen-out`: a normal mover on stand’s next-moving already supplies the 1-in-8 walk-off.

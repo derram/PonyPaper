@@ -393,7 +393,8 @@ public class PonyEditorCLI {
         System.out.println("    Set the current action's next actions of the given type.");
         System.out.println("    For type drag this is an override; leave empty to use -defaultdrag.");
         System.out.println("-special TYPE");
-        System.out.println("    Set the current action's special type.");
+        System.out.println("    Set the current action's special type (blank, teleport-out,");
+        System.out.println("    teleport-in, screen-in, screen-out).");
         System.out.println("-anchorx [left|right|both] PIXELS|none");
         System.out.println("    Feet column in pixels from the left of the frame (optional).");
         System.out.println("    Direction defaults to both. Use none/clear/- to restore frame-centre.");

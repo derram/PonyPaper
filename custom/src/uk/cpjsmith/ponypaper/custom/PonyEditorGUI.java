@@ -361,6 +361,9 @@ public class PonyEditorGUI extends JPanel {
             add(specialTypeLabel, c);
             
             specialTypeField = new JTextField();
+            specialTypeField.setToolTipText("Usually blank. teleport-out / teleport-in jump to a "
+                    + "destination. screen-in appears on-screen; screen-out vanishes in place "
+                    + "(1-in-8 leave chance, same as walking off).");
             specialTypeField.getDocument().addDocumentListener(specialTypeListener);
             c = getConstraints(1, 0);
             c.weighty = 1.0;

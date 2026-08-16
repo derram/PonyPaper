@@ -427,11 +427,20 @@ public final class TransitionPreviewDialog extends JDialog {
             return modelB.getElementAt(0).index;
         }
 
-        // Prefer teleport-in when A is teleport-out.
+        // Prefer teleport-in when A is teleport-out; waiting after screen-in.
         String special = editor.getActionSpecial(aIndex);
         if ("teleport-out".equals(special)) {
             List<String> moving = ActionFrameSource.parseActionNames(editor.getActionNext(aIndex, "moving"));
             for (String name : moving) {
+                int idx = editor.findAction(name);
+                if (idx != aIndex && containsIndex(modelB, idx)) {
+                    return idx;
+                }
+            }
+        }
+        if ("screen-in".equals(special)) {
+            List<String> waiting = ActionFrameSource.parseActionNames(editor.getActionNext(aIndex, "waiting"));
+            for (String name : waiting) {
                 int idx = editor.findAction(name);
                 if (idx != aIndex && containsIndex(modelB, idx)) {
                     return idx;
