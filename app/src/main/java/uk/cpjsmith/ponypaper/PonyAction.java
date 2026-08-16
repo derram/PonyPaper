@@ -504,12 +504,22 @@ public class PonyAction {
     
     /** @return true if this action has at least one real next waiting action */
     public boolean hasNextWaiting() {
-        return nextWaiting != null && nextWaiting.length > 0;
+        return nextWaitingCount() > 0;
     }
     
     /** @return true if this action has at least one real next moving action */
     public boolean hasNextMoving() {
-        return nextMoving != null && nextMoving.length > 0;
+        return nextMovingCount() > 0;
+    }
+    
+    /** @return number of next-waiting slots (repeats count) */
+    public int nextWaitingCount() {
+        return nextWaiting != null ? nextWaiting.length : 0;
+    }
+    
+    /** @return number of next-moving slots (repeats count) */
+    public int nextMovingCount() {
+        return nextMoving != null ? nextMoving.length : 0;
     }
     
     /** @return true if this action has at least one real next drag action */

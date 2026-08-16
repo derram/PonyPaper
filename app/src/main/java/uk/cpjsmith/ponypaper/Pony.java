@@ -205,13 +205,20 @@ public class Pony {
                         // the timer does not cut a mid-play transition clip.
                         // Timer stays at 0; the next frame after a looping
                         // waiter is selected (or fall-through starts travel)
-                        // runs the normal expiry path.
+                        // runs the stay-or-go expiry path.
                         if (!currentAction.loops) {
                             break;
                         }
-                        // Only leave idle if a real next moving action exists.
-                        // Otherwise re-roll wait (none/- means "does not start travel").
-                        if (!tryBeginMoving(true)) {
+                        // Stay vs leave is weighted by next-waiting vs
+                        // next-moving slot counts. Empty moving always stays
+                        // (re-pick waiting). Empty waiting always leaves.
+                        if (WaitExpiry.shouldStayIdle(
+                                currentAction.nextWaitingCount(),
+                                currentAction.nextMovingCount(),
+                                random)) {
+                            waitTimerMs = WAIT_MIN_MS + random.nextInt(WAIT_EXTRA_MS);
+                            setWaiting();
+                        } else if (!tryBeginMoving(true)) {
                             waitTimerMs = WAIT_MIN_MS + random.nextInt(WAIT_EXTRA_MS);
                             setWaiting();
                         }

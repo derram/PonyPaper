@@ -29,6 +29,7 @@ sourceSets {
             include(
                 "uk/cpjsmith/ponypaper/custom/**",
                 "uk/cpjsmith/ponypaper/PonyDefinition.java",
+                "uk/cpjsmith/ponypaper/WaitExpiry.java",
             )
         }
     }
@@ -67,7 +68,15 @@ tasks.register<JavaExec>("testDefinition") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.PonyDefinitionValidateTest")
 }
 
+tasks.register<JavaExec>("testWaitExpiry") {
+    group = "verification"
+    description = "Run idle stay-or-go weight checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.WaitExpiryTest")
+}
+
 tasks.named("check") {
     dependsOn("testPacker")
     dependsOn("testDefinition")
+    dependsOn("testWaitExpiry")
 }

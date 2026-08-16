@@ -672,9 +672,10 @@ public class PonyEditorGUI extends JPanel {
             add(nextWaitingLabel, c);
             
             nextWaitingField = new JTextField();
-            nextWaitingField.setToolTipText("Comma-separated actions. Use none or - for no successor "
-                    + "(one-shots fall through to next moving). Looping actions still need a real "
-                    + "waiting list. Tab completes the token under the caret.");
+            nextWaitingField.setToolTipText("Comma-separated actions. Repeats raise chance. When a "
+                    + "looping idle's timer ends, these slots compete with next moving. Use none or - "
+                    + "for no successor (one-shots fall through to next moving). Looping actions still "
+                    + "need a real waiting list. Tab completes the token under the caret.");
             nextWaitingField.getDocument().addDocumentListener(nextWaitingListener);
             ActionNameCompleter.install(nextWaitingField, new ActionNameCompleter.CandidateSource() {
                 @Override
@@ -693,9 +694,10 @@ public class PonyEditorGUI extends JPanel {
             add(nextMovingLabel, c);
             
             nextMovingField = new JTextField();
-            nextMovingField.setToolTipText("Comma-separated actions. Use none or - for no successor "
-                    + "(one-shots fall through to next waiting; looping idles stay idle and re-pick "
-                    + "waiting). Tab completes the token under the caret.");
+            nextMovingField.setToolTipText("Comma-separated actions. Repeats raise chance. When a "
+                    + "looping idle's timer ends, these slots compete with next waiting. Use none or - "
+                    + "for no successor (one-shots fall through to next waiting; looping idles stay "
+                    + "idle and re-pick waiting). Tab completes the token under the caret.");
             nextMovingField.getDocument().addDocumentListener(nextMovingListener);
             ActionNameCompleter.install(nextMovingField, new ActionNameCompleter.CandidateSource() {
                 @Override
