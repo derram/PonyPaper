@@ -43,6 +43,17 @@ public class PonyAction {
      * action's animation, then changes to the next waiting action.
      */
     public static final int PORT_I = 2;
+    /**
+     * Type constant for appear-in-place clips. Used as a start action: spawn
+     * on-screen, play once without interpolating, then idle.
+     */
+    public static final int SCREEN_IN = 3;
+    /**
+     * Type constant for vanish-in-place clips. Used as a mover: play once
+     * without interpolating, then leave the scene (after the shared 1-in-8
+     * destination roll, unless drag-to-edge forces the exit).
+     */
+    public static final int SCREEN_OUT = 4;
     
     /** Represents motion towards the left (negative x) direction. */
     public static final int LEFT = 0;
@@ -52,7 +63,10 @@ public class PonyAction {
     /** Default speed factor (full historical travel / animation rate). */
     public static final float DEFAULT_SPEED = 1.0f;
     
-    /** The type of action; {@code NORMAL}, {@code PORT_O} or {@code PORT_I} */
+    /**
+     * The type of action; {@code NORMAL}, {@code PORT_O}, {@code PORT_I},
+     * {@code SCREEN_IN} or {@code SCREEN_OUT}.
+     */
     public final int type;
     
     /**
@@ -179,13 +193,28 @@ public class PonyAction {
      * @param loops        whether this alias loops its animation
      */
     public PonyAction(PonyAction spriteSource, float speed, boolean loops) {
+        this(spriteSource, speed, loops, spriteSource != null ? spriteSource.type : NORMAL);
+    }
+
+    /**
+     * Constructs an alias with an explicit action type so a vanish/appear
+     * clip can reuse a stand sheet ({@code spritesfrom}) without inheriting
+     * {@link #NORMAL} travel.
+     *
+     * @param spriteSource action that owns the bitmaps (must not itself be an alias)
+     * @param speed        travel / animation speed factor for this variant
+     * @param loops        whether this alias loops its animation
+     * @param type         {@link #NORMAL}, {@link #PORT_O}, {@link #PORT_I},
+     *                     {@link #SCREEN_IN} or {@link #SCREEN_OUT}
+     */
+    public PonyAction(PonyAction spriteSource, float speed, boolean loops, int type) {
         if (spriteSource == null) {
             throw new IllegalArgumentException("spriteSource");
         }
         // Resolve to the true owner so alias chains stay flat.
         this.spriteSource = spriteSource.spriteSource != null
                 ? spriteSource.spriteSource : spriteSource;
-        this.type = spriteSource.type;
+        this.type = type;
         this.speed = sanitizeSpeed(speed);
         this.loops = loops;
         this.res = this.spriteSource.res;
@@ -205,13 +234,7 @@ public class PonyAction {
      */
     public PonyAction(PonyDefinition.Action definition) {
         this.definition = definition;
-        if (definition.specialType.equals("teleport-out")) {
-            this.type = PORT_O;
-        } else if (definition.specialType.equals("teleport-in")) {
-            this.type = PORT_I;
-        } else {
-            this.type = NORMAL;
-        }
+        this.type = typeFromSpecial(definition.specialType);
         this.speed = sanitizeSpeed(definition.speed);
         this.loops = definition.loops;
         copyDefinitionAnchors(definition);
@@ -339,6 +362,27 @@ public class PonyAction {
         }
     }
     
+    /**
+     * Maps a {@code <specialtype>} string to an action type. Unknown or empty
+     * values are {@link #NORMAL} ({@link PonyDefinition#validate} rejects
+     * unknown names).
+     */
+    public static int typeFromSpecial(String specialType) {
+        if (PonyDefinition.SPECIAL_TELEPORT_OUT.equals(specialType)) {
+            return PORT_O;
+        }
+        if (PonyDefinition.SPECIAL_TELEPORT_IN.equals(specialType)) {
+            return PORT_I;
+        }
+        if (PonyDefinition.SPECIAL_SCREEN_IN.equals(specialType)) {
+            return SCREEN_IN;
+        }
+        if (PonyDefinition.SPECIAL_SCREEN_OUT.equals(specialType)) {
+            return SCREEN_OUT;
+        }
+        return NORMAL;
+    }
+
     private static float sanitizeSpeed(float speed) {
         if (Float.isNaN(speed) || speed <= 0f) {
             return DEFAULT_SPEED;

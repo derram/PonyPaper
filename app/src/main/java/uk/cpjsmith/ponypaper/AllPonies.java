@@ -872,8 +872,13 @@ public class AllPonies {
                     // validate() should have caught this; skip rather than NPE.
                     continue;
                 }
-                // Alias may set its own <loop> independently of the owner.
-                PonyAction alias = new PonyAction(owner, def.speed, def.loops);
+                // Alias may set its own <loop> and special type independently
+                // of the owner (e.g. screen-out reusing a stand sheet).
+                int aliasType = owner.type;
+                if (def.specialType != null && !def.specialType.isEmpty()) {
+                    aliasType = PonyAction.typeFromSpecial(def.specialType);
+                }
+                PonyAction alias = new PonyAction(owner, def.speed, def.loops, aliasType);
                 // Optional per-facing <anchorx>/<anchory> on the alias override inherited values.
                 float leftX = def.getAnchorX("left");
                 float rightX = def.getAnchorX("right");

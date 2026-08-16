@@ -49,6 +49,28 @@ public class PonyDefinition {
      * Built-in idle bag: full vs walk-rate 50/50 ({@code 1:1,0.7:1}).
      */
     public static final String DEFAULT_IDLE_GAITS = "1:1,0.7:1";
+
+    /** Special type: play once in place, then jump to the travel target. */
+    public static final String SPECIAL_TELEPORT_OUT = "teleport-out";
+    /** Special type: play once at the destination, then idle. */
+    public static final String SPECIAL_TELEPORT_IN = "teleport-in";
+    /** Special type: appear in place (start on-screen; no interpolation). */
+    public static final String SPECIAL_SCREEN_IN = "screen-in";
+    /** Special type: vanish in place, then leave the herd slot. */
+    public static final String SPECIAL_SCREEN_OUT = "screen-out";
+
+    /**
+     * @return true when {@code specialType} is empty or a known special
+     */
+    public static boolean isKnownSpecialType(String specialType) {
+        if (specialType == null || specialType.isEmpty()) {
+            return true;
+        }
+        return SPECIAL_TELEPORT_OUT.equals(specialType)
+                || SPECIAL_TELEPORT_IN.equals(specialType)
+                || SPECIAL_SCREEN_IN.equals(specialType)
+                || SPECIAL_SCREEN_OUT.equals(specialType);
+    }
     
     /**
      * Parses a gaits specification such as {@code 0.5:1,0.7:3,1} (weight
@@ -759,7 +781,7 @@ public class PonyDefinition {
             }
             
             String specialType = action.specialType;
-            if (!(specialType.equals("") || specialType.equals("teleport-out") || specialType.equals("teleport-in"))) {
+            if (!isKnownSpecialType(specialType)) {
                 errors.add("Invalid specialtype for " + name + ".");
             }
             

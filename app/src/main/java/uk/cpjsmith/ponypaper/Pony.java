@@ -143,12 +143,25 @@ public class Pony {
             for (int i = 0; i < allActions.length; i++) {
                 allActions[i].load();
             }
-            Point start = randomOffScreen();
-            posX = start.x;
-            posY = start.y;
             changeAction(startActions[random.nextInt(startActions.length)]);
-            motion = currentAction.type == PonyAction.NORMAL ? MOTION_MOVING : MOTION_SPECIAL;
-            setRandomTarget();
+            if (currentAction.type == PonyAction.SCREEN_IN
+                    || currentAction.type == PonyAction.SCREEN_OUT) {
+                // Appear/vanish clips spawn on-screen and do not interpolate.
+                Point startOn = randomOnScreen();
+                posX = startOn.x;
+                posY = startOn.y;
+                motion = MOTION_SPECIAL;
+                if (currentAction.type == PonyAction.SCREEN_OUT) {
+                    leavingMode = LM_GOING;
+                }
+            } else {
+                Point startOff = randomOffScreen();
+                posX = startOff.x;
+                posY = startOff.y;
+                motion = currentAction.type == PonyAction.NORMAL
+                        ? MOTION_MOVING : MOTION_SPECIAL;
+                setRandomTarget();
+            }
         } else if (deltaMs > 0) {
             // Animation rate comes from the current action (travel and idle).
             // Drag / teleport keep full-rate playback so one-shot sheets finish
@@ -179,6 +192,20 @@ public class Pony {
                         if (!tryLandAndWait()) {
                             arriveTarget();
                         }
+                        animTime = currentAction.getAnimationTime(direction);
+                        break;
+
+                    case PonyAction.SCREEN_IN:
+                        // Appear clip finished — idle at the current point.
+                        if (!tryLandAndWait()) {
+                            arriveTarget();
+                        }
+                        animTime = currentAction.getAnimationTime(direction);
+                        break;
+
+                    case PonyAction.SCREEN_OUT:
+                        // Vanish clip finished — leave the herd slot.
+                        leavingMode = LM_GONE;
                         animTime = currentAction.getAnimationTime(direction);
                         break;
                         
@@ -308,19 +335,9 @@ public class Pony {
         int y = Math.round(posY);
         
         if (x < screenBounds.left + s) {
-            if (tryBeginMoving(false)) {
-                leavingMode = LM_GOING;
-                targetPos = new Point(screenBounds.left - s, y);
-            } else {
-                beginWaitingInPlace();
-            }
+            beginForcedExit(new Point(screenBounds.left - s, y));
         } else if (x >= screenBounds.right - s) {
-            if (tryBeginMoving(false)) {
-                leavingMode = LM_GOING;
-                targetPos = new Point(screenBounds.right + s, y);
-            } else {
-                beginWaitingInPlace();
-            }
+            beginForcedExit(new Point(screenBounds.right + s, y));
         } else {
             beginWaitingInPlace();
         }
@@ -391,14 +408,55 @@ public class Pony {
      * @return true if travel began
      */
     private boolean tryBeginMoving(boolean alwaysNewTarget) {
-        if (!setMoving()) {
+        return tryBeginMoving(alwaysNewTarget, false);
+    }
+
+    /**
+     * @param forceLeave if true, skip the 1-in-8 roll for {@code screen-out}
+     *                   (drag-to-edge already chose to leave)
+     */
+    private boolean tryBeginMoving(boolean alwaysNewTarget, boolean forceLeave) {
+        if (!currentAction.hasNextMoving()) {
             return false;
         }
-        motion = currentAction.type == PonyAction.NORMAL ? MOTION_MOVING : MOTION_SPECIAL;
+        PonyAction next = currentAction.getNextMoving(random);
+        if (next.type == PonyAction.SCREEN_OUT) {
+            if (!forceLeave && !SceneExit.shouldLeaveScene(random)) {
+                return false;
+            }
+            changeAction(next);
+            motion = MOTION_SPECIAL;
+            leavingMode = LM_GOING;
+            targetPos = null;
+            return true;
+        }
+        if (next.type == PonyAction.SCREEN_IN) {
+            // Appear-in-place is not travel; play here then idle.
+            changeAction(next);
+            motion = MOTION_SPECIAL;
+            return true;
+        }
+        changeAction(next);
+        motion = next.type == PonyAction.NORMAL ? MOTION_MOVING : MOTION_SPECIAL;
         if (alwaysNewTarget || targetPos == null) {
             setRandomTarget();
         }
         return true;
+    }
+
+    /**
+     * Drag-to-edge: leave now. A {@code screen-out} clip plays in place;
+     * interpolating movers walk/fly/teleport to {@code offScreenTarget}.
+     */
+    private void beginForcedExit(Point offScreenTarget) {
+        if (tryBeginMoving(false, true)) {
+            leavingMode = LM_GOING;
+            if (currentAction.type != PonyAction.SCREEN_OUT) {
+                targetPos = offScreenTarget;
+            }
+        } else {
+            beginWaitingInPlace();
+        }
     }
     
     /**
@@ -481,7 +539,7 @@ public class Pony {
     }
     
     private void setRandomTarget() {
-        if (random.nextInt(8) < 1) {
+        if (SceneExit.shouldLeaveScene(random)) {
             if (motion == MOTION_MOVING) {
                 targetPos = randomOffScreenHoriz();
             } else {

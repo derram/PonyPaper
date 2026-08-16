@@ -30,6 +30,7 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/custom/**",
                 "uk/cpjsmith/ponypaper/PonyDefinition.java",
                 "uk/cpjsmith/ponypaper/WaitExpiry.java",
+                "uk/cpjsmith/ponypaper/SceneExit.java",
             )
         }
     }
@@ -75,8 +76,16 @@ tasks.register<JavaExec>("testWaitExpiry") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.WaitExpiryTest")
 }
 
+tasks.register<JavaExec>("testSceneExit") {
+    group = "verification"
+    description = "Run 1-in-8 scene-leave roll checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.SceneExitTest")
+}
+
 tasks.named("check") {
     dependsOn("testPacker")
     dependsOn("testDefinition")
     dependsOn("testWaitExpiry")
+    dependsOn("testSceneExit")
 }
