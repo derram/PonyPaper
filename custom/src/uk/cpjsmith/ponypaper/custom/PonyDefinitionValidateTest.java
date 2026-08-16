@@ -20,6 +20,15 @@ public final class PonyDefinitionValidateTest {
         failures += run("oneshotBothNoneInvalid", PonyDefinitionValidateTest::testOneshotBothNoneInvalid);
         failures += run("oneshotMovingNoneValid", PonyDefinitionValidateTest::testOneshotMovingNoneValid);
         failures += run("loopingNeedsDrag", PonyDefinitionValidateTest::testLoopingNeedsDrag);
+        failures += run("idleOnlyCannotLeave", PonyDefinitionValidateTest::testIdleOnlyCannotLeave);
+        failures += run("sitThenStandVanishCanLeave", PonyDefinitionValidateTest::testSitThenStandVanishCanLeave);
+        failures += run("appearThenIdleOnlyCannotLeave",
+                PonyDefinitionValidateTest::testAppearThenIdleOnlyCannotLeave);
+        failures += run("statueAppearVanishValid", PonyDefinitionValidateTest::testStatueAppearVanishValid);
+        failures += run("screenInOnMovingIsNotLeave",
+                PonyDefinitionValidateTest::testScreenInOnMovingIsNotLeave);
+        failures += run("knownScreenSpecialsAccepted",
+                PonyDefinitionValidateTest::testKnownScreenSpecialsAccepted);
         if (failures > 0) {
             System.err.println(failures + " definition check(s) failed.");
             System.exit(1);
@@ -92,6 +101,64 @@ public final class PonyDefinitionValidateTest {
         assertInvalid(def, "needs a real next drag action");
     }
 
+    private static void testIdleOnlyCannotLeave() {
+        PonyDefinition def = pony(
+                action("stand", true, "stand,sit", "none"),
+                action("sit", true, "sit,stand", "none"));
+        def.startActions = "stand";
+        def.defaultDrag = "stand";
+        assertInvalid(def, "No reachable action can leave the scene");
+    }
+
+    private static void testSitThenStandVanishCanLeave() throws Exception {
+        PonyDefinition def = pony(
+                action("sit", true, "sit,stand", "none"),
+                action("stand", true, "stand,sit", "vanish"),
+                action("vanish", false, "none", "none", PonyDefinition.SPECIAL_SCREEN_OUT));
+        def.startActions = "sit";
+        def.defaultDrag = "stand";
+        def.validate();
+    }
+
+    private static void testAppearThenIdleOnlyCannotLeave() {
+        PonyDefinition def = pony(
+                action("appear", false, "stand", "none", PonyDefinition.SPECIAL_SCREEN_IN),
+                action("stand", true, "stand", "none"));
+        def.startActions = "appear";
+        def.defaultDrag = "stand";
+        assertInvalid(def, "No reachable action can leave the scene");
+    }
+
+    private static void testStatueAppearVanishValid() throws Exception {
+        PonyDefinition def = pony(
+                action("appear", false, "stand", "none", PonyDefinition.SPECIAL_SCREEN_IN),
+                action("stand", true, "stand,sit", "vanish"),
+                action("sit", true, "sit,sit,stand", "none"),
+                action("vanish", false, "none", "none", PonyDefinition.SPECIAL_SCREEN_OUT));
+        def.startActions = "appear";
+        def.defaultDrag = "stand";
+        def.validate();
+    }
+
+    private static void testScreenInOnMovingIsNotLeave() {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "appear"),
+                action("appear", false, "stand", "none", PonyDefinition.SPECIAL_SCREEN_IN));
+        def.startActions = "appear";
+        def.defaultDrag = "stand";
+        assertInvalid(def, "No reachable action can leave the scene");
+    }
+
+    private static void testKnownScreenSpecialsAccepted() throws Exception {
+        PonyDefinition def = pony(
+                action("appear", false, "stand", "none", PonyDefinition.SPECIAL_SCREEN_IN),
+                action("stand", true, "stand", "vanish"),
+                action("vanish", false, "none", "none", PonyDefinition.SPECIAL_SCREEN_OUT));
+        def.startActions = "appear";
+        def.defaultDrag = "stand";
+        def.validate();
+    }
+
     private static PonyDefinition pony(PonyDefinition.Action... actions) {
         PonyDefinition def = new PonyDefinition();
         def.actions = actions;
@@ -102,9 +169,16 @@ public final class PonyDefinitionValidateTest {
 
     private static PonyDefinition.Action action(String name, boolean loops,
                                                 String waiting, String moving) {
+        return action(name, loops, waiting, moving, "");
+    }
+
+    private static PonyDefinition.Action action(String name, boolean loops,
+                                                String waiting, String moving,
+                                                String specialType) {
         PonyDefinition.Action a = new PonyDefinition.Action();
         a.name = name;
         a.loops = loops;
+        a.specialType = specialType;
         a.images.put("left", "x");
         a.images.put("right", "x");
         a.timings.put("left", "10");

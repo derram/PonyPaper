@@ -853,7 +853,15 @@ public class PonyDefinition {
             boolean hasWait = actionListHasReal(action.nextActions.get("waiting"));
             boolean hasMove = actionListHasReal(action.nextActions.get("moving"));
             boolean hasDrag = actionListHasReal(effectiveDragActions(action));
-            if (!action.loops) {
+            boolean screenOut = SPECIAL_SCREEN_OUT.equals(action.specialType);
+            if (screenOut) {
+                // Completion leaves the scene; next waiting/moving are unused.
+                if (!hasDrag) {
+                    errors.add("Action " + name
+                            + " needs a real next drag action (set Default drag or a drag override; "
+                            + "none/- alone is not allowed for drag).");
+                }
+            } else if (!action.loops) {
                 // One-shots may use none/- on waiting or moving so they fall through
                 // to the other axis; at least one of those two must be real.
                 if (!hasWait && !hasMove) {
@@ -889,8 +897,94 @@ public class PonyDefinition {
                 errors.add("Default drag must list at least one real action (not only none/-).");
             }
         }
+
+        if (!canReachSceneExit()) {
+            errors.add("No reachable action can leave the scene (need a next moving "
+                    + "action that walks, teleports out, or is screen-out).");
+        }
         
         if (!errors.isEmpty()) throw new InvalidPonyException(errors);
+    }
+
+    /**
+     * True when some action reachable from {@link #startActions} via waiting
+     * and moving lists can start a leave (walk, teleport-out, or screen-out).
+     * Sit/sleep with {@code moving=none} do not count; they must reach a pose
+     * that is allowed to leave.
+     */
+    private boolean canReachSceneExit() {
+        if (actions == null || !actionListHasReal(startActions)) {
+            return false;
+        }
+        List<String> seen = new ArrayList<String>();
+        List<String> queue = new ArrayList<String>();
+        addReachableNames(startActions, seen, queue);
+        for (int i = 0; i < queue.size(); i++) {
+            Action action = findAction(queue.get(i));
+            if (action == null) {
+                continue;
+            }
+            if (actionCanStartLeave(action)) {
+                return true;
+            }
+            addReachableNames(action.nextActions.get("waiting"), seen, queue);
+            addReachableNames(action.nextActions.get("moving"), seen, queue);
+        }
+        return false;
+    }
+
+    private boolean actionCanStartLeave(Action action) {
+        if (action == null) {
+            return false;
+        }
+        String moving = action.nextActions.get("moving");
+        if (!actionListHasReal(moving)) {
+            return false;
+        }
+        String[] names = moving.split(",");
+        for (int i = 0; i < names.length; i++) {
+            String n = names[i].trim();
+            if (n.isEmpty() || isNoneToken(n)) {
+                continue;
+            }
+            Action mover = findAction(n);
+            if (mover != null && isLeaveMover(mover)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Walkers, {@code teleport-out}, and {@code screen-out} can take the pony
+     * off-screen. Appear / teleport-in clips only land in place.
+     */
+    private static boolean isLeaveMover(Action mover) {
+        if (mover == null) {
+            return false;
+        }
+        String special = mover.specialType != null ? mover.specialType : "";
+        if (SPECIAL_SCREEN_IN.equals(special) || SPECIAL_TELEPORT_IN.equals(special)) {
+            return false;
+        }
+        return true;
+    }
+
+    private void addReachableNames(String list, List<String> seen, List<String> queue) {
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+        String[] names = list.split(",");
+        for (int i = 0; i < names.length; i++) {
+            String n = names[i].trim();
+            if (n.isEmpty() || isNoneToken(n) || !hasAction(n)) {
+                continue;
+            }
+            if (!seen.contains(n)) {
+                seen.add(n);
+                queue.add(n);
+            }
+        }
     }
     
     private Action findAction(String name) {
