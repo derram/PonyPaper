@@ -8,6 +8,7 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Image;
+import java.awt.Toolkit;
 import java.awt.image.BufferedImage;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -952,10 +953,11 @@ public class PonyEditorGUI extends JPanel {
                 Image image = ImageIO.read(new ByteArrayInputStream(rawImage));
                 if (image == null) throw new IllegalArgumentException();
                 int frames = frameCountFromTimings(timings);
+                SpriteSheetPreview preview = new SpriteSheetPreview(image, frames);
                 String[] options = { "Open in Packer", "OK" };
                 int choice = JOptionPane.showOptionDialog(
                         this,
-                        new SpriteSheetPreview(image, frames),
+                        wrapPreviewForDialog(preview),
                         "Image Preview",
                         JOptionPane.DEFAULT_OPTION,
                         JOptionPane.PLAIN_MESSAGE,
@@ -970,6 +972,24 @@ public class PonyEditorGUI extends JPanel {
             } catch (IOException e) {
                 JOptionPane.showMessageDialog(this, "The image could not be decoded. Please load a new image.", "Image Error", JOptionPane.ERROR_MESSAGE);
             }
+        }
+
+        /**
+         * Caps the preview pane so wide or tall sheets scroll instead of forcing
+         * {@link JOptionPane} to pack to the full spritesheet size.
+         */
+        private static JScrollPane wrapPreviewForDialog(SpriteSheetPreview preview) {
+            JScrollPane scroll = new JScrollPane(preview);
+            scroll.getHorizontalScrollBar().setUnitIncrement(16);
+            scroll.getVerticalScrollBar().setUnitIncrement(16);
+            Dimension sheet = preview.getPreferredSize();
+            Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
+            int maxW = Math.max(480, (int) (screen.width * 0.9) - 80);
+            int maxH = Math.max(200, (int) (screen.height * 0.7));
+            scroll.setPreferredSize(new Dimension(
+                    Math.min(sheet.width + 4, maxW),
+                    Math.min(sheet.height + 4, maxH)));
+            return scroll;
         }
 
         /**
