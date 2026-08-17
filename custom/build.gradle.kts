@@ -69,6 +69,13 @@ tasks.register<JavaExec>("testDefinition") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.PonyDefinitionValidateTest")
 }
 
+tasks.register<JavaExec>("testWeightedLists") {
+    group = "verification"
+    description = "Run next/start list name:N parse and rewrite checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.WeightedActionListTest")
+}
+
 tasks.register<JavaExec>("testWaitExpiry") {
     group = "verification"
     description = "Run idle stay-or-go weight checks"
@@ -86,6 +93,7 @@ tasks.register<JavaExec>("testSceneExit") {
 tasks.named("check") {
     dependsOn("testPacker")
     dependsOn("testDefinition")
+    dependsOn("testWeightedLists")
     dependsOn("testWaitExpiry")
     dependsOn("testSceneExit")
 }

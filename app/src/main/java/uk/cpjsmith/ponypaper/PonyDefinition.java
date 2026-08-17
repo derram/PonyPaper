@@ -38,6 +38,42 @@ public class PonyDefinition {
             this.weight = weight;
         }
     }
+
+    /**
+     * One {@code token} or {@code token:N} fragment. Weight defaults to 1
+     * when the colon is omitted ({@link #weightExplicit} is then false).
+     */
+    public static class WeightedToken {
+        public final String token;
+        public final int weight;
+        public final boolean weightExplicit;
+
+        public WeightedToken(String token, int weight, boolean weightExplicit) {
+            this.token = token;
+            this.weight = weight;
+            this.weightExplicit = weightExplicit;
+        }
+    }
+
+    /**
+     * One next/start/drag list entry: an action name (or reserved
+     * {@code none}/{@code -}) and how many slots it occupies.
+     */
+    public static class ActionListEntry {
+        public final String name;
+        public final int weight;
+
+        public ActionListEntry(String name, int weight) {
+            this.name = name;
+            this.weight = weight;
+        }
+    }
+
+    /**
+     * Maximum {@code :N} weight in next/start/drag lists. Gait bags are not
+     * capped (they already use small integers).
+     */
+    public static final int MAX_ACTION_LIST_WEIGHT = 64;
     
     /**
      * Built-in ground gait bag: stroll 1/5, walk 3/5, full 1/5
@@ -73,6 +109,221 @@ public class PonyDefinition {
     }
     
     /**
+     * Parses one {@code token} or {@code token:N} fragment. Weight defaults
+     * to 1 when the colon is omitted. On error, a message is appended to
+     * {@code errors} when non-null and {@code null} is returned.
+     */
+    public static WeightedToken parseWeightedToken(String part, List<String> errors) {
+        if (part == null) {
+            if (errors != null) {
+                errors.add("Empty weighted entry.");
+            }
+            return null;
+        }
+        String trimmed = part.trim();
+        if (trimmed.isEmpty()) {
+            if (errors != null) {
+                errors.add("Empty weighted entry.");
+            }
+            return null;
+        }
+        int colon = trimmed.indexOf(':');
+        String tokenText;
+        String weightText = null;
+        if (colon >= 0) {
+            tokenText = trimmed.substring(0, colon).trim();
+            weightText = trimmed.substring(colon + 1).trim();
+        } else {
+            tokenText = trimmed;
+        }
+        if (tokenText.isEmpty()) {
+            if (errors != null) {
+                errors.add("Missing name in \"" + trimmed + "\".");
+            }
+            return null;
+        }
+        int weight = 1;
+        boolean explicit = weightText != null;
+        if (explicit) {
+            if (weightText.isEmpty()) {
+                if (errors != null) {
+                    errors.add("Invalid weight in \"" + trimmed
+                            + "\" (must be a positive integer).");
+                }
+                return null;
+            }
+            try {
+                weight = Integer.parseInt(weightText);
+            } catch (NumberFormatException e) {
+                if (errors != null) {
+                    errors.add("Invalid weight in \"" + trimmed
+                            + "\" (must be a positive integer).");
+                }
+                return null;
+            }
+            if (weight <= 0) {
+                if (errors != null) {
+                    errors.add("Invalid weight in \"" + trimmed
+                            + "\" (must be a positive integer).");
+                }
+                return null;
+            }
+        }
+        return new WeightedToken(tokenText, weight, explicit);
+    }
+
+    /**
+     * Formats a list entry. Implicit weight 1 is just {@code name};
+     * an explicit weight is always {@code name:N}.
+     */
+    public static String formatActionListEntry(String name, int weight, boolean weightExplicit) {
+        if (name == null) {
+            name = "";
+        }
+        if (!weightExplicit) {
+            return name;
+        }
+        return name + ":" + weight;
+    }
+
+    /**
+     * Parses a next/start/drag list. Repeats and {@code name:N} are both
+     * allowed; empty comma slots are skipped. Reserved {@code none}/{@code -}
+     * cannot carry an explicit weight. Weights above
+     * {@link #MAX_ACTION_LIST_WEIGHT} are rejected. Invalid fragments are
+     * omitted; messages go to {@code errors} when non-null.
+     */
+    public static List<ActionListEntry> parseActionList(String value, List<String> errors) {
+        List<ActionListEntry> result = new ArrayList<ActionListEntry>();
+        if (value == null || value.trim().isEmpty()) {
+            return result;
+        }
+        String[] parts = value.split(",");
+        for (int i = 0; i < parts.length; i++) {
+            String part = parts[i].trim();
+            if (part.isEmpty()) {
+                continue;
+            }
+            WeightedToken token = parseWeightedToken(part, errors);
+            if (token == null) {
+                continue;
+            }
+            if (isNoneToken(token.token) && token.weightExplicit) {
+                if (errors != null) {
+                    errors.add("Reserved token \"" + token.token + "\" cannot have a weight.");
+                }
+                continue;
+            }
+            if (token.weight > MAX_ACTION_LIST_WEIGHT) {
+                if (errors != null) {
+                    errors.add("Weight in \"" + part + "\" is too large (max "
+                            + MAX_ACTION_LIST_WEIGHT + ").");
+                }
+                continue;
+            }
+            result.add(new ActionListEntry(token.token, token.weight));
+        }
+        return result;
+    }
+
+    /**
+     * Unique real action names from a next/start/drag list (drops empty and
+     * {@code none}/{@code -} tokens; strips {@code :N} weights).
+     */
+    public static List<String> uniqueActionListNames(String list) {
+        List<String> out = new ArrayList<String>();
+        List<ActionListEntry> entries = parseActionList(list, null);
+        for (int i = 0; i < entries.size(); i++) {
+            String name = entries.get(i).name;
+            if (isNoneToken(name)) {
+                continue;
+            }
+            if (!out.contains(name)) {
+                out.add(name);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Expands {@code name:N} and bare repeats into N copies of each real
+     * name. Reserved {@code none}/{@code -} tokens are dropped. Callers then
+     * expand each name through that action's gait bag.
+     */
+    public static List<String> expandActionListNames(String list) {
+        List<String> out = new ArrayList<String>();
+        List<ActionListEntry> entries = parseActionList(list, null);
+        for (int i = 0; i < entries.size(); i++) {
+            ActionListEntry entry = entries.get(i);
+            if (isNoneToken(entry.name)) {
+                continue;
+            }
+            for (int w = 0; w < entry.weight; w++) {
+                out.add(entry.name);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Rewrites every real {@code oldName} (including {@code oldName:N}) to
+     * {@code newName}, preserving explicit weights.
+     */
+    public static String renameInActionList(String list, String oldName, String newName) {
+        if (list == null || list.isEmpty()) {
+            return list == null ? "" : list;
+        }
+        StringBuilder sb = new StringBuilder();
+        String[] parts = list.split(",");
+        for (int i = 0; i < parts.length; i++) {
+            String raw = parts[i].trim();
+            if (raw.isEmpty()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            WeightedToken token = parseWeightedToken(raw, null);
+            if (token != null && token.token.equals(oldName)) {
+                sb.append(formatActionListEntry(newName, token.weight, token.weightExplicit));
+            } else if (raw.equals(oldName)) {
+                sb.append(newName);
+            } else {
+                sb.append(raw);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Keeps reserved {@code none}/{@code -} tokens and entries whose parsed
+     * name is in {@code present}. Unparseable fragments are dropped.
+     */
+    public static String filterActionList(String list, java.util.Set<String> present) {
+        if (list == null || list.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        String[] parts = list.split(",");
+        for (int i = 0; i < parts.length; i++) {
+            String raw = parts[i].trim();
+            if (raw.isEmpty()) {
+                continue;
+            }
+            WeightedToken token = parseWeightedToken(raw, null);
+            String name = token != null ? token.token : raw;
+            if (!isNoneToken(name) && (present == null || !present.contains(name))) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            sb.append(raw);
+        }
+        return sb.toString();
+    }
+
+    /**
      * Parses a gaits specification such as {@code 0.5:1,0.7:3,1} (weight
      * defaults to 1 when omitted). On error, messages are appended to
      * {@code errors} when non-null and an empty list is returned.
@@ -91,31 +342,19 @@ public class PonyDefinition {
                 }
                 continue;
             }
-            String speedText;
-            String weightText = "1";
-            int colon = part.indexOf(':');
-            if (colon >= 0) {
-                speedText = part.substring(0, colon).trim();
-                weightText = part.substring(colon + 1).trim();
-            } else {
-                speedText = part;
+            WeightedToken token = parseWeightedToken(part, errors);
+            if (token == null) {
+                continue;
             }
             try {
-                float speed = Float.parseFloat(speedText);
+                float speed = Float.parseFloat(token.token);
                 if (Float.isNaN(speed) || speed <= 0f) {
                     if (errors != null) {
                         errors.add("Invalid gait speed \"" + part + "\" (must be positive).");
                     }
                     continue;
                 }
-                int weight = Integer.parseInt(weightText);
-                if (weight <= 0) {
-                    if (errors != null) {
-                        errors.add("Invalid gait weight \"" + part + "\" (must be a positive integer).");
-                    }
-                    continue;
-                }
-                result.add(new GaitEntry(speed, weight));
+                result.add(new GaitEntry(speed, token.weight));
             } catch (NumberFormatException e) {
                 if (errors != null) {
                     errors.add("Invalid gait entry \"" + part + "\".");
