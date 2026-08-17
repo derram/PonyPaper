@@ -9,12 +9,16 @@ import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.service.dreams.DreamService;
 import android.view.KeyEvent;
+import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.CompoundButton;
 import android.widget.FrameLayout;
+import android.widget.ImageButton;
+import android.widget.Switch;
 
 /**
  * Optional screensaver (Daydream) host. Uses the same {@link PonySceneController}
@@ -26,11 +30,17 @@ import android.widget.FrameLayout;
  *
  * <p>Interactive so hold-to-drag works. Starts dimmed for dock/idle power use.
  * A real tap/swipe that is not a completed long-press drag brightens the screen
- * if dimmed (dream continues); the same gesture exits only when already bright
- * via {@link #requestUserUnlock()}. Back always exits after the start grace window
- * the same way. That path gently wakes the dream and starts
- * {@link UnlockRequestActivity} so a secure keyguard can show the unlock method
- * (PIN / pattern / biometrics) without an extra lock-screen swipe.
+ * if dimmed and shows session chrome (a gear). The same gesture while already
+ * bright shows or hides that chrome. Unlock is Back / Escape after the start
+ * grace window, or the Unlock row on the session sheet. Those paths gently wake
+ * the dream and start {@link UnlockRequestActivity} so a secure keyguard can
+ * show the unlock method (PIN / pattern / biometrics) without an extra
+ * lock-screen swipe.
+ *
+ * <p>Session chrome (keep-screen-on and disable-auto-dim) lives only for this
+ * dream and is not written to preferences. Keep-screen-on skips the idle
+ * {@link #finish()}; disable-auto-dim skips the 30s re-dim after wake.
+ * Brightness stays with the host device. Thermal hard-stop still ends the dream.
  *
  * <p>Enter and exit use a black content overlay (fade-in / fade-out) so the herd
  * does not hard-cut against the lock screen, and so any OEM window wipe only
@@ -38,7 +48,8 @@ import android.widget.FrameLayout;
  *
  * <p>After {@link #MAX_IDLE_MS} with no touch interaction, the dream calls
  * {@link #finish()} so the system can turn the screen off (and run AOD if
- * configured). Touch input resets that timer. Thermal hard-stop also uses
+ * configured), unless the user opted to keep the screen on for this session.
+ * Touch input resets that timer. Thermal hard-stop also uses
  * {@link #finish()} — neither should prompt for unlock.
  */
 public class PonyDreamService extends DreamService implements PonySceneController.FrameSurface {
@@ -62,6 +73,10 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      */
     private static final long MAX_IDLE_MS = 10 * 60_000L;
 
+    /** Hide the gear when the session sheet is not open. */
+    private static final long CHROME_AUTO_HIDE_MS = 5_000;
+    private static final long CHROME_FADE_MS = 180;
+
     /** Black overlay fade when the dream becomes visible. */
     private static final long FADE_IN_MS = 350;
     /**
@@ -78,15 +93,17 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private final Runnable reDimRunnable = new Runnable() {
         @Override
         public void run() {
-            if (dreaming && !exiting && isScreenBright()) {
-                setScreenBright(false);
+            if (dreaming && !exiting && !keepScreenOn && !disableAutoDim && isScreenBright()) {
+                sessionAwake = false;
+                hideChrome(false);
+                applyDisplayPolicy();
             }
         }
     };
     private final Runnable maxIdleRunnable = new Runnable() {
         @Override
         public void run() {
-            if (dreaming && !exiting) {
+            if (dreaming && !exiting && !keepScreenOn) {
                 beginGracefulExit(new Runnable() {
                     @Override
                     public void run() {
@@ -98,11 +115,24 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             }
         }
     };
+    private final Runnable chromeAutoHideRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (dreaming && !exiting && chromeVisible && !sheetExpanded) {
+                hideChrome(true);
+            }
+        }
+    };
     private PonySceneController controller;
     private FrameLayout rootLayout;
     private SurfaceView surfaceView;
     /** Full-screen black veil for content enter/exit transitions. */
     private View fadeOverlay;
+    private View chromeRoot;
+    private ImageButton gearButton;
+    private View sessionSheet;
+    private Switch keepScreenOnSwitch;
+    private Switch disableAutoDimSwitch;
     private boolean dreaming = false;
     private boolean surfaceReady = false;
     /** True while a content fade-out is in progress (or completed) for this exit. */
@@ -113,6 +143,17 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private long dreamingStartedAtMs = 0;
     /** True after a real {@link MotionEvent#ACTION_DOWN} we own for the current gesture. */
     private boolean gestureDown = false;
+
+    /** User woke the display this session (or keep-on is holding it). */
+    private boolean sessionAwake = false;
+    /** Session opt-in: skip the 10-minute idle {@link #finish()} (and the 30s re-dim). */
+    private boolean keepScreenOn = false;
+    /** Session opt-in: skip the 30s re-dim after wake. The 10-minute idle still applies. */
+    private boolean disableAutoDim = false;
+    private boolean chromeVisible = false;
+    private boolean sheetExpanded = false;
+    /** Do not run switch listeners while syncing widgets from session state. */
+    private boolean updatingChromeUi = false;
 
     @Override
     public void onAttachedToWindow() {
@@ -161,7 +202,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         fadeOverlay.setBackgroundColor(Color.BLACK);
         fadeOverlay.setAlpha(1f);
         // Overlay sits above the surface for the whole dream; it owns touch so
-        // events still reach the herd while alpha is 0.
+        // events still reach the herd while alpha is 0. Session chrome is stacked
+        // above this and receives gear / sheet hits first.
         fadeOverlay.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
@@ -187,27 +229,17 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                         if (gestureDown && canDismissFromTouch()) {
                             if (controller == null || !controller.didDragThisGesture()) {
                                 gestureDown = false;
-                                if (isScreenBright()) {
-                                    requestUserUnlock();
-                                } else {
-                                    // Dimmed: brighten and keep dreaming (clock-style wake).
-                                    setScreenBright(true);
-                                    scheduleReDim();
-                                }
+                                onSceneTap();
                                 return true;
                             }
                         }
                         // Drag ended (or grace/incomplete gesture): stay bright if already so.
-                        if (isScreenBright()) {
-                            scheduleReDim();
-                        }
+                        maybeScheduleReDim();
                         gestureDown = false;
                         break;
                     case MotionEvent.ACTION_CANCEL:
                         // Surface/window may cancel without a user intent to exit.
-                        if (isScreenBright()) {
-                            scheduleReDim();
-                        }
+                        maybeScheduleReDim();
                         gestureDown = false;
                         break;
                     case MotionEvent.ACTION_POINTER_UP:
@@ -224,6 +256,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         rootLayout.addView(surfaceView, matchParent);
         rootLayout.addView(fadeOverlay, matchParent);
+        inflateSessionChrome(matchParent);
         setContentView(rootLayout);
         surfaceView.requestFocus();
 
@@ -239,8 +272,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         fadeInStarted = false;
         dreamingStartedAtMs = SystemClock.uptimeMillis();
         gestureDown = false;
+        resetSessionDisplayState();
         // Always start dimmed; a prior bright session must not stick across dreams.
-        setScreenBright(false);
+        applyDisplayPolicy();
         cancelReDim();
         scheduleMaxIdle();
         if (controller != null) {
@@ -264,6 +298,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         dreamingStartedAtMs = 0;
         gestureDown = false;
         fadeInStarted = false;
+        resetSessionDisplayState();
         cancelReDim();
         cancelMaxIdle();
         cancelOverlayAnimations();
@@ -287,6 +322,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         dreamingStartedAtMs = 0;
         gestureDown = false;
         surfaceReady = false;
+        resetSessionDisplayState();
         cancelReDim();
         cancelMaxIdle();
         cancelOverlayAnimations();
@@ -297,6 +333,11 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         fadeOverlay = null;
         surfaceView = null;
         rootLayout = null;
+        chromeRoot = null;
+        gearButton = null;
+        sessionSheet = null;
+        keepScreenOnSwitch = null;
+        disableAutoDimSwitch = null;
         super.onDetachedFromWindow();
     }
 
@@ -308,7 +349,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         if (event.getAction() == KeyEvent.ACTION_UP) {
             int code = event.getKeyCode();
             // HOME is often not delivered to apps; BACK/ESCAPE still help on docks.
-            // Back exits regardless of dim/bright — only taps use the two-step wake.
+            // Back exits regardless of dim/bright — taps no longer unlock.
             if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_ESCAPE) {
                 if (canDismissFromTouch()) {
                     requestUserUnlock();
@@ -346,6 +387,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             return;
         }
         exiting = true;
+        hideChrome(false);
         cancelReDim();
         cancelMaxIdle();
         cancelOverlayAnimations();
@@ -397,6 +439,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         if (fadeOverlay != null) {
             fadeOverlay.animate().cancel();
         }
+        cancelChromeAnimations();
     }
 
     /**
@@ -409,6 +452,24 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         return SystemClock.uptimeMillis() - dreamingStartedAtMs >= DISMISS_GRACE_MS;
     }
 
+    /**
+     * Completed non-drag tap on the scene (not on chrome). Wakes a dim dream
+     * and toggles the gear; never unlocks.
+     */
+    private void onSceneTap() {
+        if (!isScreenBright()) {
+            sessionAwake = true;
+            applyDisplayPolicy();
+            showChrome(false);
+            return;
+        }
+        if (chromeVisible) {
+            hideChrome(true);
+        } else {
+            showChrome(false);
+        }
+    }
+
     private void scheduleReDim() {
         handler.removeCallbacks(reDimRunnable);
         handler.postDelayed(reDimRunnable, RE_DIM_IDLE_MS);
@@ -418,13 +479,26 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         handler.removeCallbacks(reDimRunnable);
     }
 
+    private void maybeScheduleReDim() {
+        if (!dreaming || exiting || keepScreenOn || disableAutoDim || !isScreenBright()) return;
+        scheduleReDim();
+    }
+
     /**
      * User touched the dream; restart the max-idle countdown so interaction
      * keeps the screensaver running.
      */
     private void noteUserActivity() {
         if (!dreaming || exiting) return;
-        scheduleMaxIdle();
+        if (!keepScreenOn) {
+            scheduleMaxIdle();
+        }
+    }
+
+    /** Chrome controls count as activity and must not lose a race with re-dim. */
+    private void noteChromeActivity() {
+        cancelReDim();
+        noteUserActivity();
     }
 
     private void scheduleMaxIdle() {
@@ -434,6 +508,235 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void cancelMaxIdle() {
         handler.removeCallbacks(maxIdleRunnable);
+    }
+
+    /**
+     * Apply dim/bright and which idle timers may run.
+     * Does not itself restart the 10-minute countdown.
+     */
+    private void applyDisplayPolicy() {
+        boolean wantBright = dreaming && !exiting && (keepScreenOn || sessionAwake);
+        setScreenBright(wantBright);
+        if (keepScreenOn) {
+            cancelReDim();
+            cancelMaxIdle();
+        } else if (disableAutoDim || !wantBright) {
+            cancelReDim();
+        }
+    }
+
+    private void resetSessionDisplayState() {
+        sessionAwake = false;
+        keepScreenOn = false;
+        disableAutoDim = false;
+        hideChrome(false);
+    }
+
+    private void inflateSessionChrome(FrameLayout.LayoutParams matchParent) {
+        chromeRoot = LayoutInflater.from(this).inflate(R.layout.dream_session_chrome, rootLayout, false);
+        rootLayout.addView(chromeRoot, matchParent);
+        gearButton = chromeRoot.findViewById(R.id.dream_gear);
+        sessionSheet = chromeRoot.findViewById(R.id.dream_session_sheet);
+        keepScreenOnSwitch = chromeRoot.findViewById(R.id.dream_keep_screen_on);
+        disableAutoDimSwitch = chromeRoot.findViewById(R.id.dream_disable_auto_dim);
+        View unlockRow = chromeRoot.findViewById(R.id.dream_unlock);
+        if (gearButton != null) {
+            gearButton.setAlpha(0f);
+            gearButton.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    onGearClicked();
+                }
+            });
+        }
+        if (chromeRoot != null) {
+            chromeRoot.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (sheetExpanded) {
+                        hideChrome(true);
+                    }
+                }
+            });
+            // setOnClickListener makes the root clickable; empty taps must reach
+            // the fade overlay unless the sheet is open.
+            chromeRoot.setClickable(false);
+        }
+        if (keepScreenOnSwitch != null) {
+            keepScreenOnSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+                @Override
+                public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                    if (updatingChromeUi) return;
+                    keepScreenOn = isChecked;
+                    if (keepScreenOn) {
+                        sessionAwake = true;
+                    }
+                    applyDisplayPolicy();
+                    if (!keepScreenOn) {
+                        scheduleMaxIdle();
+                        maybeScheduleReDim();
+                    }
+                    noteChromeActivity();
+                }
+            });
+        }
+        if (disableAutoDimSwitch != null) {
+            disableAutoDimSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+                @Override
+                public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                    if (updatingChromeUi) return;
+                    disableAutoDim = isChecked;
+                    if (disableAutoDim) {
+                        sessionAwake = true;
+                    }
+                    applyDisplayPolicy();
+                    if (!disableAutoDim) {
+                        maybeScheduleReDim();
+                    }
+                    noteChromeActivity();
+                }
+            });
+        }
+        if (unlockRow != null) {
+            unlockRow.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    requestUserUnlock();
+                }
+            });
+        }
+    }
+
+    private void onGearClicked() {
+        if (exiting || !dreaming) return;
+        noteChromeActivity();
+        if (!chromeVisible) {
+            sessionAwake = true;
+            applyDisplayPolicy();
+            showChrome(true);
+            return;
+        }
+        if (sheetExpanded) {
+            collapseSheet();
+            scheduleChromeAutoHide();
+        } else {
+            expandSheet();
+        }
+    }
+
+    private void showChrome(boolean expandSheet) {
+        if (!dreaming || exiting || chromeRoot == null || gearButton == null) return;
+        chromeVisible = true;
+        noteChromeActivity();
+        cancelChromeAutoHide();
+        gearButton.animate().cancel();
+        gearButton.setVisibility(View.VISIBLE);
+        gearButton.animate()
+                .alpha(1f)
+                .setDuration(CHROME_FADE_MS)
+                .start();
+        if (expandSheet) {
+            expandSheet();
+        } else {
+            collapseSheet();
+            scheduleChromeAutoHide();
+        }
+    }
+
+    private void hideChrome(boolean animate) {
+        cancelChromeAutoHide();
+        chromeVisible = false;
+        sheetExpanded = false;
+        if (chromeRoot != null) {
+            chromeRoot.setClickable(false);
+        }
+        if (sessionSheet != null) {
+            sessionSheet.animate().cancel();
+            sessionSheet.setVisibility(View.GONE);
+            sessionSheet.setAlpha(1f);
+        }
+        if (dreaming && !exiting) {
+            maybeScheduleReDim();
+        }
+        if (gearButton == null) return;
+        gearButton.animate().cancel();
+        if (!animate || gearButton.getVisibility() != View.VISIBLE) {
+            gearButton.setAlpha(0f);
+            gearButton.setVisibility(View.INVISIBLE);
+            return;
+        }
+        gearButton.animate()
+                .alpha(0f)
+                .setDuration(CHROME_FADE_MS)
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (gearButton != null && !chromeVisible) {
+                            gearButton.setVisibility(View.INVISIBLE);
+                        }
+                    }
+                })
+                .start();
+    }
+
+    private void expandSheet() {
+        if (sessionSheet == null || chromeRoot == null) return;
+        sheetExpanded = true;
+        chromeRoot.setClickable(true);
+        cancelChromeAutoHide();
+        syncChromeWidgets();
+        sessionSheet.animate().cancel();
+        sessionSheet.setAlpha(0f);
+        sessionSheet.setVisibility(View.VISIBLE);
+        sessionSheet.animate()
+                .alpha(1f)
+                .setDuration(CHROME_FADE_MS)
+                .start();
+    }
+
+    private void collapseSheet() {
+        sheetExpanded = false;
+        if (chromeRoot != null) {
+            chromeRoot.setClickable(false);
+        }
+        if (sessionSheet == null) return;
+        sessionSheet.animate().cancel();
+        sessionSheet.setVisibility(View.GONE);
+        sessionSheet.setAlpha(1f);
+    }
+
+    private void syncChromeWidgets() {
+        updatingChromeUi = true;
+        try {
+            if (keepScreenOnSwitch != null) {
+                keepScreenOnSwitch.setChecked(keepScreenOn);
+            }
+            if (disableAutoDimSwitch != null) {
+                disableAutoDimSwitch.setChecked(disableAutoDim);
+            }
+        } finally {
+            updatingChromeUi = false;
+        }
+    }
+
+    private void scheduleChromeAutoHide() {
+        handler.removeCallbacks(chromeAutoHideRunnable);
+        if (!dreaming || exiting || !chromeVisible || sheetExpanded) return;
+        handler.postDelayed(chromeAutoHideRunnable, CHROME_AUTO_HIDE_MS);
+    }
+
+    private void cancelChromeAutoHide() {
+        handler.removeCallbacks(chromeAutoHideRunnable);
+    }
+
+    private void cancelChromeAnimations() {
+        cancelChromeAutoHide();
+        if (gearButton != null) {
+            gearButton.animate().cancel();
+        }
+        if (sessionSheet != null) {
+            sessionSheet.animate().cancel();
+        }
     }
 
     private void updateActive() {
@@ -494,6 +797,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     /**
      * Thermal emergency (SEVERE+): fade out then end the dream so the system can
      * turn the display off instead of holding a frozen screensaver on a hot device.
+     * Runs even when the user asked this session to keep the screen on.
      */
     @Override
     public void onThermalHardStop() {
