@@ -29,6 +29,18 @@ public final class PonyDefinitionValidateTest {
                 PonyDefinitionValidateTest::testScreenInOnMovingIsNotLeave);
         failures += run("knownScreenSpecialsAccepted",
                 PonyDefinitionValidateTest::testKnownScreenSpecialsAccepted);
+        failures += run("weightedNextListIsValid",
+                PonyDefinitionValidateTest::testWeightedNextListIsValid);
+        failures += run("weightedZeroInvalid",
+                PonyDefinitionValidateTest::testWeightedZeroInvalid);
+        failures += run("noneWithWeightInvalid",
+                PonyDefinitionValidateTest::testNoneWithWeightInvalid);
+        failures += run("unknownWeightedNameInvalid",
+                PonyDefinitionValidateTest::testUnknownWeightedNameInvalid);
+        failures += run("colonInActionNameInvalid",
+                PonyDefinitionValidateTest::testColonInActionNameInvalid);
+        failures += run("weightedMovingCanLeave",
+                PonyDefinitionValidateTest::testWeightedMovingCanLeave);
         if (failures > 0) {
             System.err.println(failures + " definition check(s) failed.");
             System.exit(1);
@@ -155,6 +167,53 @@ public final class PonyDefinitionValidateTest {
                 action("stand", true, "stand", "vanish"),
                 action("vanish", false, "none", "none", PonyDefinition.SPECIAL_SCREEN_OUT));
         def.startActions = "appear";
+        def.defaultDrag = "stand";
+        def.validate();
+    }
+
+    private static void testWeightedNextListIsValid() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand:3,cheer:1", "trot"),
+                action("cheer", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        def.startActions = "stand:2,trot";
+        def.validate();
+    }
+
+    private static void testWeightedZeroInvalid() {
+        PonyDefinition def = pony(
+                action("stand", true, "stand:0", "trot"),
+                action("trot", true, "stand", "trot"));
+        assertInvalid(def, "Invalid weight");
+    }
+
+    private static void testNoneWithWeightInvalid() {
+        PonyDefinition def = pony(
+                action("sit", true, "sit", "none:2"),
+                action("trot", true, "sit", "trot"));
+        assertInvalid(def, "cannot have a weight");
+    }
+
+    private static void testUnknownWeightedNameInvalid() {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "missing:3"));
+        assertInvalid(def, "Action missing not defined");
+    }
+
+    private static void testColonInActionNameInvalid() {
+        PonyDefinition def = pony(
+                action("stand:fast", true, "stand:fast", "trot"),
+                action("trot", true, "stand:fast", "trot"));
+        assertInvalid(def, "must not contain ':'");
+    }
+
+    private static void testWeightedMovingCanLeave() throws Exception {
+        PonyDefinition def = pony(
+                action("sit", true, "sit:3,stand:1", "none"),
+                action("stand", true, "stand,sit", "vanish:1"),
+                action("vanish", false, "none", "none", PonyDefinition.SPECIAL_SCREEN_OUT));
+        def.startActions = "sit";
         def.defaultDrag = "stand";
         def.validate();
     }

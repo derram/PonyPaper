@@ -905,6 +905,24 @@ public class PonyDefinition {
         String t = name.trim();
         return t.equals("-") || t.equalsIgnoreCase("none");
     }
+
+    /**
+     * @return an error message when {@code name} cannot be used as a defined
+     *         action (empty, reserved {@code none}/{@code -}, or contains
+     *         {@code :}), else {@code null}
+     */
+    public static String illegalActionNameReason(String name) {
+        if (name == null || name.isEmpty()) {
+            return "Action name must not be empty";
+        }
+        if (isNoneToken(name)) {
+            return "Action name \"" + name + "\" is reserved (use it only in next/start lists).";
+        }
+        if (name.indexOf(':') >= 0) {
+            return "Action name \"" + name + "\" must not contain ':' (reserved for list weights).";
+        }
+        return null;
+    }
     
     /**
      * @return true if {@code value} lists at least one non-empty token
@@ -943,47 +961,42 @@ public class PonyDefinition {
      *         empty, not only {@link #isNoneToken none} tokens)
      */
     public static boolean actionListHasReal(String value) {
-        if (value == null || value.isEmpty()) {
-            return false;
-        }
-        String[] names = value.split(",");
-        for (int i = 0; i < names.length; i++) {
-            String n = names[i].trim();
-            if (n.isEmpty() || isNoneToken(n)) {
-                continue;
+        List<ActionListEntry> entries = parseActionList(value, null);
+        for (int i = 0; i < entries.size(); i++) {
+            if (!isNoneToken(entries.get(i).name)) {
+                return true;
             }
-            return true;
         }
         return false;
     }
     
     /**
      * Validates a comma-separated action list. Allows reserved {@code none}/{@code -}
-     * tokens; other names must be defined actions. Does not require a real
-     * successor (callers enforce that per list / action).
+     * tokens and {@code name:N} weights; other names must be defined actions.
+     * Does not require a real successor (callers enforce that per list / action).
      */
     private void validateActionList(String value, String field1, String field2, List<String> errors) {
         if (value == null || value.length() == 0) {
             errors.add("Missing " + field1 + field2 + ".");
             return;
         }
-        String[] names = value.split(",");
-        boolean anyToken = false;
-        for (int i = 0; i < names.length; i++) {
-            String n = names[i].trim();
-            if (n.isEmpty()) {
-                continue;
-            }
-            anyToken = true;
+        if (!actionListHasTokens(value)) {
+            errors.add("Missing " + field1 + field2 + ".");
+            return;
+        }
+        List<String> listErrors = new ArrayList<String>();
+        List<ActionListEntry> entries = parseActionList(value, listErrors);
+        for (int i = 0; i < listErrors.size(); i++) {
+            errors.add(field1 + field2 + ": " + listErrors.get(i));
+        }
+        for (int i = 0; i < entries.size(); i++) {
+            String n = entries.get(i).name;
             if (isNoneToken(n)) {
                 continue;
             }
             if (!hasAction(n)) {
                 errors.add("Action " + n + " not defined.");
             }
-        }
-        if (!anyToken) {
-            errors.add("Missing " + field1 + field2 + ".");
         }
     }
     
@@ -1015,8 +1028,9 @@ public class PonyDefinition {
                 }
             }
             
-            if (isNoneToken(name)) {
-                errors.add("Action name \"" + name + "\" is reserved (use it only in next/start lists).");
+            String nameError = illegalActionNameReason(name);
+            if (nameError != null) {
+                errors.add(nameError);
             }
             
             String specialType = action.specialType;
@@ -1180,10 +1194,10 @@ public class PonyDefinition {
         if (!actionListHasReal(moving)) {
             return false;
         }
-        String[] names = moving.split(",");
-        for (int i = 0; i < names.length; i++) {
-            String n = names[i].trim();
-            if (n.isEmpty() || isNoneToken(n)) {
+        List<ActionListEntry> entries = parseActionList(moving, null);
+        for (int i = 0; i < entries.size(); i++) {
+            String n = entries.get(i).name;
+            if (isNoneToken(n)) {
                 continue;
             }
             Action mover = findAction(n);
@@ -1213,9 +1227,9 @@ public class PonyDefinition {
         if (list == null || list.isEmpty()) {
             return;
         }
-        String[] names = list.split(",");
-        for (int i = 0; i < names.length; i++) {
-            String n = names[i].trim();
+        List<ActionListEntry> entries = parseActionList(list, null);
+        for (int i = 0; i < entries.size(); i++) {
+            String n = entries.get(i).name;
             if (n.isEmpty() || isNoneToken(n) || !hasAction(n)) {
                 continue;
             }
