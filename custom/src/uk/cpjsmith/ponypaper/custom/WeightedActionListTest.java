@@ -28,6 +28,7 @@ public final class WeightedActionListTest {
         failures += run("renamePreservesWeight", WeightedActionListTest::testRenamePreservesWeight);
         failures += run("filterDropsMissingWeighted", WeightedActionListTest::testFilterDropsMissingWeighted);
         failures += run("parseGaitsStillWorks", WeightedActionListTest::testParseGaitsStillWorks);
+        failures += run("completerStopsAtWeight", WeightedActionListTest::testCompleterStopsAtWeight);
         if (failures > 0) {
             System.err.println(failures + " weighted-list check(s) failed.");
             System.exit(1);
@@ -145,6 +146,20 @@ public final class WeightedActionListTest {
         present.add("stand");
         String kept = PonyDefinition.filterActionList("stand:3,cheer:1,none", present);
         assertEquals("stand:3,none", kept);
+    }
+
+    private static void testCompleterStopsAtWeight() {
+        String text = "stand:3,cheer";
+        ActionNameCompleter.Token name = ActionNameCompleter.tokenAt(text, 3, true);
+        assertEquals("sta", name.prefix);
+        assertEquals(false, ActionNameCompleter.isWeightSuffix(text, name));
+
+        ActionNameCompleter.Token atColon = ActionNameCompleter.tokenAt(text, 5, true);
+        assertEquals("stand", text.substring(atColon.start, atColon.end));
+
+        ActionNameCompleter.Token weight = ActionNameCompleter.tokenAt(text, 6, true);
+        assertEquals(true, ActionNameCompleter.isWeightSuffix(text, weight));
+        assertEquals("3", text.substring(weight.start, weight.end));
     }
 
     private static void testParseGaitsStillWorks() {

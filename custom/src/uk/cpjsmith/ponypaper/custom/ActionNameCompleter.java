@@ -18,8 +18,9 @@ import javax.swing.text.Document;
  * Tab-complete for action-name fields in the custom pony editor.
  * <p>
  * List fields (start / next-actions) complete the comma-separated token under
- * the caret. Single-token mode ({@code multiToken == false}) treats the whole
- * field as one name (e.g. sprites-from).
+ * the caret. {@code name:N} weights are not part of the name token. Single-token
+ * mode ({@code multiToken == false}) treats the whole field as one name
+ * (e.g. sprites-from).
  * <p>
  * Phase 1: Tab only. One prefix match fills the token; several matches extend
  * to the longest common prefix. No popup yet.
@@ -106,6 +107,9 @@ public final class ActionNameCompleter {
         }
 
         Token token = tokenAt(text, caret, multiToken);
+        if (multiToken && isWeightSuffix(text, token)) {
+            return false;
+        }
         List<String> matches = filterPrefix(candidates.getCandidates(), token.prefix);
 
         if (matches.isEmpty()) {
@@ -145,8 +149,8 @@ public final class ActionNameCompleter {
 
     /**
      * Finds the token containing {@code caret}. For multi-token fields, commas
-     * are separators; leading spaces after a comma are skipped so completion
-     * does not eat them.
+     * and {@code :} (start of a {@code :N} weight) are separators; leading
+     * spaces after a separator are skipped so completion does not eat them.
      */
     static Token tokenAt(String text, int caret, boolean multiToken) {
         if (text == null) {
@@ -167,14 +171,16 @@ public final class ActionNameCompleter {
         } else {
             start = 0;
             for (int i = caret - 1; i >= 0; i--) {
-                if (text.charAt(i) == ',') {
+                char ch = text.charAt(i);
+                if (ch == ',' || ch == ':') {
                     start = i + 1;
                     break;
                 }
             }
             end = text.length();
             for (int i = caret; i < text.length(); i++) {
-                if (text.charAt(i) == ',') {
+                char ch = text.charAt(i);
+                if (ch == ',' || ch == ':') {
                     end = i;
                     break;
                 }
@@ -194,6 +200,20 @@ public final class ActionNameCompleter {
 
         String prefix = text.substring(start, caret);
         return new Token(start, end, prefix);
+    }
+
+    /**
+     * True when {@code token} sits in a {@code :N} weight, not an action name.
+     */
+    static boolean isWeightSuffix(String text, Token token) {
+        if (text == null || token == null) {
+            return false;
+        }
+        int i = token.start - 1;
+        while (i >= 0 && text.charAt(i) == ' ') {
+            i--;
+        }
+        return i >= 0 && text.charAt(i) == ':';
     }
 
     /**

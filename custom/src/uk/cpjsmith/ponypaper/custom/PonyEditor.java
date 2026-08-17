@@ -198,12 +198,7 @@ public class PonyEditor {
      * @return the index of the newly created action
      */
     public int addAction(String name) {
-        if (name == null || name.isEmpty()) {
-            throw new IllegalArgumentException("Action name must not be empty");
-        }
-        if (PonyDefinition.isNoneToken(name)) {
-            throw new IllegalArgumentException("Action name \"" + name + "\" is reserved");
-        }
+        checkActionName(name);
         PonyDefinition.Action[] oldActions = ponyDefinition.actions;
         int oldCount = oldActions.length;
         int newCount = oldCount + 1;
@@ -283,12 +278,7 @@ public class PonyEditor {
      */
     public void setActionName(int index, String name) {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
-        if (name == null || name.isEmpty()) {
-            throw new IllegalArgumentException("Action name must not be empty");
-        }
-        if (PonyDefinition.isNoneToken(name)) {
-            throw new IllegalArgumentException("Action name \"" + name + "\" is reserved");
-        }
+        checkActionName(name);
         String oldName = ponyDefinition.actions[index].name;
         if (oldName.equals(name)) {
             return;
@@ -320,21 +310,14 @@ public class PonyEditor {
     }
 
     private static String renameInActionList(String list, String oldName, String newName) {
-        if (list == null || list.isEmpty()) {
-            return list == null ? "" : list;
+        return PonyDefinition.renameInActionList(list, oldName, newName);
+    }
+
+    private static void checkActionName(String name) {
+        String reason = PonyDefinition.illegalActionNameReason(name);
+        if (reason != null) {
+            throw new IllegalArgumentException(reason);
         }
-        StringBuilder sb = new StringBuilder();
-        for (String part : list.split(",")) {
-            String token = part.trim();
-            if (token.isEmpty()) {
-                continue;
-            }
-            if (sb.length() > 0) {
-                sb.append(',');
-            }
-            sb.append(token.equals(oldName) ? newName : token);
-        }
-        return sb.toString();
     }
     
     public String getActionSpecial(int index) {
@@ -555,6 +538,7 @@ public class PonyEditor {
             throw new IllegalArgumentException("Action name must not be empty");
         }
         newName = newName.trim();
+        checkActionName(newName);
         if (findAction(newName) >= 0) {
             throw new IllegalArgumentException("Action name already in use: " + newName);
         }
@@ -909,25 +893,7 @@ public class PonyEditor {
     }
 
     private static String filterActionList(String list, java.util.Set<String> present) {
-        if (list == null || list.isEmpty()) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        for (String part : list.split(",")) {
-            String name = part.trim();
-            // Keep reserved none/- tokens; drop only missing real action names.
-            if (name.isEmpty()) {
-                continue;
-            }
-            if (!PonyDefinition.isNoneToken(name) && !present.contains(name)) {
-                continue;
-            }
-            if (sb.length() > 0) {
-                sb.append(',');
-            }
-            sb.append(name);
-        }
-        return sb.toString();
+        return PonyDefinition.filterActionList(list, present);
     }
     
     public static void main(String[] args) {

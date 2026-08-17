@@ -255,19 +255,6 @@ public final class ActionFrameSource {
      * (drops empty and {@code none}/{@code -} tokens).
      */
     public static java.util.List<String> parseActionNames(String list) {
-        java.util.ArrayList<String> out = new java.util.ArrayList<String>();
-        if (list == null || list.isEmpty()) {
-            return out;
-        }
-        for (String part : list.split(",")) {
-            String name = part.trim();
-            if (name.isEmpty() || PonyDefinition.isNoneToken(name)) {
-                continue;
-            }
-            if (!out.contains(name)) {
-                out.add(name);
-            }
-        }
-        return out;
+        return PonyDefinition.uniqueActionListNames(list);
     }
 }

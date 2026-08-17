@@ -183,7 +183,7 @@ On the left side of the editor is the list of actions. You can create a new acti
 
 At the bottom is the list of **Start actions** (how the pony can enter the scene) and **Default drag** (the drag successors used by every action that has no drag override). Most ponies only need a single drag clip in Default drag. A start action that walks or teleports still spawns just off-screen and travels in; a `screen-in` start appears on-screen in place.
 
-In the action lists (either 'Start actions', 'Default drag', or 'Next [whatever] actions') the same action can be repeated multiple times to make it more likely to be selected. For example, the built-in Rainbow Dash has a start action list of `trot,fly,fly,fly`, so she will choose the 'fly' action three-quarters of the time. Fluttershy, who prefers to keep her hooves on the ground, has a start action list of `trot,trot,trot,fly`.
+In the action lists (either 'Start actions', 'Default drag', or 'Next [whatever] actions') the same action can be repeated multiple times to make it more likely to be selected. You can also write `name:N`, which is the same as listing that name N times (`stand:3,cheer:1` equals `stand,stand,stand,cheer`). After that, each name still expands through that action's `<gaits>` bag. For example, the built-in Rainbow Dash has a start action list of `trot,fly,fly,fly`, so she will choose the 'fly' action three-quarters of the time. Fluttershy, who prefers to keep her hooves on the ground, has a start action list of `trot,trot,trot,fly`.
 
 ## Speed, aliases, and gaits
 
@@ -256,7 +256,7 @@ On animation complete:
 
 **Wait timer vs one-shots:** the idle timer still counts down during a waiting one-shot, but **expiry is deferred** while the current action has `loop` false. The engine will not start travel or re-pick waiting mid-clip; once the one-shot finishes (and hands off to a looping waiter, or fall-through starts travel), a timer that already hit zero fires on the next opportunity.
 
-**Wait timer vs looping idles:** expiry is a weighted stay-or-go pick. If next waiting has *W* slots and next moving has *M* slots, the chance of starting another idle is *W / (W + M)* (repeats count). A stay re-rolls the 3–13 s timer and picks from next waiting; a leave picks from next moving and starts travel. Empty moving is *W / W* (always stay). Empty waiting always leaves when a mover exists.
+**Wait timer vs looping idles:** expiry is a weighted stay-or-go pick. If next waiting has *W* slots and next moving has *M* slots, the chance of starting another idle is *W / (W + M)* (repeats and `name:N` count; then each name's `<gaits>` bag expands). A stay re-rolls the 3–13 s timer and picks from next waiting; a leave picks from next moving and starts travel. Empty moving is *W / W* (always stay). Empty waiting always leaves when a mover exists.
 
 ### `none` / `-` (no successor)
 

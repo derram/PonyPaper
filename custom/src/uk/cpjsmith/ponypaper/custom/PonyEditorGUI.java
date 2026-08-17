@@ -676,10 +676,11 @@ public class PonyEditorGUI extends JPanel {
             add(nextWaitingLabel, c);
             
             nextWaitingField = new JTextField();
-            nextWaitingField.setToolTipText("Comma-separated actions. Repeats raise chance. When a "
+            nextWaitingField.setToolTipText("Comma-separated actions. Repeats raise chance, or write "
+                    + "name:N (same as N copies). That action's gait bag then expands. When a "
                     + "looping idle's timer ends, these slots compete with next moving. Use none or - "
                     + "for no successor (one-shots fall through to next moving). Looping actions still "
-                    + "need a real waiting list. Tab completes the token under the caret.");
+                    + "need a real waiting list. Tab completes the name; :N is optional.");
             nextWaitingField.getDocument().addDocumentListener(nextWaitingListener);
             ActionNameCompleter.install(nextWaitingField, new ActionNameCompleter.CandidateSource() {
                 @Override
@@ -698,10 +699,11 @@ public class PonyEditorGUI extends JPanel {
             add(nextMovingLabel, c);
             
             nextMovingField = new JTextField();
-            nextMovingField.setToolTipText("Comma-separated actions. Repeats raise chance. When a "
+            nextMovingField.setToolTipText("Comma-separated actions. Repeats raise chance, or write "
+                    + "name:N (same as N copies). That action's gait bag then expands. When a "
                     + "looping idle's timer ends, these slots compete with next waiting. Use none or - "
                     + "for no successor (one-shots fall through to next waiting; looping idles stay "
-                    + "idle and re-pick waiting). Tab completes the token under the caret.");
+                    + "idle and re-pick waiting). Tab completes the name; :N is optional.");
             nextMovingField.getDocument().addDocumentListener(nextMovingListener);
             ActionNameCompleter.install(nextMovingField, new ActionNameCompleter.CandidateSource() {
                 @Override
@@ -721,7 +723,8 @@ public class PonyEditorGUI extends JPanel {
             
             nextDragField = new JTextField();
             nextDragField.setToolTipText("Optional. Leave empty to use Default drag. When set, replaces "
-                    + "the default for this action only. Tab completes the token under the caret.");
+                    + "the default for this action only. Repeats or name:N raise chance. Tab completes "
+                    + "the name; :N is optional.");
             nextDragField.getDocument().addDocumentListener(nextDragListener);
             ActionNameCompleter.install(nextDragField, new ActionNameCompleter.CandidateSource() {
                 @Override
@@ -2090,7 +2093,8 @@ public class PonyEditorGUI extends JPanel {
         result.add(startActionsLabel, c);
         
         startActionsField = new JTextField();
-        startActionsField.setToolTipText("Comma-separated entry actions. Tab completes the token under the caret.");
+        startActionsField.setToolTipText("Comma-separated entry actions. Repeats or name:N raise chance. "
+                + "Tab completes the name; :N is optional.");
         startActionsField.getDocument().addDocumentListener(startActionsListener);
         ActionNameCompleter.install(startActionsField, new ActionNameCompleter.CandidateSource() {
             @Override
@@ -2112,7 +2116,7 @@ public class PonyEditorGUI extends JPanel {
         
         defaultDragField = new JTextField();
         defaultDragField.setToolTipText("Comma-separated drag actions used when an action has no drag override. "
-                + "Tab completes the token under the caret.");
+                + "Repeats or name:N raise chance. Tab completes the name; :N is optional.");
         defaultDragField.getDocument().addDocumentListener(defaultDragListener);
         ActionNameCompleter.install(defaultDragField, new ActionNameCompleter.CandidateSource() {
             @Override
