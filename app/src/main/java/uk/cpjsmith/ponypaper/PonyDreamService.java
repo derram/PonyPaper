@@ -8,6 +8,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.service.dreams.DreamService;
+import android.view.GestureDetector;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -29,13 +30,13 @@ import android.widget.Switch;
  * This service only controls content and interactive exit.
  *
  * <p>Interactive so hold-to-drag works. Starts dimmed for dock/idle power use.
- * A real tap/swipe that is not a completed long-press drag brightens the screen
- * if dimmed and shows session chrome (a gear). The same gesture while already
- * bright shows or hides that chrome. Unlock is Back / Escape after the start
- * grace window, or the Unlock row on the session sheet. Those paths gently wake
- * the dream and start {@link UnlockRequestActivity} so a secure keyguard can
- * show the unlock method (PIN / pattern / biometrics) without an extra
- * lock-screen swipe.
+ * First contact on a dim scene brightens immediately (no gear yet). A confirmed
+ * single tap that is not a completed long-press drag shows or hides session
+ * chrome (a gear). Double-tap on the scene, Back / Escape after the start grace
+ * window, or the Unlock row on the session sheet gently wake the dream and
+ * start {@link UnlockRequestActivity} so a secure keyguard can show the unlock
+ * method (PIN / pattern / biometrics) without an extra lock-screen swipe.
+ * Chrome and the sheet do not unlock on tap — that would fight settings use.
  *
  * <p>Session chrome (keep-screen-on and disable-auto-dim) lives only for this
  * dream and is not written to preferences. Keep-screen-on skips the idle
@@ -128,6 +129,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private SurfaceView surfaceView;
     /** Full-screen black veil for content enter/exit transitions. */
     private View fadeOverlay;
+    private GestureDetector sceneGestureDetector;
     private View chromeRoot;
     private ImageButton gearButton;
     private View sessionSheet;
@@ -143,6 +145,13 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private long dreamingStartedAtMs = 0;
     /** True after a real {@link MotionEvent#ACTION_DOWN} we own for the current gesture. */
     private boolean gestureDown = false;
+    /**
+     * Pony drag completed on the previous gesture. The controller clears
+     * {@link PonySceneController#didDragThisGesture()} on the next DOWN, but
+     * {@link GestureDetector.OnDoubleTapListener#onDoubleTap} also fires on that
+     * DOWN, so the prior gesture must be remembered.
+     */
+    private boolean lastCompletedGestureWasDrag = false;
 
     /** User woke the display this session (or keep-on is holding it). */
     private boolean sessionAwake = false;
@@ -201,6 +210,37 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         fadeOverlay = new View(this);
         fadeOverlay.setBackgroundColor(Color.BLACK);
         fadeOverlay.setAlpha(1f);
+        sceneGestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public boolean onDown(MotionEvent e) {
+                return true;
+            }
+
+            @Override
+            public boolean onSingleTapConfirmed(MotionEvent e) {
+                if (controller != null && controller.didDragThisGesture()) {
+                    return true;
+                }
+                if (canDismissFromTouch()) {
+                    onSceneTap();
+                }
+                return true;
+            }
+
+            @Override
+            public boolean onDoubleTap(MotionEvent e) {
+                if (lastCompletedGestureWasDrag) {
+                    return true;
+                }
+                if (canDismissFromTouch()) {
+                    requestUserUnlock();
+                }
+                return true;
+            }
+        });
+        // Long-press on empty space should still count as a tap; pony grab is
+        // handled by the scene controller, not GestureDetector's long-press.
+        sceneGestureDetector.setIsLongpressEnabled(false);
         // Overlay sits above the surface for the whole dream; it owns touch so
         // events still reach the herd while alpha is 0. Session chrome is stacked
         // above this and receives gear / sheet hits first.
@@ -222,22 +262,18 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                         cancelReDim();
                         // Real contact counts as activity; ignore orphan UP/CANCEL for idle.
                         noteUserActivity();
+                        maybeWakeFromContact();
                         break;
                     case MotionEvent.ACTION_UP:
-                        // Only act on a complete user gesture we saw from DOWN.
-                        // Never exit on orphan UP or on CANCEL (window transitions).
-                        if (gestureDown && canDismissFromTouch()) {
-                            if (controller == null || !controller.didDragThisGesture()) {
-                                gestureDown = false;
-                                onSceneTap();
-                                return true;
-                            }
-                        }
+                        lastCompletedGestureWasDrag = controller != null
+                                && controller.didDragThisGesture();
                         // Drag ended (or grace/incomplete gesture): stay bright if already so.
                         maybeScheduleReDim();
                         gestureDown = false;
                         break;
                     case MotionEvent.ACTION_CANCEL:
+                        lastCompletedGestureWasDrag = controller != null
+                                && controller.didDragThisGesture();
                         // Surface/window may cancel without a user intent to exit.
                         maybeScheduleReDim();
                         gestureDown = false;
@@ -247,6 +283,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                         break;
                     default:
                         break;
+                }
+                if (sceneGestureDetector != null) {
+                    sceneGestureDetector.onTouchEvent(event);
                 }
                 return true;
             }
@@ -272,6 +311,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         fadeInStarted = false;
         dreamingStartedAtMs = SystemClock.uptimeMillis();
         gestureDown = false;
+        lastCompletedGestureWasDrag = false;
         resetSessionDisplayState();
         // Always start dimmed; a prior bright session must not stick across dreams.
         applyDisplayPolicy();
@@ -297,6 +337,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         dreaming = false;
         dreamingStartedAtMs = 0;
         gestureDown = false;
+        lastCompletedGestureWasDrag = false;
         fadeInStarted = false;
         resetSessionDisplayState();
         cancelReDim();
@@ -321,7 +362,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         fadeInStarted = false;
         dreamingStartedAtMs = 0;
         gestureDown = false;
+        lastCompletedGestureWasDrag = false;
         surfaceReady = false;
+        sceneGestureDetector = null;
         resetSessionDisplayState();
         cancelReDim();
         cancelMaxIdle();
@@ -349,7 +392,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         if (event.getAction() == KeyEvent.ACTION_UP) {
             int code = event.getKeyCode();
             // HOME is often not delivered to apps; BACK/ESCAPE still help on docks.
-            // Back exits regardless of dim/bright — taps no longer unlock.
+            // Back exits regardless of dim/bright — a single tap does not unlock.
             if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_ESCAPE) {
                 if (canDismissFromTouch()) {
                     requestUserUnlock();
@@ -453,8 +496,20 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     /**
-     * Completed non-drag tap on the scene (not on chrome). Wakes a dim dream
-     * and toggles the gear; never unlocks.
+     * First contact on a dim scene: brighten immediately so a docked display
+     * does not wait for {@link GestureDetector.OnDoubleTapListener#onSingleTapConfirmed}.
+     * Chrome waits for that confirmed single tap so a double-tap unlock does
+     * not flash the gear.
+     */
+    private void maybeWakeFromContact() {
+        if (!canDismissFromTouch() || isScreenBright()) return;
+        sessionAwake = true;
+        applyDisplayPolicy();
+    }
+
+    /**
+     * Confirmed non-drag single tap on the scene (not on chrome). Wakes a dim
+     * dream if contact did not already, then toggles the gear; never unlocks.
      */
     private void onSceneTap() {
         if (!isScreenBright()) {

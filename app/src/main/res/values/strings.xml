@@ -34,6 +34,7 @@
     <string name="dream_disable_auto_dim">Disable auto-dim</string>
     <string name="dream_disable_auto_dim_summary">Stay bright after you wake the screen. Use the device brightness settings for level.</string>
     <string name="dream_unlock">Unlock</string>
+    <string name="dream_unlock_summary">Double-tap the scene, or press Back.</string>
 
     <!-- About / licenses -->
     <string name="pref_about_category">About</string>
