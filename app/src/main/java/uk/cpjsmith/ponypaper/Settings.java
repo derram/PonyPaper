@@ -628,12 +628,19 @@ public class Settings extends PreferenceActivity {
         boolean defaultOn = PonyEnableAll.defaultNewCustomEnabled(prefs, existing);
         SharedPreferences.Editor editor = null;
         for (int i = 0; i < customFiles.length; i++) {
-            String fileName = customFiles[i].getName();
-            String prefKey = "pref_custom_" + fileName;
+            String prefKey = "pref_custom_" + customFiles[i].getName();
             if (!prefs.contains(prefKey)) {
                 if (editor == null) editor = prefs.edit();
                 editor.putBoolean(prefKey, defaultOn);
             }
+        }
+        // Commit before attaching widgets. A CheckBoxPreference with no XML
+        // defaultValue starts unchecked and persists that false on attach,
+        // which would overwrite defaultOn (and can win a later apply() race).
+        if (editor != null) editor.commit();
+        for (int i = 0; i < customFiles.length; i++) {
+            String fileName = customFiles[i].getName();
+            String prefKey = "pref_custom_" + fileName;
             if (findPreference(prefKey) == null) {
                 CheckBoxPreference checkbox = new CheckBoxPreference(this);
                 checkbox.setKey(prefKey);
@@ -641,7 +648,6 @@ public class Settings extends PreferenceActivity {
                 customCat.addPreference(checkbox);
             }
         }
-        if (editor != null) editor.commit();
     }
 
     private void refreshCustomPoniesUi() {
