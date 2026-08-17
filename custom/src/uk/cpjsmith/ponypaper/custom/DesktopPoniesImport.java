@@ -689,8 +689,10 @@ public final class DesktopPoniesImport {
         if (n > 8) {
             n = 8;
         }
-        for (int i = 0; i < n; i++) {
+        if (n == 1) {
             list.add(name);
+        } else {
+            list.add(name + ":" + n);
         }
     }
 

@@ -142,7 +142,7 @@ It can be started by launching the JAR from the file manager (if `.jar` is assoc
 
 * create actions from importable behaviors (group 0, no multi-pony follow targets)
 * convert left/right GIFs into PonyPaper spritesheets at **50%** scale (so they match built-in ponies) and fill frame timings
-* build **start** / **next waiting** / **next moving** / **next drag** lists from Chance, Speed, and Movement
+* build **start** / **next waiting** / **next moving** / **next drag** lists from Chance, Speed, and Movement (Chance becomes `name:N`)
 * map simple teleport chains (e.g. Twilight’s warp) to `teleport-out` / `teleport-in`
 * use a `Dragged` behavior for drag when present
 
