@@ -69,6 +69,7 @@
 
             <Switch
                 android:id="@+id/dream_keep_screen_on"
+                style="@style/DreamSessionSwitch"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:contentDescription="@string/dream_keep_screen_on" />
@@ -106,6 +107,7 @@
 
             <Switch
                 android:id="@+id/dream_disable_auto_dim"
+                style="@style/DreamSessionSwitch"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:contentDescription="@string/dream_disable_auto_dim" />
