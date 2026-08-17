@@ -1776,7 +1776,7 @@
             ruS3OUsPLX40r7ZLev04typX9Z+llyv5bVb18C9za65lrxyKuwAAAABJRU5ErkJggg==
         </image>
         <timings direction="right">20,20,20,20,10,10,10,10,10,10,10,10,10,10,20,20,20,10,10,10,10,20,20,20,20,20,20,20,20,20,20,20,10,10,10,10,20,20,10,20,20,20,20,20,20,20,20,20,10,10,10,10,20,20,10,10,10,10,20</timings>
-        <nextactions type="waiting">haters_start,parade_start,stand,partycannon_start,twitch</nextactions>
+        <nextactions type="waiting">haters_start,parade_start,stand,partycannon_start,twitch,vanish:3</nextactions>
         <nextactions type="moving">trot,trot,hop,hop,gallop,backtrack,roll_start</nextactions>
         <nextactions type="drag">drag</nextactions>
     </action>
@@ -1850,7 +1850,7 @@
             30pOelfeZIj5VnLSu/ImQ8y3kpPelTcZYr6VnPSuvMkQ863kpHflTYaYbyUnvStvqP8DmgJK4VI023kAAAAASUVORK5CYII=
         </image>
         <timings direction="right">8,8,8,8,8,8,8,8,16</timings>
-        <nextactions type="waiting">twitch,twitch,parasol_start,parasol_start,stand,jumpy</nextactions>
+        <nextactions type="waiting">twitch,twitch,parasol_start,parasol_start,stand,jumpy,vanish:3</nextactions>
         <nextactions type="moving">trot,trot,hop,hop,gallop,backtrack,roll_start</nextactions>
         <nextactions type="drag">drag</nextactions>
     </action>
@@ -3930,7 +3930,7 @@
         <timings direction="right">100,10,10,10,10,210,4,10,10,10,10,200,10,10,200</timings>
         <gaits>1:1,0.7:1</gaits>
         <nextactions type="waiting">twitch,chicken,tongue,tonguedance,sleep,haters_start,parade_start,partycannon_start</nextactions>
-        <nextactions type="moving">trot,trot,hop,hop,gallop,backtrack,roll_start,vanish,vanish,vanish</nextactions>
+        <nextactions type="moving">trot:2,hop:2,gallop,backtrack,roll_start,vanish:3</nextactions>
         <nextactions type="drag">drag</nextactions>
     </action>
     <action name="roll_start">
@@ -4614,7 +4614,7 @@
         </image>
         <timings direction="right">20,8,8,8,12,20,8,8,8,8,8,8,8,8,12,12,12,60,12,12,12,12,12,12,100</timings>
         <nextactions type="waiting">twitch,chicken,tongue,tonguedance,haters_start,parade_start,stand,partycannon_start</nextactions>
-        <nextactions type="moving">trot,trot,hop,hop,gallop,backtrack,roll_start</nextactions>
+        <nextactions type="moving">trot:2,hop:2,gallop,backtrack,roll_start</nextactions>
         <nextactions type="drag">drag</nextactions>
     </action>
     <action name="parasol_start">
@@ -5028,7 +5028,7 @@
         </image>
         <timings direction="right">10,10,10,10,150,4,10,4,10,10,10,10,10,10,10,100</timings>
         <nextactions type="waiting">stand,jumpy,roll_start,haters_start,parade_start,chicken,sleep,</nextactions>
-        <nextactions type="moving">trot,trot,hop,hop,gallop,backtrack,roll_start,gallop</nextactions>
+        <nextactions type="moving">trot:2,hop:2,gallop:2,backtrack,roll_start</nextactions>
         <nextactions type="drag">drag</nextactions>
     </action>
     <action name="appear">
@@ -5454,7 +5454,7 @@
         </image>
         <timings direction="right">10,10,10,10,10,10,10,10,10,10,10,10,10,20,10,10,10,10,10,20,10,10,10,10,10,10,10,10,10,10,10,10,10,10,100</timings>
         <nextactions type="waiting">chicken,cakecannon,twitch,tonguedance,haters_start,parade_start,stand,partycannon_start</nextactions>
-        <nextactions type="moving">trot,trot,hop,hop,gallop,backtrack,roll_start</nextactions>
+        <nextactions type="moving">trot:2,hop:2,gallop,backtrack,roll_start</nextactions>
     </action>
     <action name="vanish">
         <specialtype>screen-out</specialtype>
@@ -5630,6 +5630,6 @@
         <nextactions type="waiting">none</nextactions>
         <nextactions type="moving">none</nextactions>
     </action>
-    <startactions>hop,hop,trot,trot,parade,parade,haters,haters,partycannon,appear,appear,appear,roll,roll,mina_trot</startactions>
+    <startactions>hop:3,trot:3,parade:3,haters:3,partycannon,appear:3,roll:2,mina_trot</startactions>
     <defaultdrag>drag</defaultdrag>
 </pony>
