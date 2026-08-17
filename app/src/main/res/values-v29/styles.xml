@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Follows Settings → Display dark theme (and Material You on Pixel-class).
+         DayNight exists only from API 29; older APIs keep values/ DeviceDefault. -->
+    <style name="Theme.PonyPaper.Settings" parent="@android:style/Theme.DeviceDefault.DayNight">
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+    </style>
+</resources>
