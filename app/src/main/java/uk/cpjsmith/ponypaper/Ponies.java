@@ -97,6 +97,7 @@ public class Ponies {
      */
     public Ponies(Context context, SharedPreferences prefs, int desiredCount) {
         inactivePonies = AllPonies.getPonies(context, prefs);
+        applySizeFactor(PonySize.factor(prefs));
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         String rawWaifu = prefs.getString("pref_waifu", "");
         waifuKey = rawWaifu != null ? rawWaifu : "";
@@ -116,6 +117,26 @@ public class Ponies {
      */
     public int getActiveCount() {
         return activeCount;
+    }
+
+    /**
+     * Applies a character-size multiplier to every loaded pony (active and
+     * waiting). Takes effect on the next draw without resetting positions.
+     */
+    public void setSizeFactor(float factor) {
+        applySizeFactor(factor);
+        if (activePonies != null) {
+            for (int i = 0; i < activePonies.length; i++) {
+                activePonies[i].setSizeFactor(factor);
+            }
+        }
+    }
+
+    private void applySizeFactor(float factor) {
+        if (inactivePonies == null) return;
+        for (int i = 0; i < inactivePonies.size(); i++) {
+            inactivePonies.get(i).setSizeFactor(factor);
+        }
     }
 
     /**

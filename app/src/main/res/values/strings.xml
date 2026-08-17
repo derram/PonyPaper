@@ -17,6 +17,8 @@
     <string name="pref_screen_library_summary">Custom ponies, zip backup, and library folder</string>
     <string name="pref_screen_about_summary">Version, licenses, and credits</string>
     <string name="pref_appearance_category">Appearance</string>
+    <string name="pref_pony_size_title">Character size</string>
+    <string name="pref_pony_size_dialog">Character size</string>
     <string name="pref_power_category">Power</string>
     <string name="pref_open_live_wallpaper_title">Live wallpaper settings</string>
     <string name="pref_open_live_wallpaper_summary">Open the system picker to set Pony Paper as your live wallpaper</string>

@@ -62,6 +62,7 @@ public class Settings extends PreferenceActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(null);
+        PonySize.ensureDefault(this);
         addPreferencesFromResource(R.xml.preferences);
         
         File[] customFiles = CustomStorage.listCustomXml(this);

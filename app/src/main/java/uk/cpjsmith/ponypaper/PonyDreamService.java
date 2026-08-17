@@ -167,6 +167,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     @Override
     public void onAttachedToWindow() {
         super.onAttachedToWindow();
+        PonySize.ensureDefault(this);
         PreferenceManager.setDefaultValues(this, R.xml.preferences, true);
 
         setInteractive(true);

@@ -19,6 +19,13 @@
                     custom:maxValue="20"
                     custom:wrap="false"
                     android:defaultValue="4" />
+            <ListPreference android:key="pref_pony_size"
+                            android:title="@string/pref_pony_size_title"
+                            android:summary="%s"
+                            android:dialogTitle="@string/pref_pony_size_dialog"
+                            android:entries="@array/pref_pony_size_entries"
+                            android:entryValues="@array/pref_pony_size_values"
+                            android:defaultValue="100" />
             <ListPreference android:key="pref_target_fps"
                             android:title="Target frame rate"
                             android:summary="%s"

@@ -70,6 +70,11 @@ public class Pony {
     private float frameTime = 0;
     
     private Rect screenBounds;
+    /**
+     * User size multiplier from {@link PonySize} (1 = original
+     * {@code min(w,h)/200} scale).
+     */
+    private float sizeFactor = 1f;
     
     /**
      * Creates a new {@code Pony} object.
@@ -100,6 +105,16 @@ public class Pony {
     public Pony withPrefKey(String prefKey) {
         this.prefKey = prefKey != null ? prefKey : "";
         return this;
+    }
+
+    /**
+     * Sets the user character-size multiplier. {@code 1} is the original scale.
+     * Values {@code <= 0} are ignored.
+     */
+    public void setSizeFactor(float factor) {
+        if (factor > 0f) {
+            sizeFactor = factor;
+        }
     }
     
     /**
@@ -591,7 +606,7 @@ public class Pony {
     }
     
     private float getScale() {
-        return Math.min(screenBounds.width(), screenBounds.height()) / 200.0f;
+        return Math.min(screenBounds.width(), screenBounds.height()) / 200.0f * sizeFactor;
     }
     
     /**

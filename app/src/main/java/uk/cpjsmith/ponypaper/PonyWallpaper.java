@@ -106,6 +106,7 @@ public class PonyWallpaper extends WallpaperService {
 
     @Override
     public Engine onCreateEngine() {
+        PonySize.ensureDefault(this);
         PreferenceManager.setDefaultValues(this, R.xml.preferences, true);
         return new PonyEngine();
     }

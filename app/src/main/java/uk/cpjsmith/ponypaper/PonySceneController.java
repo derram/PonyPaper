@@ -202,6 +202,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     public void start() {
         if (started) return;
         started = true;
+        PonySize.ensureDefault(appContext);
         getPreferences().registerOnSharedPreferenceChangeListener(this);
         powerSaveMode = isSystemPowerSaveMode();
         onBattery = isOnBattery(null);
@@ -650,6 +651,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
         if (PREF_TARGET_FPS.equals(key)) {
             applyTargetFps(prefs);
+            handler.removeCallbacks(drawFrameCallback);
+            if (active && !frozen) {
+                lastFrameUptimeMs = 0;
+                drawFrame();
+            }
+            return;
+        }
+        if (PonySize.PREF_KEY.equals(key)) {
+            if (ponies != null) {
+                ponies.setSizeFactor(PonySize.factor(prefs));
+            }
             handler.removeCallbacks(drawFrameCallback);
             if (active && !frozen) {
                 lastFrameUptimeMs = 0;
