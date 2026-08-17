@@ -741,22 +741,16 @@ public class AllPonies {
     }
     
     /**
-     * Expands a comma-separated action list, substituting each name that has a
-     * gait bag with that bag's weighted entries. Reserved {@code none}/{@code -}
+     * Expands a comma-separated action list: {@code name:N} becomes N copies
+     * of the name (same as repeating it), then each name that has a gait bag
+     * is replaced with that bag's weighted entries. Reserved {@code none}/{@code -}
      * tokens are skipped (empty result means no real successor for that axis).
      */
     private static PonyAction[] expandActionList(String list, HashMap<String, PonyAction[]> bags) {
-        if (list == null || list.isEmpty()) {
-            return new PonyAction[0];
-        }
-        String[] names = list.split(",");
+        java.util.List<String> names = PonyDefinition.expandActionListNames(list);
         ArrayList<PonyAction> out = new ArrayList<PonyAction>();
-        for (int i = 0; i < names.length; i++) {
-            String name = names[i].trim();
-            if (name.isEmpty() || PonyDefinition.isNoneToken(name)) {
-                continue;
-            }
-            PonyAction[] bag = bags.get(name);
+        for (int i = 0; i < names.size(); i++) {
+            PonyAction[] bag = bags.get(names.get(i));
             if (bag != null) {
                 for (int j = 0; j < bag.length; j++) {
                     out.add(bag[j]);
