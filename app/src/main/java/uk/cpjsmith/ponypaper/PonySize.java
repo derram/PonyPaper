@@ -25,7 +25,7 @@ final class PonySize {
     /** Android's usual tablet smallest-width breakpoint. */
     static final int TABLET_SMALLEST_WIDTH_DP = 600;
 
-    private static final int[] ALLOWED = {50, 75, 100, 125, 150};
+    private static final int[] ALLOWED = {25, 50, 75, 100, 125, 150};
 
     private PonySize() {}
 
