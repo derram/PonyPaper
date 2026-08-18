@@ -72,6 +72,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     /** Hide the gear when the session sheet is not open. */
     private static final long CHROME_AUTO_HIDE_MS = 5_000;
+    /** Hide everything when the session sheet IS open. */
+    private static final long SHEET_AUTO_HIDE_MS = 15_000;
     private static final long CHROME_FADE_MS = 180;
 
     /** Black overlay fade when the dream becomes visible. */
@@ -115,7 +117,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private final Runnable chromeAutoHideRunnable = new Runnable() {
         @Override
         public void run() {
-            if (dreaming && !exiting && chromeVisible && !sheetExpanded) {
+            if (dreaming && !exiting && chromeVisible) {
                 hideChrome(true);
             }
         }
@@ -566,6 +568,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private void noteChromeActivity() {
         cancelReDim();
         noteUserActivity();
+        scheduleChromeAutoHide();
     }
 
     private void scheduleMaxIdle() {
@@ -685,7 +688,6 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         }
         if (sheetExpanded) {
             collapseSheet();
-            scheduleChromeAutoHide();
         } else {
             expandSheet();
         }
@@ -695,7 +697,6 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         if (!dreaming || exiting || chromeRoot == null || gearButton == null) return;
         chromeVisible = true;
         noteChromeActivity();
-        cancelChromeAutoHide();
         gearButton.animate().cancel();
         gearButton.setVisibility(View.VISIBLE);
         gearButton.animate()
@@ -706,7 +707,6 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             expandSheet();
         } else {
             collapseSheet();
-            scheduleChromeAutoHide();
         }
     }
 
@@ -750,7 +750,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         if (sessionSheet == null || chromeRoot == null) return;
         sheetExpanded = true;
         chromeRoot.setClickable(true);
-        cancelChromeAutoHide();
+        scheduleChromeAutoHide();
         syncChromeWidgets();
         sessionSheet.animate().cancel();
         sessionSheet.setAlpha(0f);
@@ -788,8 +788,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void scheduleChromeAutoHide() {
         handler.removeCallbacks(chromeAutoHideRunnable);
-        if (!dreaming || exiting || !chromeVisible || sheetExpanded) return;
-        handler.postDelayed(chromeAutoHideRunnable, CHROME_AUTO_HIDE_MS);
+        if (!dreaming || exiting || !chromeVisible) return;
+        long delay = sheetExpanded ? SHEET_AUTO_HIDE_MS : CHROME_AUTO_HIDE_MS;
+        handler.postDelayed(chromeAutoHideRunnable, delay);
     }
 
     private void cancelChromeAutoHide() {
