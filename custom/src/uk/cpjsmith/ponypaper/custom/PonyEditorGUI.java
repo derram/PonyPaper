@@ -788,14 +788,28 @@ public class PonyEditorGUI extends JPanel {
             String leftImg = editor.getActionImage(index, "left");
             String rightImg = editor.getActionImage(index, "right");
             if (alias) {
-                imageLeftField.setText(leftImg.isEmpty() ? "(from " + from + ")" : "<image from " + from + ">");
-                imageRightField.setText(rightImg.isEmpty() ? "(from " + from + ")" : "<image from " + from + ">");
+                setTextIfChanged(imageLeftField, leftImg.isEmpty() ? "(from " + from + ")" : "<image from " + from + ">");
+                setTextIfChanged(imageRightField, rightImg.isEmpty() ? "(from " + from + ")" : "<image from " + from + ">");
             } else {
-                imageLeftField.setText(leftImg.isEmpty() ? "" : "<image>");
-                imageRightField.setText(rightImg.isEmpty() ? "" : "<image>");
+                setTextIfChanged(imageLeftField, leftImg.isEmpty() ? "" : "<image>");
+                setTextIfChanged(imageRightField, rightImg.isEmpty() ? "" : "<image>");
             }
-            timingsLeftField.setText(editor.getActionTimings(index, "left"));
-            timingsRightField.setText(editor.getActionTimings(index, "right"));
+            // Skip setText when the value already matches. Editing timings on an
+            // alias detaches it and refreshes these fields from inside the
+            // timings DocumentListener; mutating that same document throws
+            // IllegalStateException ("Attempt to mutate in notification").
+            setTextIfChanged(timingsLeftField, editor.getActionTimings(index, "left"));
+            setTextIfChanged(timingsRightField, editor.getActionTimings(index, "right"));
+        }
+
+        /** No-op when {@code field} already shows {@code text} (avoids re-entrant DocumentEvents). */
+        private static void setTextIfChanged(JTextField field, String text) {
+            if (text == null) {
+                text = "";
+            }
+            if (!text.equals(field.getText())) {
+                field.setText(text);
+            }
         }
 
         private void refreshSpriteFieldsFromEditor() {
