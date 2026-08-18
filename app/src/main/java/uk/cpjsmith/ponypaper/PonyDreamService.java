@@ -95,7 +95,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private final Runnable reDimRunnable = new Runnable() {
         @Override
         public void run() {
-            if (dreaming && !exiting && !keepScreenOn && !disableAutoDim && isScreenBright()) {
+            if (dreaming && !exiting && !disableAutoDim && isScreenBright()) {
                 sessionAwake = false;
                 hideChrome(false);
                 applyDisplayPolicy();
@@ -156,7 +156,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     /** User woke the display this session (or keep-on is holding it). */
     private boolean sessionAwake = false;
-    /** Session opt-in: skip the 10-minute idle {@link #finish()} (and the 30s re-dim). */
+    /** Session opt-in: skip the 10-minute idle {@link #finish()}. */
     private boolean keepScreenOn = false;
     /** Session opt-in: skip the 30s re-dim after wake. The 10-minute idle still applies. */
     private boolean disableAutoDim = false;
@@ -537,7 +537,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     private void maybeScheduleReDim() {
-        if (!dreaming || exiting || keepScreenOn || disableAutoDim || !isScreenBright()) return;
+        if (!dreaming || exiting || disableAutoDim || !isScreenBright()) return;
         scheduleReDim();
     }
 
@@ -572,12 +572,12 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      * Does not itself restart the 10-minute countdown.
      */
     private void applyDisplayPolicy() {
-        boolean wantBright = dreaming && !exiting && (keepScreenOn || sessionAwake);
+        boolean wantBright = dreaming && !exiting && sessionAwake;
         setScreenBright(wantBright);
         if (keepScreenOn) {
-            cancelReDim();
             cancelMaxIdle();
-        } else if (disableAutoDim || !wantBright) {
+        }
+        if (disableAutoDim || !wantBright) {
             cancelReDim();
         }
     }
@@ -625,14 +625,11 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                     if (updatingChromeUi) return;
                     keepScreenOn = isChecked;
-                    if (keepScreenOn) {
-                        sessionAwake = true;
-                    }
                     applyDisplayPolicy();
                     if (!keepScreenOn) {
                         scheduleMaxIdle();
-                        maybeScheduleReDim();
                     }
+                    maybeScheduleReDim();
                     noteChromeActivity();
                 }
             });

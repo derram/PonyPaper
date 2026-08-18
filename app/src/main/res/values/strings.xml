@@ -33,7 +33,7 @@
 
     <string name="dream_session_settings">Session settings</string>
     <string name="dream_keep_screen_on">Keep screen on</string>
-    <string name="dream_keep_screen_on_summary">Stay lit until you leave. Heat protection can still turn the screen off.</string>
+    <string name="dream_keep_screen_on_summary">Stay on until you leave. Heat protection can still turn the screen off.</string>
     <string name="dream_disable_auto_dim">Disable auto-dim</string>
     <string name="dream_disable_auto_dim_summary">Stay bright after you wake the screen. Use the device brightness settings for level.</string>
     <string name="dream_unlock">Unlock</string>
