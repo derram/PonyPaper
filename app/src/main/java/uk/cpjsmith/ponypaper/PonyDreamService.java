@@ -871,7 +871,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     /**
-     * Thermal emergency (SEVERE+): fade out then end the dream so the system can
+     * Thermal emergency (CRITICAL+): fade out then end the dream so the system can
      * turn the display off instead of holding a frozen screensaver on a hot device.
      * Runs even when the user asked this session to keep the screen on.
      */

@@ -78,17 +78,23 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private static final int THERMAL_LIGHT = 1;
     private static final int THERMAL_MODERATE = 2;
     private static final int THERMAL_SEVERE = 3;
-    /** Maximum FPS while effective thermal status is MODERATE. */
-    private static final int THERMAL_MODERATE_MAX_FPS = 25;
-    /** Maximum on-screen ponies while effective thermal status is MODERATE. */
+    private static final int THERMAL_CRITICAL = 4;
+    /**
+     * Maximum FPS while effective thermal status is MODERATE or SEVERE.
+     * Lower than Battery Saver so the image background can stay up.
+     */
+    private static final int THERMAL_MODERATE_MAX_FPS = 15;
+    /** Maximum on-screen ponies while effective thermal status is MODERATE or SEVERE. */
     private static final int THERMAL_MODERATE_MAX_PONIES = 2;
     /**
      * Battery {@link BatteryManager#EXTRA_TEMPERATURE} (tenths of °C) treated as
      * MODERATE when the Thermal API is unavailable or cooler than the pack.
      */
     private static final int BATTERY_TEMP_MODERATE_TENTHS = 430; // 43.0 °C
-    /** Battery temperature (tenths of °C) treated as SEVERE / emergency freeze. */
+    /** Battery temperature (tenths of °C) treated as SEVERE (soft throttle). */
     private static final int BATTERY_TEMP_SEVERE_TENTHS = 460; // 46.0 °C
+    /** Battery temperature (tenths of °C) treated as CRITICAL / emergency freeze. */
+    private static final int BATTERY_TEMP_CRITICAL_TENTHS = 500; // 50.0 °C
     /** Sentinel: battery temperature not yet read. */
     private static final int BATTERY_TEMP_UNKNOWN = Integer.MIN_VALUE;
     /** Solid fill while animation is frozen for thermal emergency. */
@@ -117,7 +123,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         boolean shouldShowClockDate();
 
         /**
-         * Called once when thermal emergency begins (effective status SEVERE+).
+         * Called once when thermal emergency begins (effective status CRITICAL+).
          * Wallpaper may ignore; the dream should {@code finish()} so the display
          * can sleep instead of holding a frozen screensaver.
          */
@@ -157,7 +163,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private int apiThermalStatus = THERMAL_NONE;
     /** Last battery temperature in tenths of °C, or {@link #BATTERY_TEMP_UNKNOWN}. */
     private int batteryTempTenths = BATTERY_TEMP_UNKNOWN;
-    /** True while effective thermal status warrants emergency freeze (SEVERE+). */
+    /** True while effective thermal status warrants emergency freeze (CRITICAL+). */
     private boolean thermalEmergency = false;
     /** True while status is MODERATE (soft throttle; not emergency). */
     private boolean thermalThrottle = false;
@@ -208,6 +214,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             // signal when the Thermal API reports cooler than the pack).
             int temp = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, BATTERY_TEMP_UNKNOWN);
             if (temp != batteryTempTenths) {
+                Log.d("PonyPaper", "Battery temperature changed: " + temp + " (tenths °C)");
                 batteryTempTenths = temp;
                 recomputeThermalPolicy();
             }
@@ -229,6 +236,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     public void start() {
         if (started) return;
         started = true;
+        Log.d("PonyPaper", "Controller starting...");
         PonySize.ensureDefault(appContext);
         getPreferences().registerOnSharedPreferenceChangeListener(this);
         powerSaveMode = isSystemPowerSaveMode();
@@ -238,8 +246,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             PowerManager pm = (PowerManager) appContext.getSystemService(Context.POWER_SERVICE);
             if (pm != null) {
                 apiThermalStatus = pm.getCurrentThermalStatus();
+                Log.d("PonyPaper", "Initial API thermal status: " + apiThermalStatus);
             }
         }
+        Log.d("PonyPaper", "Initial battery temp: " + batteryTempTenths);
         applyTargetFps(getPreferences());
         registerPowerReceivers();
         registerThermalListener();
@@ -582,13 +592,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         return onBattery && prefs.getBoolean(PREF_BATTERY_DEFAULT_PONIES, false);
     }
 
-    /** Soft thermal throttle (MODERATE): lower FPS/ponies; no full emergency freeze. */
+    /** Soft thermal throttle (MODERATE or SEVERE): lower FPS/ponies; no full emergency freeze. */
     private boolean shouldApplyThermalThrottle() {
         return thermalThrottle && !thermalEmergency;
     }
 
     private boolean shouldDisableBackgroundImage(SharedPreferences prefs) {
-        if (thermalEmergency || shouldApplyThermalThrottle()) return true;
+        if (thermalEmergency) return true;
         if (shouldApplyBatterySaverLimits(prefs)) return true;
         return onBattery && prefs.getBoolean(PREF_BATTERY_DISABLE_BACKGROUND, false);
     }
@@ -653,8 +663,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private int readBatteryTemperatureTenths() {
         Intent status = appContext.registerReceiver(null,
                 new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
-        if (status == null) return BATTERY_TEMP_UNKNOWN;
-        return status.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, BATTERY_TEMP_UNKNOWN);
+        if (status == null) {
+            Log.d("PonyPaper", "readBatteryTemperatureTenths: Sticky battery intent missing");
+            return BATTERY_TEMP_UNKNOWN;
+        }
+        int temp = status.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, BATTERY_TEMP_UNKNOWN);
+        Log.d("PonyPaper", "readBatteryTemperatureTenths: Current temp = " + temp);
+        return temp;
     }
 
     /**
@@ -664,6 +679,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      */
     private int batteryTemperatureThermalStatus() {
         if (batteryTempTenths == BATTERY_TEMP_UNKNOWN) return THERMAL_NONE;
+        if (batteryTempTenths >= BATTERY_TEMP_CRITICAL_TENTHS) return THERMAL_CRITICAL;
         if (batteryTempTenths >= BATTERY_TEMP_SEVERE_TENTHS) return THERMAL_SEVERE;
         if (batteryTempTenths >= BATTERY_TEMP_MODERATE_TENTHS) return THERMAL_MODERATE;
         return THERMAL_NONE;
@@ -682,19 +698,22 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Apply soft throttle (MODERATE) or emergency freeze (SEVERE+) with hysteresis:
-     * once frozen, stay frozen until status drops to LIGHT or below so the herd
-     * does not thrash at the SEVERE boundary.
+     * Apply soft throttle (MODERATE or SEVERE) or emergency freeze (CRITICAL+).
+     * SEVERE is a quality cut, not a hard stop: boot and charging HALs often
+     * report it on a cool device. Leave emergency as soon as status drops
+     * below CRITICAL so a CRITICAL→SEVERE settle resumes at min quality.
      */
     private void recomputeThermalPolicy() {
         int effective = computeEffectiveThermalStatus();
 
-        boolean wantEmergency = effective >= THERMAL_SEVERE;
-        // Hysteresis: leave emergency only when clearly cool (NONE or LIGHT).
-        if (thermalEmergency && effective > THERMAL_LIGHT) {
-            wantEmergency = true;
-        }
+        boolean wantEmergency = effective >= THERMAL_CRITICAL;
         boolean wantThrottle = !wantEmergency && effective >= THERMAL_MODERATE;
+
+        Log.d("PonyPaper", "recomputeThermalPolicy: api=" + apiThermalStatus +
+                ", batteryTenths=" + batteryTempTenths +
+                ", effective=" + effective +
+                ", wantEmergency=" + wantEmergency +
+                ", wantThrottle=" + wantThrottle);
 
         if (wantEmergency == thermalEmergency && wantThrottle == thermalThrottle) {
             return;
