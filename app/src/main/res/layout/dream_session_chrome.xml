@@ -21,7 +21,7 @@
         android:src="@drawable/ic_dream_settings"
         android:visibility="invisible" />
 
-    <LinearLayout
+    <uk.cpjsmith.ponypaper.MaxWidthLinearLayout
         android:id="@+id/dream_session_sheet"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -147,5 +147,5 @@
                 android:textColor="#B3FFFFFF"
                 android:textSize="12sp" />
         </LinearLayout>
-    </LinearLayout>
+    </uk.cpjsmith.ponypaper.MaxWidthLinearLayout>
 </FrameLayout>
