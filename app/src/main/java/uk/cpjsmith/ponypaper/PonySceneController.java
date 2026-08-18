@@ -47,6 +47,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     static final String PREF_DREAM_SHOW_CLOCK = "pref_dream_show_clock";
     /** When true (and the clock is shown), draw the date under the time. */
     static final String PREF_DREAM_SHOW_DATE = "pref_dream_show_date";
+    /**
+     * Dream idle timeout in minutes as a string ({@code "0"} = never).
+     * Missing or invalid values use {@link #DEFAULT_DREAM_IDLE_MINUTES}.
+     */
+    static final String PREF_DREAM_IDLE_TIMEOUT = "pref_dream_idle_timeout";
+    /** Historical hardcoded idle timeout; also the preference default. */
+    static final int DEFAULT_DREAM_IDLE_MINUTES = 10;
     /** Battery-friendly default; motion uses delta time so speed stays consistent. */
     static final int DEFAULT_TARGET_FPS = 30;
     /** Default pony count when the preference is missing. */
@@ -535,6 +542,32 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (status == null) return true; // Assume battery if unknown.
         int plugged = status.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0);
         return plugged == 0;
+    }
+
+    /**
+     * Idle milliseconds before the dream should {@code finish()} with no touch.
+     * {@code 0} means never (session keep-on / thermal hard-stop still apply).
+     */
+    static long dreamIdleTimeoutMs(SharedPreferences prefs) {
+        int minutes = DEFAULT_DREAM_IDLE_MINUTES;
+        String raw = prefs != null
+                ? prefs.getString(PREF_DREAM_IDLE_TIMEOUT,
+                Integer.toString(DEFAULT_DREAM_IDLE_MINUTES))
+                : null;
+        if (raw != null) {
+            try {
+                minutes = Integer.parseInt(raw.trim());
+            } catch (NumberFormatException ignored) {
+                minutes = DEFAULT_DREAM_IDLE_MINUTES;
+            }
+        }
+        if (minutes < 0) {
+            minutes = DEFAULT_DREAM_IDLE_MINUTES;
+        }
+        if (minutes == 0) {
+            return 0L;
+        }
+        return minutes * 60_000L;
     }
 
     private boolean shouldApplyBatterySaverLimits(SharedPreferences prefs) {

@@ -30,6 +30,13 @@
     <string name="pref_dream_show_clock_summary">Large digital clock over the herd (12/24-hour follows system setting)</string>
     <string name="pref_dream_show_date_title">Show date</string>
     <string name="pref_dream_show_date_summary">Weekday and full date under the time</string>
+    <string name="pref_dream_idle_timeout_title">Turn off after inactivity</string>
+    <string name="pref_dream_idle_timeout_dialog">Turn off after inactivity</string>
+    <string name="pref_dream_idle_timeout_5">5 minutes</string>
+    <string name="pref_dream_idle_timeout_10">10 minutes</string>
+    <string name="pref_dream_idle_timeout_30">30 minutes</string>
+    <string name="pref_dream_idle_timeout_60">1 hour</string>
+    <string name="pref_dream_idle_timeout_never">Never</string>
 
     <string name="dream_session_settings">Session settings</string>
     <string name="dream_keep_screen_on">Keep screen on</string>

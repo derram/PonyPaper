@@ -15,7 +15,7 @@ This repository is a **modernization fork** of the [Smithers888/PonyPaper](https
 - **Discrete gaits** — stroll, walk, and trot for more varied movement
 - **Hold-to-drag** — press and hold a pony to drag it; no more accidentally jostling ponies when swiping the home screen
 - **Import from Desktop Ponies** — updated custom character editor can import a folder from DP and build an xml file for use with PP
-- **Optional screen saver** — wallpaper and screensaver can be enabled/disabled independently, uses the same herd and settings; enable under system Display settings
+- **Optional screen saver** — wallpaper and screensaver can be enabled/disabled independently, uses the same herd and settings; enable under system Display settings. Idle timeout (default 10 minutes, or never) ends the saver after no touch so the display can sleep
 - **Optional screensaver clock** — large digital clock, with optional date, drawn over the herd; 12/24-hour follows the system setting
 - **Crash and stability fixes** — safer canvas handling, preference listener cleanup, hardened custom-pony import, sprite bitmap recycling
 - **Custom pony library** — export/import a zip of custom ponies and the background; optional user-owned folder (survives uninstall; reconnect once after reinstall)
@@ -34,7 +34,7 @@ Prebuilt APKs and the custom-pony editor JAR are published on the [Releases](htt
 2. Open the downloaded file (notification, Files app, or browser downloads).
 3. If Android blocks the install, allow installs from that source when prompted (see [warnings below](#android-install-warnings)).
 4. After install, set the wallpaper: long-press the home screen → **Wallpapers** → **Live wallpapers** → **Pony Paper**. Open settings from the wallpaper picker to toggle ponies, background, etc.
-5. (Optional) Use as a **screen saver**: system **Settings → Display → Screen saver** (wording varies by OEM) → choose **Pony Paper**. From in-app settings you can also open **Screen saver settings**. The screensaver uses the same preferences as the wallpaper (ponies, FPS, background, etc.). Under **Screen saver** in-app you can optionally enable a large digital **clock** (and date).
+5. (Optional) Use as a **screen saver**: system **Settings → Display → Screen saver** (wording varies by OEM) → choose **Pony Paper**. From in-app settings you can also open **Screen saver settings**. The screensaver uses the same preferences as the wallpaper (ponies, FPS, background, etc.). Under **Screen saver** in-app you can optionally enable a large digital **clock** (and date), and set how long the saver stays on with no touch (**Turn off after inactivity**, default 10 minutes).
 
 ### Custom pony editor (desktop)
 

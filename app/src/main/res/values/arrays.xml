@@ -26,6 +26,20 @@
         <item>125</item>
         <item>150</item>
     </string-array>
+    <string-array name="pref_dream_idle_timeout_entries">
+        <item>@string/pref_dream_idle_timeout_5</item>
+        <item>@string/pref_dream_idle_timeout_10</item>
+        <item>@string/pref_dream_idle_timeout_30</item>
+        <item>@string/pref_dream_idle_timeout_60</item>
+        <item>@string/pref_dream_idle_timeout_never</item>
+    </string-array>
+    <string-array name="pref_dream_idle_timeout_values">
+        <item>5</item>
+        <item>10</item>
+        <item>30</item>
+        <item>60</item>
+        <item>0</item>
+    </string-array>
     <!-- Built-in favorites for pref_waifu; Settings appends custom ponies at runtime. -->
     <string-array name="pref_waifu_entries">
         <item>None</item>

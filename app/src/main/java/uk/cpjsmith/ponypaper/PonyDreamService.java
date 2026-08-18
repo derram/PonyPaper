@@ -48,11 +48,12 @@ import android.widget.Switch;
  * does not hard-cut against the lock screen, and so any OEM window wipe only
  * animates a solid black buffer instead of stretching live sprites.
  *
- * <p>After {@link #MAX_IDLE_MS} with no touch interaction, the dream calls
- * {@link #finish()} so the system can turn the screen off (and run AOD if
- * configured), unless the user opted to keep the screen on for this session.
- * Touch input resets that timer. Thermal hard-stop also uses
- * {@link #finish()} — neither should prompt for unlock.
+ * <p>After {@link PonySceneController#dreamIdleTimeoutMs} with no touch
+ * interaction, the dream calls {@link #finish()} so the system can turn the
+ * screen off (and run AOD if configured), unless the preference is never or
+ * the user opted to keep the screen on for this session. Touch input resets
+ * that timer. Thermal hard-stop also uses {@link #finish()} — neither should
+ * prompt for unlock.
  */
 public class PonyDreamService extends DreamService implements PonySceneController.FrameSurface {
 
@@ -68,12 +69,6 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      * Keeps dock/idle power behaviour without requiring a second tap to exit first.
      */
     private static final long RE_DIM_IDLE_MS = 30_000;
-
-    /**
-     * Exit the dream after this long with no user touch so the display can sleep
-     * instead of animating overnight (e.g. docked / charging).
-     */
-    private static final long MAX_IDLE_MS = 10 * 60_000L;
 
     /** Hide the gear when the session sheet is not open. */
     private static final long CHROME_AUTO_HIDE_MS = 5_000;
@@ -156,14 +151,27 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     /** User woke the display this session (or keep-on is holding it). */
     private boolean sessionAwake = false;
-    /** Session opt-in: skip the 10-minute idle {@link #finish()}. */
+    /** Session opt-in: skip the idle {@link #finish()}. */
     private boolean keepScreenOn = false;
-    /** Session opt-in: skip the 30s re-dim after wake. The 10-minute idle still applies. */
+    /** Session opt-in: skip the 30s re-dim after wake. The idle timeout still applies. */
     private boolean disableAutoDim = false;
     private boolean chromeVisible = false;
     private boolean sheetExpanded = false;
     /** Do not run switch listeners while syncing widgets from session state. */
     private boolean updatingChromeUi = false;
+
+    private final SharedPreferences.OnSharedPreferenceChangeListener dreamPrefListener =
+            new SharedPreferences.OnSharedPreferenceChangeListener() {
+                @Override
+                public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
+                    if (key == null
+                            || PonySceneController.PREF_DREAM_IDLE_TIMEOUT.equals(key)) {
+                        if (dreaming && !exiting && !keepScreenOn) {
+                            scheduleMaxIdle();
+                        }
+                    }
+                }
+            };
 
     @Override
     public void onAttachedToWindow() {
@@ -303,6 +311,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
         controller = new PonySceneController(this, handler, this);
         controller.start();
+        getDreamPreferences().registerOnSharedPreferenceChangeListener(dreamPrefListener);
     }
 
     @Override
@@ -371,6 +380,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         cancelReDim();
         cancelMaxIdle();
         cancelOverlayAnimations();
+        getDreamPreferences().unregisterOnSharedPreferenceChangeListener(dreamPrefListener);
         if (controller != null) {
             controller.stop();
             controller = null;
@@ -560,7 +570,10 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void scheduleMaxIdle() {
         handler.removeCallbacks(maxIdleRunnable);
-        handler.postDelayed(maxIdleRunnable, MAX_IDLE_MS);
+        if (!dreaming || exiting || keepScreenOn) return;
+        long idleMs = PonySceneController.dreamIdleTimeoutMs(getDreamPreferences());
+        if (idleMs <= 0L) return;
+        handler.postDelayed(maxIdleRunnable, idleMs);
     }
 
     private void cancelMaxIdle() {
@@ -569,7 +582,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     /**
      * Apply dim/bright and which idle timers may run.
-     * Does not itself restart the 10-minute countdown.
+     * Does not itself restart the idle countdown.
      */
     private void applyDisplayPolicy() {
         boolean wantBright = dreaming && !exiting && sessionAwake;
