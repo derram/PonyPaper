@@ -12,8 +12,11 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.hardware.display.DisplayManager;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.preference.CheckBoxPreference;
 import android.preference.ListPreference;
 import android.preference.Preference;
@@ -52,10 +55,16 @@ public class Settings extends PreferenceActivity {
     private static final String URL_CC_BY_NC_SA = "http://creativecommons.org/licenses/by-nc-sa/3.0/";
     private static final String OFL_ASSET_PATH = "font/OFL.txt";
 
+    private final Handler settingsHandler = new Handler(Looper.getMainLooper());
+    private DisplayManager.DisplayListener fpsDisplayListener;
+
     private final SharedPreferences.OnSharedPreferenceChangeListener enableAllListener =
             new SharedPreferences.OnSharedPreferenceChangeListener() {
                 public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
                     refreshEnableAllToggles();
+                    if (key == null || PonySceneController.PREF_TARGET_FPS.equals(key)) {
+                        refreshTargetFpsList();
+                    }
                 }
             };
     
@@ -68,6 +77,7 @@ public class Settings extends PreferenceActivity {
         File[] customFiles = CustomStorage.listCustomXml(this);
         ensureCustomCheckboxes(customFiles);
         refreshWaifuList(customFiles);
+        refreshTargetFpsList();
         updateLibraryFolderSummary();
         setupEnableAllToggles();
         PreferenceManager.getDefaultSharedPreferences(this)
@@ -165,6 +175,7 @@ public class Settings extends PreferenceActivity {
 
     @Override
     protected void onDestroy() {
+        unregisterFpsDisplayListener();
         PreferenceManager.getDefaultSharedPreferences(this)
                 .unregisterOnSharedPreferenceChangeListener(enableAllListener);
         super.onDestroy();
@@ -174,6 +185,14 @@ public class Settings extends PreferenceActivity {
     protected void onResume() {
         super.onResume();
         startLibrarySync(false);
+        refreshTargetFpsList();
+        registerFpsDisplayListener();
+    }
+
+    @Override
+    protected void onPause() {
+        unregisterFpsDisplayListener();
+        super.onPause();
     }
 
     private void setupEnableAllToggles() {
@@ -527,6 +546,86 @@ public class Settings extends PreferenceActivity {
         }
     }
     
+    /**
+     * Hides listed frame rates above this display's peak refresh. Does not
+     * rewrite the stored preference; the engine clamps the effective rate.
+     */
+    private void refreshTargetFpsList() {
+        ListPreference pref = (ListPreference) findPreference(PonySceneController.PREF_TARGET_FPS);
+        if (pref == null) return;
+
+        CharSequence[] entries = getResources().getTextArray(R.array.pref_target_fps_entries);
+        CharSequence[] values = getResources().getTextArray(R.array.pref_target_fps_values);
+        int maxFps = TargetFps.maxListedFps(this);
+
+        ArrayList<CharSequence> outEntries = new ArrayList<CharSequence>(values.length);
+        ArrayList<CharSequence> outValues = new ArrayList<CharSequence>(values.length);
+        for (int i = 0; i < values.length && i < entries.length; i++) {
+            int fps;
+            try {
+                fps = Integer.parseInt(values[i].toString().trim());
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            if (TargetFps.isListedAllowed(fps, maxFps)) {
+                outEntries.add(entries[i]);
+                outValues.add(values[i]);
+            }
+        }
+        if (outValues.isEmpty()) {
+            outEntries.add(Integer.toString(TargetFps.DEFAULT) + " FPS");
+            outValues.add(Integer.toString(TargetFps.DEFAULT));
+        }
+        pref.setEntries(outEntries.toArray(new CharSequence[outEntries.size()]));
+        pref.setEntryValues(outValues.toArray(new CharSequence[outValues.size()]));
+
+        int chosen = TargetFps.DEFAULT;
+        String raw = pref.getValue();
+        if (raw != null) {
+            try {
+                chosen = Integer.parseInt(raw.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (chosen > maxFps) {
+            pref.setSummary(getString(R.string.pref_target_fps_capped_summary, chosen, maxFps));
+        } else {
+            pref.setSummary("%s");
+        }
+    }
+
+    private void registerFpsDisplayListener() {
+        if (fpsDisplayListener != null) return;
+        DisplayManager dm = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
+        if (dm == null) return;
+        fpsDisplayListener = new DisplayManager.DisplayListener() {
+            @Override
+            public void onDisplayAdded(int displayId) {
+                refreshTargetFpsList();
+            }
+
+            @Override
+            public void onDisplayRemoved(int displayId) {
+                refreshTargetFpsList();
+            }
+
+            @Override
+            public void onDisplayChanged(int displayId) {
+                refreshTargetFpsList();
+            }
+        };
+        dm.registerDisplayListener(fpsDisplayListener, settingsHandler);
+    }
+
+    private void unregisterFpsDisplayListener() {
+        if (fpsDisplayListener == null) return;
+        DisplayManager dm = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
+        if (dm != null) {
+            dm.unregisterDisplayListener(fpsDisplayListener);
+        }
+        fpsDisplayListener = null;
+    }
+
     /**
      * Rebuilds the Favorite (waifu) list from built-in arrays plus any custom
      * pony XML basenames currently on disk.

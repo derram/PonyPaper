@@ -12,6 +12,7 @@ import android.view.GestureDetector;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
+import android.view.Display;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
@@ -825,6 +826,15 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     @Override
     public Context getContext() {
         return this;
+    }
+
+    @Override
+    public Display getHostDisplay() {
+        if (surfaceView != null) {
+            Display display = surfaceView.getDisplay();
+            if (display != null) return display;
+        }
+        return TargetFps.displayFor(this);
     }
 
     @Override

@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.hardware.display.DisplayManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -18,6 +19,7 @@ import android.os.PowerManager;
 import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.util.Log;
+import android.view.Display;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import java.io.File;
@@ -113,6 +115,15 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
          * can sleep instead of holding a frozen screensaver.
          */
         default void onThermalHardStop() {}
+
+        /**
+         * Display this host is drawing on. Used to cap FPS at the panel's peak
+         * refresh rate. Named so it does not override {@link Context#getDisplay()}
+         * on windowed hosts (the dream is a {@link android.content.Context}).
+         */
+        default Display getHostDisplay() {
+            return TargetFps.displayFor(getContext());
+        }
     }
 
     private final Context appContext;
@@ -153,6 +164,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private boolean sceneLoadFailed = false;
     /** Token from {@link ThermalStatusSupport#register}; typed as Object for pre-Q safety. */
     private Object thermalListenerToken = null;
+    /** Peak-refresh listener; null when unregistered. */
+    private DisplayManager.DisplayListener displayListener = null;
 
     private boolean active = false;
     private boolean started = false;
@@ -223,6 +236,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         applyTargetFps(getPreferences());
         registerPowerReceivers();
         registerThermalListener();
+        registerDisplayListener();
         recomputeThermalPolicy();
     }
 
@@ -234,6 +248,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         started = false;
         active = false;
         frozen = false;
+        unregisterDisplayListener();
         unregisterThermalListener();
         try {
             appContext.unregisterReceiver(powerSaveReceiver);
@@ -472,6 +487,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * under a still-visible surface buffer.
      */
     public void onSurfaceSizeChanged() {
+        applyTargetFps(getPreferences());
         if (!active || frozen) {
             return;
         }
@@ -707,7 +723,65 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (shouldApplyThermalThrottle()) {
             fps = Math.min(fps, THERMAL_MODERATE_MAX_FPS);
         }
+        fps = Math.min(fps, TargetFps.maxListedFps(hostDisplay()));
         framePeriodMs = Math.max(1, 1000 / fps);
+    }
+
+    /** Display the host is drawing on, else the default display. */
+    private Display hostDisplay() {
+        Display display = surface.getHostDisplay();
+        if (display != null) return display;
+        return TargetFps.displayFor(surface.getContext() != null
+                ? surface.getContext() : appContext);
+    }
+
+    private void registerDisplayListener() {
+        if (displayListener != null) return;
+        DisplayManager dm = (DisplayManager) appContext.getSystemService(Context.DISPLAY_SERVICE);
+        if (dm == null) return;
+        displayListener = new DisplayManager.DisplayListener() {
+            @Override
+            public void onDisplayAdded(int displayId) {
+                onHostDisplayMaybeChanged();
+            }
+
+            @Override
+            public void onDisplayRemoved(int displayId) {
+                onHostDisplayMaybeChanged();
+            }
+
+            @Override
+            public void onDisplayChanged(int displayId) {
+                onHostDisplayMaybeChanged();
+            }
+        };
+        dm.registerDisplayListener(displayListener, handler);
+    }
+
+    private void unregisterDisplayListener() {
+        if (displayListener == null) return;
+        DisplayManager dm = (DisplayManager) appContext.getSystemService(Context.DISPLAY_SERVICE);
+        if (dm != null) {
+            dm.unregisterDisplayListener(displayListener);
+        }
+        displayListener = null;
+    }
+
+    /**
+     * Fold, external display, or a system 60/120 Hz toggle can change peak Hz
+     * without a preference edit. Re-clamp and reschedule only when the period
+     * actually changes.
+     */
+    private void onHostDisplayMaybeChanged() {
+        if (!started) return;
+        int oldPeriod = framePeriodMs;
+        applyTargetFps(getPreferences());
+        if (framePeriodMs == oldPeriod) return;
+        handler.removeCallbacks(drawFrameCallback);
+        if (active && !frozen && surface.isDrawingEnabled()) {
+            lastFrameUptimeMs = 0;
+            drawFrame();
+        }
     }
 
     private int powerPolicySignature(SharedPreferences prefs) {

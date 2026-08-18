@@ -1,10 +1,12 @@
 package uk.cpjsmith.ponypaper;
 
 import android.content.Context;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.preference.PreferenceManager;
 import android.service.wallpaper.WallpaperService;
+import android.view.Display;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 
@@ -42,6 +44,18 @@ public class PonyWallpaper extends WallpaperService {
         @Override
         public Context getContext() {
             return PonyWallpaper.this;
+        }
+
+        @Override
+        public Display getHostDisplay() {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                Context displayContext = getDisplayContext();
+                if (displayContext != null) {
+                    Display display = TargetFps.displayFor(displayContext);
+                    if (display != null) return display;
+                }
+            }
+            return TargetFps.displayFor(PonyWallpaper.this);
         }
 
         @Override

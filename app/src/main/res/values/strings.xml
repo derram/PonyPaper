@@ -19,6 +19,7 @@
     <string name="pref_appearance_category">Appearance</string>
     <string name="pref_pony_size_title">Character size</string>
     <string name="pref_pony_size_dialog">Character size</string>
+    <string name="pref_target_fps_capped_summary">%1$d FPS (display is %2$d Hz — running at %2$d)</string>
     <string name="pref_power_category">Power</string>
     <string name="pref_open_live_wallpaper_title">Live wallpaper settings</string>
     <string name="pref_open_live_wallpaper_summary">Open the system picker to set Pony Paper as your live wallpaper</string>
