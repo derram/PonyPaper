@@ -90,10 +90,18 @@ tasks.register<JavaExec>("testSceneExit") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.SceneExitTest")
 }
 
+tasks.register<JavaExec>("testSpritePreview") {
+    group = "verification"
+    description = "Run spritesheet preview / anchor-picker zoom checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.SpriteSheetPreviewTest")
+}
+
 tasks.named("check") {
     dependsOn("testPacker")
     dependsOn("testDefinition")
     dependsOn("testWeightedLists")
     dependsOn("testWaitExpiry")
     dependsOn("testSceneExit")
+    dependsOn("testSpritePreview")
 }

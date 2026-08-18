@@ -1,5 +1,6 @@
 package uk.cpjsmith.ponypaper.custom;
 
+import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -64,6 +65,17 @@ public class SpriteSheetPreview extends JComponent
     private boolean showGrid = true;
     private int placeZoom = 4;
     private Listener listener;
+
+    /**
+     * Isolated copy of the selected frame. Place-mode painting must not blit from
+     * the parent sheet: Java2D's scaled {@code drawImage} overflows on dest sizes
+     * around 32k and then samples neighbouring frames.
+     */
+    private BufferedImage isolatedFrame;
+    private int isolatedFrameIndex = -1;
+
+    /** Max source pixels per blit tile so dest size stays well below Java2D limits. */
+    static final int PLACE_BLIT_SRC_TILE = 256;
 
     /**
      * Preview-only constructor (hover highlight of frames). Same behaviour as the
@@ -131,11 +143,17 @@ public class SpriteSheetPreview extends JComponent
     }
 
     public void setSelectedFrame(int frameIndex) {
+        int next;
         if (frameIndex < 0 || frameIndex >= frameCount) {
-            selectedFrame = -1;
+            next = -1;
         } else {
-            selectedFrame = frameIndex;
+            next = frameIndex;
         }
+        if (next != selectedFrame) {
+            isolatedFrame = null;
+            isolatedFrameIndex = -1;
+        }
+        selectedFrame = next;
         repaint();
         updateStatus();
     }
@@ -301,17 +319,29 @@ public class SpriteSheetPreview extends JComponent
 
     private Dimension preferredSizeForMode() {
         if (mode == Mode.PLACE_ANCHOR && selectedFrame >= 0) {
-            return new Dimension(frameWidth * placeZoom, frameHeight * placeZoom);
+            return new Dimension(mulSize(frameWidth, placeZoom), mulSize(frameHeight, placeZoom));
         }
         return new Dimension(imageWidth, imageHeight);
+    }
+
+    /** {@code a * b} clamped so Dimension / component size stay non-negative. */
+    static int mulSize(int a, int b) {
+        long p = (long) a * (long) b;
+        if (p > Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        if (p < 0) {
+            return 0;
+        }
+        return (int) p;
     }
 
     private Rectangle getImageBounds() {
         int drawW;
         int drawH;
         if (mode == Mode.PLACE_ANCHOR && selectedFrame >= 0) {
-            drawW = frameWidth * placeZoom;
-            drawH = frameHeight * placeZoom;
+            drawW = mulSize(frameWidth, placeZoom);
+            drawH = mulSize(frameHeight, placeZoom);
         } else {
             drawW = imageWidth;
             drawH = imageHeight;
@@ -531,73 +561,203 @@ public class SpriteSheetPreview extends JComponent
         g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
 
-        int srcX = selectedFrame * frameWidth;
-        // Clip source width if the last frame is short due to non-divisible sheet width.
-        int srcW = Math.min(frameWidth, imageWidth - srcX);
-        if (srcW <= 0) {
-            srcW = frameWidth;
+        Rectangle clip = g2.getClipBounds();
+        if (clip == null) {
+            clip = bounds;
         }
-
-        g2.drawImage(
-                image,
-                bounds.x,
-                bounds.y,
-                bounds.x + bounds.width,
-                bounds.y + bounds.height,
-                srcX,
-                0,
-                srcX + srcW,
-                frameHeight,
-                null);
+        blitVisibleFrame(g2, isolateSelectedFrame(), bounds, clip);
 
         if (showGrid && placeZoom >= 2) {
-            paintPixelGrid(g2, bounds);
+            paintPixelGrid(g2, bounds, clip);
         }
 
         float ax = Float.isNaN(anchorX) ? getDefaultAnchorX() : anchorX;
         float ay = Float.isNaN(anchorY) ? getDefaultAnchorY() : anchorY;
-        int cx = bounds.x + Math.round(ax * bounds.width / (float) frameWidth);
-        int cy = bounds.y + Math.round(ay * bounds.height / (float) frameHeight);
+        int cx = bounds.x + (int) Math.round(ax * (double) bounds.width / frameWidth);
+        int cy = bounds.y + (int) Math.round(ay * (double) bounds.height / frameHeight);
         paintCrosshair(g2, cx, cy, Float.isNaN(anchorX) || Float.isNaN(anchorY));
     }
 
-    private void paintPixelGrid(Graphics2D g2, Rectangle bounds) {
+    /**
+     * Copy of the selected cell only. Neighbouring sheet pixels must not share
+     * this raster — a failed large-scale blit of the parent strip is what made
+     * the rest of the sheet appear while zooming.
+     */
+    private BufferedImage isolateSelectedFrame() {
+        if (isolatedFrame != null && isolatedFrameIndex == selectedFrame) {
+            return isolatedFrame;
+        }
+        int srcX = Math.max(0, selectedFrame * frameWidth);
+        int srcW = Math.min(frameWidth, Math.max(0, imageWidth - srcX));
+        BufferedImage copy = new BufferedImage(frameWidth, frameHeight, BufferedImage.TYPE_INT_ARGB);
+        if (srcW > 0 && frameHeight > 0) {
+            Graphics2D g = copy.createGraphics();
+            try {
+                g.setComposite(AlphaComposite.Src);
+                g.drawImage(image, 0, 0, srcW, frameHeight, srcX, 0, srcX + srcW, frameHeight, null);
+            } finally {
+                g.dispose();
+            }
+        }
+        isolatedFrame = copy;
+        isolatedFrameIndex = selectedFrame;
+        return copy;
+    }
+
+    /**
+     * Blits only the clip's source pixels, in tiles, after translating so dest
+     * coordinates stay small. A single {@code drawImage} of the whole zoomed
+     * frame overflows Java2D's 16.16 scale math once dest edges approach 32k.
+     */
+    void blitVisibleFrame(Graphics2D g2, BufferedImage frame, Rectangle bounds, Rectangle clip) {
+        if (frame == null || bounds.width <= 0 || bounds.height <= 0) {
+            return;
+        }
+        int[] span = visibleSourceSpan(bounds, clip, frameWidth, frameHeight);
+        if (span == null) {
+            return;
+        }
+        int sx0 = span[0];
+        int sy0 = span[1];
+        int sx1 = span[2];
+        int sy1 = span[3];
+        for (int sy = sy0; sy < sy1; sy += PLACE_BLIT_SRC_TILE) {
+            int syEnd = Math.min(sy + PLACE_BLIT_SRC_TILE, sy1);
+            for (int sx = sx0; sx < sx1; sx += PLACE_BLIT_SRC_TILE) {
+                int sxEnd = Math.min(sx + PLACE_BLIT_SRC_TILE, sx1);
+                int dx = bounds.x + destForSrc(sx, bounds.width, frameWidth, false);
+                int dy = bounds.y + destForSrc(sy, bounds.height, frameHeight, false);
+                int dxEnd = bounds.x + destForSrc(sxEnd, bounds.width, frameWidth, true);
+                int dyEnd = bounds.y + destForSrc(syEnd, bounds.height, frameHeight, true);
+                int dw = dxEnd - dx;
+                int dh = dyEnd - dy;
+                if (dw <= 0 || dh <= 0) {
+                    continue;
+                }
+                Graphics2D tile = (Graphics2D) g2.create();
+                try {
+                    tile.translate(dx, dy);
+                    tile.drawImage(frame, 0, 0, dw, dh, sx, sy, sxEnd, syEnd, null);
+                } finally {
+                    tile.dispose();
+                }
+            }
+        }
+    }
+
+    /**
+     * Source pixel span [sx0, sy0, sx1, sy1) covering {@code clip} inside
+     * {@code bounds}. Null if nothing is visible.
+     */
+    static int[] visibleSourceSpan(Rectangle bounds, Rectangle clip, int frameWidth, int frameHeight) {
+        if (bounds == null || clip == null || frameWidth <= 0 || frameHeight <= 0) {
+            return null;
+        }
+        Rectangle vis = bounds.intersection(clip);
+        if (vis.width <= 0 || vis.height <= 0 || bounds.width <= 0 || bounds.height <= 0) {
+            return null;
+        }
+        int sx0 = clampInt(srcFloor(vis.x - bounds.x, bounds.width, frameWidth), 0, frameWidth);
+        int sy0 = clampInt(srcFloor(vis.y - bounds.y, bounds.height, frameHeight), 0, frameHeight);
+        int sx1 = clampInt(srcCeil(vis.x + vis.width - bounds.x, bounds.width, frameWidth), 0, frameWidth);
+        int sy1 = clampInt(srcCeil(vis.y + vis.height - bounds.y, bounds.height, frameHeight), 0, frameHeight);
+        if (sx1 <= sx0 || sy1 <= sy0) {
+            return null;
+        }
+        return new int[] {sx0, sy0, sx1, sy1};
+    }
+
+    static int srcFloor(int destOffset, int destSize, int srcSize) {
+        if (destSize <= 0) {
+            return 0;
+        }
+        return (int) Math.floor(destOffset * (double) srcSize / destSize);
+    }
+
+    static int srcCeil(int destOffset, int destSize, int srcSize) {
+        if (destSize <= 0) {
+            return srcSize;
+        }
+        return (int) Math.ceil(destOffset * (double) srcSize / destSize);
+    }
+
+    static int destForSrc(int src, int destSize, int srcSize, boolean ceil) {
+        if (srcSize <= 0) {
+            return 0;
+        }
+        double v = src * (double) destSize / srcSize;
+        return ceil ? (int) Math.ceil(v) : (int) Math.floor(v);
+    }
+
+    private static int clampInt(int v, int min, int max) {
+        if (v < min) {
+            return min;
+        }
+        if (v > max) {
+            return max;
+        }
+        return v;
+    }
+
+    private void paintPixelGrid(Graphics2D g2, Rectangle bounds, Rectangle clip) {
+        Rectangle vis = bounds.intersection(clip);
+        if (vis.width <= 0 || vis.height <= 0) {
+            return;
+        }
+        int pad = 2;
+        int minX = vis.x - pad;
+        int maxX = vis.x + vis.width + pad;
+        int minY = vis.y - pad;
+        int maxY = vis.y + vis.height + pad;
+
         // Dual low-opacity grid so it reads on both light and dark sprites.
         Color dark = new Color(0, 0, 0, 40);
         Color light = new Color(255, 255, 255, 36);
         g2.setStroke(new BasicStroke(1f));
 
         for (int gx = 0; gx <= frameWidth; gx++) {
-            int x = bounds.x + Math.round(gx * bounds.width / (float) frameWidth);
+            int x = bounds.x + destForSrc(gx, bounds.width, frameWidth, false);
+            if (x < minX || x > maxX) {
+                continue;
+            }
             g2.setColor(dark);
-            g2.drawLine(x, bounds.y, x, bounds.y + bounds.height);
+            g2.drawLine(x, vis.y, x, vis.y + vis.height);
             g2.setColor(light);
-            g2.drawLine(x + 1, bounds.y, x + 1, bounds.y + bounds.height);
+            g2.drawLine(x + 1, vis.y, x + 1, vis.y + vis.height);
         }
         for (int gy = 0; gy <= frameHeight; gy++) {
-            int y = bounds.y + Math.round(gy * bounds.height / (float) frameHeight);
+            int y = bounds.y + destForSrc(gy, bounds.height, frameHeight, false);
+            if (y < minY || y > maxY) {
+                continue;
+            }
             g2.setColor(dark);
-            g2.drawLine(bounds.x, y, bounds.x + bounds.width, y);
+            g2.drawLine(vis.x, y, vis.x + vis.width, y);
             g2.setColor(light);
-            g2.drawLine(bounds.x, y + 1, bounds.x + bounds.width, y + 1);
+            g2.drawLine(vis.x, y + 1, vis.x + vis.width, y + 1);
         }
 
         // Slightly stronger lines every 8 source pixels for orientation.
         Color majorDark = new Color(0, 0, 0, 70);
         Color majorLight = new Color(255, 255, 255, 55);
         for (int gx = 0; gx <= frameWidth; gx += 8) {
-            int x = bounds.x + Math.round(gx * bounds.width / (float) frameWidth);
+            int x = bounds.x + destForSrc(gx, bounds.width, frameWidth, false);
+            if (x < minX || x > maxX) {
+                continue;
+            }
             g2.setColor(majorDark);
-            g2.drawLine(x, bounds.y, x, bounds.y + bounds.height);
+            g2.drawLine(x, vis.y, x, vis.y + vis.height);
             g2.setColor(majorLight);
-            g2.drawLine(x + 1, bounds.y, x + 1, bounds.y + bounds.height);
+            g2.drawLine(x + 1, vis.y, x + 1, vis.y + vis.height);
         }
         for (int gy = 0; gy <= frameHeight; gy += 8) {
-            int y = bounds.y + Math.round(gy * bounds.height / (float) frameHeight);
+            int y = bounds.y + destForSrc(gy, bounds.height, frameHeight, false);
+            if (y < minY || y > maxY) {
+                continue;
+            }
             g2.setColor(majorDark);
-            g2.drawLine(bounds.x, y, bounds.x + bounds.width, y);
+            g2.drawLine(vis.x, y, vis.x + vis.width, y);
             g2.setColor(majorLight);
-            g2.drawLine(bounds.x, y + 1, bounds.x + bounds.width, y + 1);
+            g2.drawLine(vis.x, y + 1, vis.x + vis.width, y + 1);
         }
     }
 
