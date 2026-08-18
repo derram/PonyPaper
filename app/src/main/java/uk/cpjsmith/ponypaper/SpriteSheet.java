@@ -16,13 +16,12 @@ public class SpriteSheet {
     public int frameWidth;
     public int frameHeight;
     
-    private static BitmapFactory.Options bfOpts;
-    
     private int[] frameTimes;
     
-    static {
-        bfOpts = new BitmapFactory.Options();
-        bfOpts.inScaled = false;
+    private static BitmapFactory.Options decodeOptions() {
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inScaled = false;
+        return opts;
     }
     
     /**
@@ -37,7 +36,7 @@ public class SpriteSheet {
      *                the frame times
      */
     public SpriteSheet(Resources res, int drawId, int timesId) {
-        bitmap = BitmapFactory.decodeResource(res, drawId, bfOpts);
+        bitmap = BitmapFactory.decodeResource(res, drawId, decodeOptions());
         frameTimes = res.getIntArray(timesId);
         setInternals();
     }
@@ -51,7 +50,7 @@ public class SpriteSheet {
      * @param frameTimes the integer array containing the frame times
      */
     public SpriteSheet(byte[] bitmapData, int[] frameTimes) {
-        this.bitmap = BitmapFactory.decodeByteArray(bitmapData, 0, bitmapData.length);
+        this.bitmap = BitmapFactory.decodeByteArray(bitmapData, 0, bitmapData.length, decodeOptions());
         this.frameTimes = frameTimes;
         setInternals();
     }

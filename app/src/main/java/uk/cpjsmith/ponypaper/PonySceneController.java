@@ -17,6 +17,7 @@ import android.os.Handler;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.preference.PreferenceManager;
+import android.util.Log;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import java.io.File;
@@ -144,6 +145,12 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private boolean thermalThrottle = false;
     /** True while a background library-folder sync is running. */
     private boolean librarySyncInFlight = false;
+    /** True while herd construction / background decode is running off the frame thread. */
+    private boolean sceneLoadInFlight = false;
+    /** Bumped by {@link #dropHerd} so a stale worker result is discarded. */
+    private int sceneLoadGeneration = 0;
+    /** True after a failed scene load until the next {@link #dropHerd}. */
+    private boolean sceneLoadFailed = false;
     /** Token from {@link ThermalStatusSupport#register}; typed as Object for pre-Q safety. */
     private Object thermalListenerToken = null;
 
@@ -250,6 +257,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * used by another host (e.g. dream vs wallpaper) stay decoded.
      */
     private void dropHerd() {
+        sceneLoadGeneration++;
+        sceneLoadInFlight = false;
+        sceneLoadFailed = false;
         if (ponies != null) {
             ponies.unloadSprites();
             ponies = null;
@@ -260,6 +270,109 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             }
             background = null;
         }
+    }
+
+    /**
+     * Build the herd and decode the optional background on the decode worker.
+     * The frame loop paints a solid (or last-good) buffer until this completes.
+     */
+    private void ensureScenePrepared(final int canvasW, final int canvasH) {
+        if (ponies != null || sceneLoadInFlight || sceneLoadFailed || !started) {
+            return;
+        }
+        final SharedPreferences prefs = getPreferences();
+        applyTargetFps(prefs);
+        drunkMode = prefs.getBoolean("pref_drunk_mode", false);
+        drunkElapsedMs = 0;
+        backgroundColour = 0xff333333;
+        paint.setAlpha(0xff);
+
+        final int ponyCount = getEffectivePonyCount(prefs);
+        final boolean wantBg = prefs.getBoolean("pref_background", false)
+                && !shouldDisableBackgroundImage(prefs);
+        final int pixelation = prefs.getInt("pref_pixelation", 1);
+        File filesDir = appContext.getExternalFilesDir(null);
+        final File bgFile = (wantBg && filesDir != null)
+                ? new File(filesDir, CustomStorage.BACKGROUND_NAME) : null;
+        final int gen = ++sceneLoadGeneration;
+        sceneLoadInFlight = true;
+
+        SpriteCache.execute(new Runnable() {
+            @Override
+            public void run() {
+                Ponies herd = null;
+                Bitmap bg = null;
+                try {
+                    herd = new Ponies(appContext, prefs, ponyCount);
+                    herd.preloadActiveSprites();
+                } catch (RuntimeException e) {
+                    Log.e("PonyPaper", "Failed to build pony herd", e);
+                    if (herd != null) {
+                        herd.unloadSprites();
+                        herd = null;
+                    }
+                }
+                if (bgFile != null && bgFile.exists()) {
+                    try {
+                        bg = decodeBackgroundFile(bgFile, canvasW, canvasH, pixelation);
+                    } catch (RuntimeException e) {
+                        Log.e("PonyPaper", "Failed to decode background", e);
+                        bg = null;
+                    }
+                }
+                final Ponies readyHerd = herd;
+                final Bitmap readyBg = bg;
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (gen != sceneLoadGeneration || !started) {
+                            if (readyHerd != null) {
+                                readyHerd.unloadSprites();
+                            }
+                            if (readyBg != null && !readyBg.isRecycled()) {
+                                readyBg.recycle();
+                            }
+                            return;
+                        }
+                        sceneLoadInFlight = false;
+                        if (readyHerd == null) {
+                            sceneLoadFailed = true;
+                            return;
+                        }
+                        ponies = readyHerd;
+                        background = readyBg;
+                        if (active && !frozen && !thermalEmergency) {
+                            lastFrameUptimeMs = 0;
+                            drawFrame();
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    private static Bitmap decodeBackgroundFile(File bgFile, int canvasW, int canvasH,
+            int pixelation) {
+        BitmapFactory.Options bfo = new BitmapFactory.Options();
+        bfo.inScaled = false;
+        bfo.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(bgFile.toString(), bfo);
+        int h = bfo.outHeight;
+        int w = bfo.outWidth;
+        int scale = 1;
+        if (h > 0 && w > 0 && canvasH > 0 && canvasW > 0) {
+            scale = Math.min(h / canvasH, w / canvasW);
+            if (scale < 1) {
+                scale = 1;
+            }
+        }
+        scale *= pixelation;
+        if (scale < 1) {
+            scale = 1;
+        }
+        bfo.inJustDecodeBounds = false;
+        bfo.inSampleSize = scale;
+        return BitmapFactory.decodeFile(bgFile.toString(), bfo);
     }
 
     /**
@@ -712,50 +825,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         lastFrameUptimeMs = now;
 
+        Rect surfaceFrame = holder.getSurfaceFrame();
+        if (ponies == null && surfaceFrame != null
+                && surfaceFrame.width() > 0 && surfaceFrame.height() > 0) {
+            ensureScenePrepared(surfaceFrame.width(), surfaceFrame.height());
+        }
+
         Canvas c = null;
         try {
             c = holder.lockCanvas();
             // Surface may be lost or not yet ready; never touch a null/zero canvas.
             if (c != null && c.getWidth() > 0 && c.getHeight() > 0) {
-                if (ponies == null) {
-                    SharedPreferences prefs = getPreferences();
-                    applyTargetFps(prefs);
-                    ponies = new Ponies(surface.getContext(), prefs, getEffectivePonyCount(prefs));
-
-                    background = null;
-                    drunkMode = prefs.getBoolean("pref_drunk_mode", false);
-                    drunkElapsedMs = 0;
-                    backgroundColour = 0xff333333;
-                    paint.setAlpha(0xff);
-                    // Under Battery Saver / thermal / on-battery profile, keep a solid
-                    // colour instead of decoding and blitting a full-screen image each frame.
-                    if (prefs.getBoolean("pref_background", false)
-                            && !shouldDisableBackgroundImage(prefs)) {
-                        File filesDir = surface.getContext().getExternalFilesDir(null);
-                        if (filesDir != null) {
-                            File bgFile = new File(filesDir, "background");
-                            if (bgFile.exists()) {
-                                BitmapFactory.Options bfo = new BitmapFactory.Options();
-                                bfo.inScaled = false;
-                                bfo.inJustDecodeBounds = true;
-                                BitmapFactory.decodeFile(bgFile.toString(), bfo);
-                                int h = bfo.outHeight, w = bfo.outWidth;
-                                int canvasH = c.getHeight();
-                                int canvasW = c.getWidth();
-                                int scale = 1;
-                                if (h > 0 && w > 0) {
-                                    scale = Math.min(h / canvasH, w / canvasW);
-                                    if (scale < 1) scale = 1;
-                                }
-                                scale *= prefs.getInt("pref_pixelation", 1);
-                                if (scale < 1) scale = 1;
-                                bfo.inJustDecodeBounds = false;
-                                bfo.inSampleSize = scale;
-                                background = BitmapFactory.decodeFile(bgFile.toString(), bfo);
-                            }
-                        }
-                    }
-                }
                 if (drunkMode && paint.getAlpha() == 0xff) {
                     drunkElapsedMs += (int) deltaMs;
                     if (drunkElapsedMs >= DRUNK_FADE_MS) {
@@ -778,7 +858,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 } else {
                     c.drawColor(backgroundColour);
                 }
-                ponies.drawAndUpdate(c, deltaMs);
+                if (ponies != null) {
+                    ponies.drawAndUpdate(c, deltaMs);
+                }
                 // Clock on top so digits stay readable over ponies / backgrounds.
                 if (surface.shouldShowClock()) {
                     dreamClock.draw(c, surface.getContext(), surface.shouldShowClockDate());

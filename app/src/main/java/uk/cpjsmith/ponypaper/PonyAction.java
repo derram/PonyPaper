@@ -2,6 +2,7 @@ package uk.cpjsmith.ponypaper;
 
 import android.content.res.Resources;
 import android.content.res.TypedArray;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Point;
 import android.graphics.RectF;
@@ -13,8 +14,8 @@ import java.util.Random;
  * {@code SpriteSheet} for the left- and right-facing modes of the action, as
  * well as information on possible next states. On construction, the sprites
  * are not immediately loaded and the {@link #getAnimationTime} and {@link
- * #drawOn} methods will fail with {@code NullPointerException} until the
- * {@link #load} method is called.
+ * #drawOn} methods will fail with {@code NullPointerException} until
+ * {@link #load} has been called and {@link #isReady} is true.
  *
  * <p>Each action carries a {@link #speed} factor used both as travel speed
  * (when moving) and as animation playback rate (moving or idle). Multiple
@@ -97,6 +98,8 @@ public class PonyAction {
     private PonyAction spriteSource;
     
     private SpriteSheet[] sprites;
+    private SpriteCache.Pin leftPin;
+    private SpriteCache.Pin rightPin;
     
     /**
      * Unscaled X of the feet hotspot within each frame per facing
@@ -238,9 +241,30 @@ public class PonyAction {
         this.speed = sanitizeSpeed(definition.speed);
         this.loops = definition.loops;
         copyDefinitionAnchors(definition);
-        // Test the images.
-        load();
-        unload();
+        validateDefinitionBitmaps(definition);
+    }
+
+    /**
+     * Confirm custom images decode (bounds only) and timings are non-empty.
+     * Full pixel decode happens later on the cache worker.
+     */
+    private static void validateDefinitionBitmaps(PonyDefinition.Action definition) {
+        validateDefinitionSide(definition, "left");
+        validateDefinitionSide(definition, "right");
+    }
+
+    private static void validateDefinitionSide(PonyDefinition.Action definition, String side) {
+        byte[] data = Base64.decode(definition.images.get(side), 0);
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(data, 0, data.length, opts);
+        if (opts.outWidth <= 0 || opts.outHeight <= 0) {
+            throw new IllegalArgumentException("Failed to decode " + side + " sprite sheet");
+        }
+        int[] times = parseInts(definition.timings.get(side));
+        if (times.length == 0) {
+            throw new IllegalArgumentException("Sprite sheet has no frame times");
+        }
     }
     
     private void copyDefinitionAnchors(PonyDefinition.Action definition) {
@@ -400,82 +424,120 @@ public class PonyAction {
     }
     
     /**
-     * Load the sprites into memory. After this is called, all the methods of
-     * this class become functional. It will also consume far more memory.
-     *
-     * <p>Owner actions pin left/right sheets in {@link SpriteCache} (shared
-     * with other hosts). Alias actions only pin the source; the source owns
-     * the cache pins.
+     * Start pinning this action's sheets (or the owner's, for aliases).
+     * Decode runs on {@link SpriteCache}'s worker; {@link #isReady()} is false
+     * until both facings are published. Idempotent.
      *
      * @see #unload()
      */
     public void load() {
         if (spriteSource != null) {
             spriteSource.load();
-            sprites = spriteSource.sprites;
             return;
         }
-        // Already pinned by this instance (idempotent so aliases can load the
-        // owner first without a second cache pin).
-        if (sprites != null) {
-            return;
-        }
-        if (res != null) {
-            TypedArray array = res.obtainTypedArray(arrayId);
-            try {
-                int leftDrawableId = array.getResourceId(0, 0);
-                int leftTimingId = array.getResourceId(1, 0);
-                int rightDrawableId = array.getResourceId(2, 0);
-                int rightTimingId = array.getResourceId(3, 0);
-                SpriteSheet left = SpriteCache.pinResource(res, leftDrawableId, leftTimingId);
+        synchronized (this) {
+            if (sprites != null || leftPin != null) {
+                return;
+            }
+            if (res != null) {
+                TypedArray array = res.obtainTypedArray(arrayId);
                 try {
-                    sprites = new SpriteSheet[] {
-                        left,
-                        SpriteCache.pinResource(res, rightDrawableId, rightTimingId)
-                    };
+                    int leftDrawableId = array.getResourceId(0, 0);
+                    int leftTimingId = array.getResourceId(1, 0);
+                    int rightDrawableId = array.getResourceId(2, 0);
+                    int rightTimingId = array.getResourceId(3, 0);
+                    leftPin = SpriteCache.pinResource(res, leftDrawableId, leftTimingId);
+                    try {
+                        rightPin = SpriteCache.pinResource(res, rightDrawableId, rightTimingId);
+                    } catch (RuntimeException e) {
+                        leftPin.unpin();
+                        leftPin = null;
+                        throw e;
+                    }
+                } finally {
+                    array.recycle();
+                }
+            } else if (definition != null) {
+                leftPin = SpriteCache.pinBytes(
+                        Base64.decode(definition.images.get("left"), 0),
+                        parseInts(definition.timings.get("left")));
+                try {
+                    rightPin = SpriteCache.pinBytes(
+                            Base64.decode(definition.images.get("right"), 0),
+                            parseInts(definition.timings.get("right")));
                 } catch (RuntimeException e) {
-                    SpriteCache.unpin(left);
+                    leftPin.unpin();
+                    leftPin = null;
                     throw e;
                 }
-            } finally {
-                array.recycle();
             }
-        } else if (definition != null) {
-            SpriteSheet left = SpriteCache.pinBytes(
-                    Base64.decode(definition.images.get("left"), 0),
-                    parseInts(definition.timings.get("left")));
-            try {
-                sprites = new SpriteSheet[] {
-                    left,
-                    SpriteCache.pinBytes(
-                            Base64.decode(definition.images.get("right"), 0),
-                            parseInts(definition.timings.get("right")))
-                };
-            } catch (RuntimeException e) {
-                SpriteCache.unpin(left);
-                throw e;
+        }
+    }
+
+    /**
+     * @return true when left and right sheets are decoded and bound
+     */
+    public boolean isReady() {
+        if (spriteSource != null) {
+            if (!spriteSource.isReady()) {
+                return false;
             }
+            synchronized (this) {
+                sprites = spriteSource.sprites;
+            }
+            return sprites != null;
+        }
+        synchronized (this) {
+            if (sprites != null) {
+                return true;
+            }
+            if (leftPin == null || rightPin == null) {
+                return false;
+            }
+            SpriteSheet left = leftPin.getSheet();
+            SpriteSheet right = rightPin.getSheet();
+            if (left == null || right == null) {
+                return false;
+            }
+            sprites = new SpriteSheet[] {left, right};
+            return true;
+        }
+    }
+
+    /**
+     * @return true if a started pin failed to decode
+     */
+    public boolean loadFailed() {
+        if (spriteSource != null) {
+            return spriteSource.loadFailed();
+        }
+        synchronized (this) {
+            return (leftPin != null && leftPin.failed())
+                    || (rightPin != null && rightPin.failed());
         }
     }
     
     /**
-     * Unload the sprites from memory. Owner actions unpin their cache entries
-     * so native pixel buffers are freed when no other host still holds the
-     * sheet (not only after GC). Some methods of this class will cease to
-     * function until {@link #load()} is called again.
-     *
-     * <p>Alias actions only drop their reference; the owning action unpins.
+     * Unpin this action's cache entries (owners) or drop the borrowed
+     * reference (aliases). Safe when nothing is loaded.
      *
      * @see #load()
      */
     public void unload() {
         if (spriteSource != null) {
-            sprites = null;
+            synchronized (this) {
+                sprites = null;
+            }
             return;
         }
-        if (sprites != null) {
-            for (int i = 0; i < sprites.length; i++) {
-                SpriteCache.unpin(sprites[i]);
+        synchronized (this) {
+            if (leftPin != null) {
+                leftPin.unpin();
+                leftPin = null;
+            }
+            if (rightPin != null) {
+                rightPin.unpin();
+                rightPin = null;
             }
             sprites = null;
         }

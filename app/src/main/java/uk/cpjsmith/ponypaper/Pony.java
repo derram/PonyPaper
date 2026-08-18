@@ -140,6 +140,47 @@ public class Pony {
             allActions[i].unload();
         }
     }
+
+    /**
+     * Start pinning every action's sheets. Decode is asynchronous; spawn waits
+     * on {@link #actionsReady()}.
+     */
+    public void loadActions() {
+        for (int i = 0; i < allActions.length; i++) {
+            allActions[i].load();
+        }
+    }
+
+    /**
+     * @return true when every action has both facings decoded
+     */
+    public boolean actionsReady() {
+        for (int i = 0; i < allActions.length; i++) {
+            if (!allActions[i].isReady()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @return true if any started pin failed to decode
+     */
+    public boolean actionsFailed() {
+        for (int i = 0; i < allActions.length; i++) {
+            if (allActions[i].loadFailed()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @return true while this pony is traveling off-screen to be replaced
+     */
+    public boolean isLeavingScene() {
+        return leavingMode == LM_GOING;
+    }
     
     /**
      * Causes the state of the pony to be updated for the elapsed time.
@@ -155,8 +196,13 @@ public class Pony {
         float scale = getScale();
         
         if (motion == MOTION_INIT) {
-            for (int i = 0; i < allActions.length; i++) {
-                allActions[i].load();
+            loadActions();
+            if (actionsFailed()) {
+                leavingMode = LM_GONE;
+                return;
+            }
+            if (!actionsReady()) {
+                return;
             }
             changeAction(startActions[random.nextInt(startActions.length)]);
             if (currentAction.type == PonyAction.SCREEN_IN
@@ -276,6 +322,9 @@ public class Pony {
     }
     
     public void drawOn(Canvas c) {
+        if (currentAction == null || !currentAction.isReady()) {
+            return;
+        }
         int animTime = currentAction.getAnimationTime(direction);
         int time = Math.round(frameTime);
         // SpriteSheet.getRect requires 0 <= time < totalTime.
@@ -314,7 +363,7 @@ public class Pony {
      * @return {@code true} iff the point is on top of this pony
      */
     public boolean testHitPoint(float x, float y) {
-        if (currentAction == null) {
+        if (currentAction == null || !currentAction.isReady()) {
             return false;
         }
         float scale = getScale();

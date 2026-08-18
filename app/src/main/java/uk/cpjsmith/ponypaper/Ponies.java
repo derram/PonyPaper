@@ -46,6 +46,11 @@ public class Ponies {
      * filling or replacing active slots.
      */
     private final String waifuKey;
+    /**
+     * Inactive pony whose sheets are pinned because an on-screen pony is
+     * leaving. At most one extra character is decoded this way.
+     */
+    private Pony prefetched;
     
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final int touchSlop;
@@ -151,11 +156,25 @@ public class Ponies {
      * bitmaps no other host still holds. Call before dropping this herd.
      */
     public void unloadSprites() {
+        prefetched = null;
         for (Pony pony : activePonies) {
             pony.unloadActions();
         }
         for (int i = 0; i < inactivePonies.size(); i++) {
             inactivePonies.get(i).unloadActions();
+        }
+    }
+
+    /**
+     * Start pinning sheets for every on-screen pony. Safe to call from the
+     * decode worker after the herd is built.
+     */
+    void preloadActiveSprites() {
+        if (activePonies == null) {
+            return;
+        }
+        for (int i = 0; i < activePonies.length; i++) {
+            activePonies[i].loadActions();
         }
     }
     
@@ -181,6 +200,7 @@ public class Ponies {
                 activePonies[i].doUpdate(c.getClipBounds(), 0);
             }
         }
+        updateReplacementPrefetch();
         Arrays.sort(activePonies, compareY);
         for (int i = 0; i < activePonies.length; i++) {
             activePonies[i].drawOn(c);
@@ -273,10 +293,59 @@ public class Ponies {
      * and any inactive pony matches it, picks uniformly among those; otherwise
      * picks uniformly among all inactive ponies.
      */
+    /**
+     * When someone is leaving, pin one inactive replacement (same pick as
+     * {@link #takeFromInactive}). Drop that pin if the exit is cancelled.
+     */
+    private void updateReplacementPrefetch() {
+        boolean leaving = false;
+        for (int i = 0; i < activePonies.length; i++) {
+            if (activePonies[i].isLeavingScene()) {
+                leaving = true;
+                break;
+            }
+        }
+        if (!leaving) {
+            if (prefetched != null) {
+                if (inactivePonies.contains(prefetched)) {
+                    prefetched.unloadActions();
+                }
+                prefetched = null;
+            }
+            return;
+        }
+        if (prefetched != null && inactivePonies.contains(prefetched)) {
+            return;
+        }
+        prefetched = peekFromInactive();
+        if (prefetched != null) {
+            prefetched.loadActions();
+        }
+    }
+
+    private Pony peekFromInactive() {
+        if (inactivePonies.isEmpty()) {
+            return null;
+        }
+        return inactivePonies.get(indexToTakeFromInactive());
+    }
+
     private Pony takeFromInactive() {
         if (inactivePonies.isEmpty()) {
             throw new IllegalStateException("inactive pool is empty");
         }
+        if (prefetched != null) {
+            int prefIdx = inactivePonies.indexOf(prefetched);
+            if (prefIdx >= 0) {
+                prefetched = null;
+                return inactivePonies.remove(prefIdx);
+            }
+            prefetched = null;
+        }
+        return inactivePonies.remove(indexToTakeFromInactive());
+    }
+
+    private int indexToTakeFromInactive() {
         if (waifuKey.length() > 0) {
             int matchCount = 0;
             for (int i = 0; i < inactivePonies.size(); i++) {
@@ -289,14 +358,14 @@ public class Ponies {
                 for (int i = 0; i < inactivePonies.size(); i++) {
                     if (waifuKey.equals(inactivePonies.get(i).getPrefKey())) {
                         if (pick == 0) {
-                            return inactivePonies.remove(i);
+                            return i;
                         }
                         pick--;
                     }
                 }
             }
         }
-        return inactivePonies.remove(random.nextInt(inactivePonies.size()));
+        return random.nextInt(inactivePonies.size());
     }
     
 }
