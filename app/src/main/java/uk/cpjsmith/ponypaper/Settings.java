@@ -1301,20 +1301,42 @@ public class Settings extends PreferenceActivity {
             showAlertDialog(getString(R.string.library_import_failed_title), result.error);
             return;
         }
-        if (result.poniesAdded == 0 && !result.backgroundImported) {
+        int mixCount = result.mixesAdded + result.mixesReplaced;
+        int skippedCount = result.skipped + result.mixesSkipped;
+        if (result.poniesAdded == 0 && !result.backgroundImported && mixCount == 0) {
             showAlertDialog(getString(R.string.library_import_ok_title),
                     getString(R.string.library_import_nothing));
             return;
         }
-        String ponyWord = result.poniesAdded == 1
-                ? getString(R.string.library_import_pony_one)
-                : getString(R.string.library_import_pony_many);
-        String bg = result.backgroundImported ? getString(R.string.library_import_background) : "";
-        String skipped = result.skipped > 0
-                ? getString(R.string.library_import_skipped, result.skipped)
+        ArrayList<String> parts = new ArrayList<String>();
+        if (result.poniesAdded > 0) {
+            String ponyWord = result.poniesAdded == 1
+                    ? getString(R.string.library_import_pony_one)
+                    : getString(R.string.library_import_pony_many);
+            parts.add(getString(R.string.library_import_ponies, result.poniesAdded, ponyWord));
+        }
+        if (mixCount > 0) {
+            String mixWord = mixCount == 1
+                    ? getString(R.string.library_import_mix_one)
+                    : getString(R.string.library_import_mix_many);
+            parts.add(getString(R.string.library_import_mixes, mixCount, mixWord));
+        }
+        if (result.backgroundImported) {
+            parts.add(getString(R.string.library_import_background));
+        }
+        String list;
+        if (parts.size() == 1) {
+            list = parts.get(0);
+        } else if (parts.size() == 2) {
+            list = getString(R.string.library_import_list_two, parts.get(0), parts.get(1));
+        } else {
+            list = getString(R.string.library_import_list_three, parts.get(0), parts.get(1), parts.get(2));
+        }
+        String skipped = skippedCount > 0
+                ? getString(R.string.library_import_skipped, skippedCount)
                 : "";
         showAlertDialog(getString(R.string.library_import_ok_title),
-                getString(R.string.library_import_ok_message, result.poniesAdded, ponyWord, bg, skipped));
+                getString(R.string.library_import_ok_message, list, skipped));
     }
 
     private void handlePickedContent(Uri[] uris) {

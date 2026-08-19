@@ -9,12 +9,14 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.preference.PreferenceManager;
 import android.provider.DocumentsContract;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -33,12 +35,15 @@ import org.w3c.dom.Document;
 /**
  * Working copy of custom ponies and the optional background image. Lives in
  * {@link Context#getExternalFilesDir(null)} so the wallpaper can keep using
- * {@link java.io.File} paths. Durable copies are a zip export or a user-owned
- * SAF tree (see library-folder methods added alongside this helper).
+ * {@link java.io.File} paths. Durable copies are a zip export (custom XML,
+ * optional background, and saved mixes) or a user-owned SAF tree (see
+ * library-folder methods added alongside this helper).
  */
 final class CustomStorage {
 
     static final String BACKGROUND_NAME = "background";
+    /** Reserved library-zip sidecar for {@link PonyMixes}; never a working-dir file. */
+    static final String MIXES_NAME = "ponypaper-mixes.json";
     static final String PLACEHOLDER_NAME = "custom-ponies-go-here";
     /** SAF display name. Providers append {@code .txt} for {@code text/plain}. */
     static final String PLACEHOLDER_LIBRARY_NAME = PLACEHOLDER_NAME + ".txt";
@@ -89,6 +94,8 @@ final class CustomStorage {
 
     static boolean hasExportableFiles(Context context) {
         if (listCustomXml(context).length > 0) return true;
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        if (!PonyMixes.loadUserMixes(prefs).isEmpty()) return true;
         try {
             File bg = localFile(context, BACKGROUND_NAME);
             return bg.isFile() && bg.length() > 0;
@@ -157,6 +164,12 @@ final class CustomStorage {
             if (bg.isFile() && bg.length() > 0) {
                 addFileToZip(zip, bg, BACKGROUND_NAME);
             }
+            List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(
+                    PreferenceManager.getDefaultSharedPreferences(context));
+            if (!mixes.isEmpty()) {
+                byte[] json = PonyMixes.encode(mixes).getBytes(Charset.forName("UTF-8"));
+                addBytesToZip(zip, MIXES_NAME, json);
+            }
         } finally {
             zip.close();
         }
@@ -165,6 +178,9 @@ final class CustomStorage {
     static final class ZipImportResult {
         int poniesAdded;
         int skipped;
+        int mixesAdded;
+        int mixesReplaced;
+        int mixesSkipped;
         boolean backgroundImported;
         String error;
     }
@@ -172,6 +188,7 @@ final class CustomStorage {
     /**
      * Merge a library zip into the working directory. Unknown or unsafe entries
      * are skipped. Invalid custom-pony XML is skipped rather than stored.
+     * A mixes sidecar is merged into preferences and is not written locally.
      */
     static ZipImportResult importZip(Context context, Uri source) {
         ZipImportResult result = new ZipImportResult();
@@ -184,20 +201,45 @@ final class CustomStorage {
             }
             zip = new ZipInputStream(in);
             long total = 0;
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
                 if (entry.isDirectory()) {
                     zip.closeEntry();
                     continue;
                 }
-                String destName = zipEntryDestName(entry.getName());
-                if (destName == null) {
+                long size = entry.getSize();
+                if (size > MAX_ZIP_ENTRY_BYTES) {
                     result.skipped++;
                     zip.closeEntry();
                     continue;
                 }
-                long size = entry.getSize();
-                if (size > MAX_ZIP_ENTRY_BYTES) {
+                String baseName = zipEntryBaseName(entry.getName());
+                if (MIXES_NAME.equals(baseName)) {
+                    try {
+                        byte[] jsonBytes = readEntryLimited(zip, MAX_ZIP_ENTRY_BYTES);
+                        total += jsonBytes.length;
+                        if (total > MAX_ZIP_TOTAL_BYTES) {
+                            result.error = "Zip is larger than the import limit";
+                            break;
+                        }
+                        String json = new String(jsonBytes, Charset.forName("UTF-8"));
+                        PonyMixes.MixMergeResult merged = PonyMixes.mergeImported(prefs, json);
+                        if (merged.invalid) {
+                            result.skipped++;
+                        } else {
+                            result.mixesAdded += merged.added;
+                            result.mixesReplaced += merged.replaced;
+                            result.mixesSkipped += merged.skipped;
+                        }
+                    } catch (IOException e) {
+                        result.skipped++;
+                    }
+                    zip.closeEntry();
+                    continue;
+                }
+                String destName = zipEntryDestName(entry.getName());
+                if (destName == null) {
                     result.skipped++;
                     zip.closeEntry();
                     continue;
@@ -339,18 +381,11 @@ final class CustomStorage {
     /**
      * Map a zip entry path to a working-directory name, or null to skip.
      * Rejects path traversal and everything except {@code *.xml} and {@code background}.
+     * The mixes sidecar is handled separately and never becomes a dest name.
      */
     static String zipEntryDestName(String raw) {
-        if (raw == null) return null;
-        String name = raw.replace('\\', '/');
-        if (name.contains("../") || name.startsWith("/") || name.contains(":")) {
-            return null;
-        }
-        int slash = name.lastIndexOf('/');
-        if (slash >= 0) {
-            name = name.substring(slash + 1);
-        }
-        if (name.isEmpty() || isLibraryMarkerName(name)) {
+        String name = zipEntryBaseName(raw);
+        if (name == null || isLibraryMarkerName(name) || MIXES_NAME.equals(name)) {
             return null;
         }
         if (BACKGROUND_NAME.equals(name)) {
@@ -361,6 +396,20 @@ final class CustomStorage {
             return sanitizeCustomPonyFileName(name);
         }
         return null;
+    }
+
+    private static String zipEntryBaseName(String raw) {
+        if (raw == null) return null;
+        String name = raw.replace('\\', '/');
+        if (name.contains("../") || name.startsWith("/") || name.contains(":")) {
+            return null;
+        }
+        int slash = name.lastIndexOf('/');
+        if (slash >= 0) {
+            name = name.substring(slash + 1);
+        }
+        if (name.isEmpty()) return null;
+        return name;
     }
 
     private static void addFileToZip(ZipOutputStream zip, File file, String entryName) throws IOException {
@@ -378,6 +427,29 @@ final class CustomStorage {
             in.close();
             zip.closeEntry();
         }
+    }
+
+    private static void addBytesToZip(ZipOutputStream zip, String entryName, byte[] data)
+            throws IOException {
+        ZipEntry entry = new ZipEntry(entryName);
+        zip.putNextEntry(entry);
+        zip.write(data);
+        zip.closeEntry();
+    }
+
+    private static byte[] readEntryLimited(InputStream in, long maxBytes) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        long written = 0;
+        byte[] buffer = new byte[COPY_BUFFER];
+        int n;
+        while ((n = in.read(buffer)) >= 0) {
+            written += n;
+            if (written > maxBytes) {
+                throw new IOException("Zip entry exceeds size limit");
+            }
+            out.write(buffer, 0, n);
+        }
+        return out.toByteArray();
     }
 
     private static long copyStreamLimited(InputStream in, File dest, long maxBytes) throws IOException {

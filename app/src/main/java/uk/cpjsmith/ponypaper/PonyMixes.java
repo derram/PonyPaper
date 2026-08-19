@@ -25,6 +25,10 @@ import org.json.JSONObject;
  * <p>Custom ponies are stored by preference key ({@code pref_custom_} +
  * filename). Missing files are skipped on load; they are not copied into
  * the mix.
+ *
+ * <p>Library zip export stores this list as a sidecar (see
+ * {@link CustomStorage#MIXES_NAME}). Import merges by name and does not
+ * apply a mix to the live checkboxes.
  */
 final class PonyMixes {
 
@@ -43,6 +47,13 @@ final class PonyMixes {
         REPLACED,
         FULL,
         BAD_NAME
+    }
+
+    static final class MixMergeResult {
+        int added;
+        int replaced;
+        int skipped;
+        boolean invalid;
     }
 
     static final class Mix {
@@ -130,6 +141,72 @@ final class PonyMixes {
         }
         prefs.edit().putString(PREF_MIXES_JSON, encode(mixes)).commit();
         return idx >= 0 ? SaveResult.REPLACED : SaveResult.SAVED;
+    }
+
+    /**
+     * Merge mixes from a library zip sidecar into the stored list.
+     * Same name (case-insensitive) replaces; new names append until
+     * {@link #MAX_USER_MIXES}. Does not change live checkboxes.
+     */
+    static MixMergeResult mergeImported(SharedPreferences prefs, String json) {
+        MixMergeResult result = new MixMergeResult();
+        if (prefs == null || json == null || json.length() == 0) {
+            result.invalid = true;
+            return result;
+        }
+        List<Mix> incoming;
+        try {
+            JSONObject root = new JSONObject(json);
+            if (root.optJSONArray("mixes") == null) {
+                result.invalid = true;
+                return result;
+            }
+            incoming = parse(json);
+        } catch (Exception e) {
+            result.invalid = true;
+            return result;
+        }
+        if (incoming.isEmpty()) return result;
+
+        ArrayList<Mix> existing = new ArrayList<Mix>(loadUserMixes(prefs));
+        HashSet<String> seenIds = new HashSet<String>();
+        for (int i = 0; i < existing.size(); i++) {
+            String id = existing.get(i).id;
+            if (id.length() > 0) seenIds.add(id);
+        }
+        for (int i = 0; i < incoming.size(); i++) {
+            Mix mix = incoming.get(i);
+            if (mix == null || mix.name.length() == 0) continue;
+            int idx = indexOfName(existing, mix.name);
+            if (idx >= 0) {
+                Mix previous = existing.get(idx);
+                String id = mix.id;
+                if (id.length() == 0 || (seenIds.contains(id) && !id.equals(previous.id))) {
+                    id = previous.id;
+                } else if (!id.equals(previous.id)) {
+                    seenIds.remove(previous.id);
+                    seenIds.add(id);
+                }
+                HashSet<String> keys = new HashSet<String>();
+                keys.addAll(mix.keys);
+                existing.set(idx, new Mix(id, mix.name, keys, mix.waifu));
+                result.replaced++;
+            } else if (existing.size() >= MAX_USER_MIXES) {
+                result.skipped++;
+            } else {
+                String id = mix.id;
+                if (id.length() == 0 || seenIds.contains(id)) id = newId();
+                seenIds.add(id);
+                HashSet<String> keys = new HashSet<String>();
+                keys.addAll(mix.keys);
+                existing.add(new Mix(id, mix.name, keys, mix.waifu));
+                result.added++;
+            }
+        }
+        if (result.added > 0 || result.replaced > 0) {
+            prefs.edit().putString(PREF_MIXES_JSON, encode(existing)).commit();
+        }
+        return result;
     }
 
     static void deleteById(SharedPreferences prefs, String id) {
@@ -343,6 +420,7 @@ final class PonyMixes {
                     arr.put(obj);
                 }
             }
+            root.put("version", 1);
             root.put("mixes", arr);
             return root.toString();
         } catch (Exception e) {
