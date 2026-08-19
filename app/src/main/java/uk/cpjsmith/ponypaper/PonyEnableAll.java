@@ -77,9 +77,14 @@ final class PonyEnableAll {
      */
     static void applyReplace(SharedPreferences prefs, List<String> keys, Set<String> enabled) {
         if (prefs == null || keys == null || keys.isEmpty()) return;
-        SharedPreferences.Editor editor = prefs.edit();
-        writeReplace(editor, keys, enabled);
-        editor.commit();
+        PonyMixes.beginProgrammaticHerdChange();
+        try {
+            SharedPreferences.Editor editor = prefs.edit();
+            writeReplace(editor, keys, enabled);
+            editor.commit();
+        } finally {
+            PonyMixes.endProgrammaticHerdChange();
+        }
     }
 
     /**
@@ -87,9 +92,14 @@ final class PonyEnableAll {
      */
     static void applyUnion(SharedPreferences prefs, List<String> keys, Set<String> enabled) {
         if (prefs == null || keys == null || keys.isEmpty()) return;
-        SharedPreferences.Editor editor = prefs.edit();
-        writeUnion(editor, keys, enabled);
-        editor.commit();
+        PonyMixes.beginProgrammaticHerdChange();
+        try {
+            SharedPreferences.Editor editor = prefs.edit();
+            writeUnion(editor, keys, enabled);
+            editor.commit();
+        } finally {
+            PonyMixes.endProgrammaticHerdChange();
+        }
     }
 
     static void writeReplace(SharedPreferences.Editor editor, List<String> keys, Set<String> enabled) {
@@ -128,27 +138,32 @@ final class PonyEnableAll {
     static void apply(SharedPreferences prefs, List<String> keys, String snapshotKey) {
         if (prefs == null || keys == null || keys.isEmpty() || snapshotKey == null) return;
         Action action = nextAction(prefs, keys, snapshotKey);
-        SharedPreferences.Editor editor = prefs.edit();
-        switch (action) {
-            case DISABLE_ALL:
-                HashSet<String> enabled = capture(prefs, keys);
-                if (!enabled.isEmpty()) {
-                    editor.putStringSet(snapshotKey, enabled);
-                }
-                for (int i = 0; i < keys.size(); i++) {
-                    editor.putBoolean(keys.get(i), false);
-                }
-                break;
-            case RESTORE_PREVIOUS:
-                writeUnion(editor, keys, snapshotOf(prefs, snapshotKey));
-                break;
-            case ENABLE_ALL:
-                for (int i = 0; i < keys.size(); i++) {
-                    editor.putBoolean(keys.get(i), true);
-                }
-                break;
+        PonyMixes.beginProgrammaticHerdChange();
+        try {
+            SharedPreferences.Editor editor = prefs.edit();
+            switch (action) {
+                case DISABLE_ALL:
+                    HashSet<String> enabled = capture(prefs, keys);
+                    if (!enabled.isEmpty()) {
+                        editor.putStringSet(snapshotKey, enabled);
+                    }
+                    for (int i = 0; i < keys.size(); i++) {
+                        editor.putBoolean(keys.get(i), false);
+                    }
+                    break;
+                case RESTORE_PREVIOUS:
+                    writeUnion(editor, keys, snapshotOf(prefs, snapshotKey));
+                    break;
+                case ENABLE_ALL:
+                    for (int i = 0; i < keys.size(); i++) {
+                        editor.putBoolean(keys.get(i), true);
+                    }
+                    break;
+            }
+            editor.commit();
+        } finally {
+            PonyMixes.endProgrammaticHerdChange();
         }
-        editor.commit();
     }
 
     /**

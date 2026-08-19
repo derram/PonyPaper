@@ -66,6 +66,9 @@ public class Settings extends PreferenceActivity {
     private final SharedPreferences.OnSharedPreferenceChangeListener enableAllListener =
             new SharedPreferences.OnSharedPreferenceChangeListener() {
                 public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
+                    if (isLiveHerdPreferenceKey(key)) {
+                        PonyMixes.noteManualHerdEdit(sharedPreferences);
+                    }
                     refreshEnableAllToggles();
                     if (key == null || PonySceneController.PREF_TARGET_FPS.equals(key)) {
                         refreshTargetFpsList();
@@ -340,20 +343,25 @@ public class Settings extends PreferenceActivity {
     private void syncCheckboxWidgets(PreferenceCategory[] cats) {
         if (cats == null) return;
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
-        for (int c = 0; c < cats.length; c++) {
-            PreferenceCategory cat = cats[c];
-            if (cat == null) continue;
-            for (int i = 0; i < cat.getPreferenceCount(); i++) {
-                Preference pref = cat.getPreference(i);
-                if (!(pref instanceof CheckBoxPreference)) continue;
-                String key = pref.getKey();
-                if (key == null) continue;
-                CheckBoxPreference checkbox = (CheckBoxPreference) pref;
-                boolean on = prefs.getBoolean(key, true);
-                if (checkbox.isChecked() != on) {
-                    checkbox.setChecked(on);
+        PonyMixes.beginProgrammaticHerdChange();
+        try {
+            for (int c = 0; c < cats.length; c++) {
+                PreferenceCategory cat = cats[c];
+                if (cat == null) continue;
+                for (int i = 0; i < cat.getPreferenceCount(); i++) {
+                    Preference pref = cat.getPreference(i);
+                    if (!(pref instanceof CheckBoxPreference)) continue;
+                    String key = pref.getKey();
+                    if (key == null) continue;
+                    CheckBoxPreference checkbox = (CheckBoxPreference) pref;
+                    boolean on = prefs.getBoolean(key, true);
+                    if (checkbox.isChecked() != on) {
+                        checkbox.setChecked(on);
+                    }
                 }
             }
+        } finally {
+            PonyMixes.endProgrammaticHerdChange();
         }
     }
 
@@ -506,6 +514,8 @@ public class Settings extends PreferenceActivity {
                 LoadMixItem item = items.get(which);
                 if (item.deleteAction) {
                     showDeleteMixDialog();
+                } else if (item.previousAction) {
+                    applyPreviousHerd();
                 } else if (item.stockKeys != null) {
                     applyStockMix(item.stockKeys);
                 } else if (item.userMix != null) {
@@ -546,6 +556,20 @@ public class Settings extends PreferenceActivity {
 
     private ArrayList<LoadMixItem> loadMixItems() {
         ArrayList<LoadMixItem> items = new ArrayList<LoadMixItem>();
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        ArrayList<String> herdKeys = allHerdKeys();
+        if (PonyMixes.hasPreviousHerdDistinct(prefs, herdKeys)) {
+            PonyMixes.Mix prev = PonyMixes.loadPreviousHerd(prefs);
+            HashSet<String> live = new HashSet<String>();
+            if (prev != null) {
+                for (int i = 0; i < herdKeys.size(); i++) {
+                    String key = herdKeys.get(i);
+                    if (prev.keys.contains(key)) live.add(key);
+                }
+            }
+            items.add(LoadMixItem.previous(getString(R.string.pref_load_mix_previous_item,
+                    PonyMixes.countBuiltIn(live), PonyMixes.countCustom(live))));
+        }
         PreferenceCategory[] cats = builtInPonyCategories();
         for (int i = 0; i < cats.length; i++) {
             PreferenceCategory cat = cats[i];
@@ -563,8 +587,7 @@ public class Settings extends PreferenceActivity {
                     title != null ? title.toString() : "");
             items.add(LoadMixItem.stock(label, keys));
         }
-        List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(
-                PreferenceManager.getDefaultSharedPreferences(this));
+        List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(prefs);
         for (int i = 0; i < mixes.size(); i++) {
             PonyMixes.Mix mix = mixes.get(i);
             String label = getString(R.string.pref_load_mix_user_item, mix.name,
@@ -579,7 +602,7 @@ public class Settings extends PreferenceActivity {
 
     private void applyStockMix(Set<String> enabledBuiltIn) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
-        PonyMixes.applyStockMix(prefs, enabledBuiltIn, builtInPonyKeys());
+        PonyMixes.applyStockMix(prefs, enabledBuiltIn, builtInPonyKeys(), allHerdKeys());
         syncCheckboxWidgets(builtInPonyCategories());
         refreshEnableAllToggles();
     }
@@ -596,12 +619,34 @@ public class Settings extends PreferenceActivity {
         refreshWaifuValue();
         refreshEnableAllToggles();
         if (missing > 0) {
-            String ponyWord = missing == 1
-                    ? getString(R.string.pref_load_mix_missing_pony_one)
-                    : getString(R.string.pref_load_mix_missing_pony_many);
-            showAlertDialog(getString(R.string.pref_load_mix_missing_title),
-                    getString(R.string.pref_load_mix_missing_message, mix.name, missing, ponyWord));
+            showMissingCustomDialog(mix.name, missing);
         }
+    }
+
+    private void applyPreviousHerd() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        PonyMixes.Mix prev = PonyMixes.loadPreviousHerd(prefs);
+        if (prev == null) return;
+        ArrayList<String> customKeys = customPonyKeys();
+        int storedCustom = PonyMixes.countCustom(prev.keys);
+        int liveCustom = PonyEnableAll.matchingCount(customKeys, prev.keys);
+        int missing = storedCustom - liveCustom;
+        if (PonyMixes.applyPreviousHerd(prefs, allHerdKeys()) == null) return;
+        syncCheckboxWidgets(builtInPonyCategories());
+        syncCheckboxWidgets(customPonyCategories());
+        refreshWaifuValue();
+        refreshEnableAllToggles();
+        if (missing > 0) {
+            showMissingCustomDialog(getString(R.string.pref_load_mix_previous_name), missing);
+        }
+    }
+
+    private void showMissingCustomDialog(String mixName, int missing) {
+        String ponyWord = missing == 1
+                ? getString(R.string.pref_load_mix_missing_pony_one)
+                : getString(R.string.pref_load_mix_missing_pony_many);
+        showAlertDialog(getString(R.string.pref_load_mix_missing_title),
+                getString(R.string.pref_load_mix_missing_message, mixName, missing, ponyWord));
     }
 
     private void refreshWaifuValue() {
@@ -619,7 +664,20 @@ public class Settings extends PreferenceActivity {
                 }
             }
         }
-        waifu.setValue(known ? value : "");
+        PonyMixes.beginProgrammaticHerdChange();
+        try {
+            waifu.setValue(known ? value : "");
+        } finally {
+            PonyMixes.endProgrammaticHerdChange();
+        }
+    }
+
+    private boolean isLiveHerdPreferenceKey(String key) {
+        if (key == null) return false;
+        if (PonyMixes.PREF_WAIFU.equals(key)) return true;
+        if (key.startsWith(PonyMixes.CUSTOM_PREFIX)) return true;
+        ArrayList<String> builtIn = builtInPonyKeys();
+        return builtIn.contains(key);
     }
 
     private static final class LoadMixItem {
@@ -627,25 +685,31 @@ public class Settings extends PreferenceActivity {
         final Set<String> stockKeys;
         final PonyMixes.Mix userMix;
         final boolean deleteAction;
+        final boolean previousAction;
 
         private LoadMixItem(String label, Set<String> stockKeys, PonyMixes.Mix userMix,
-                boolean deleteAction) {
+                boolean deleteAction, boolean previousAction) {
             this.label = label;
             this.stockKeys = stockKeys;
             this.userMix = userMix;
             this.deleteAction = deleteAction;
+            this.previousAction = previousAction;
         }
 
         static LoadMixItem stock(String label, Set<String> keys) {
-            return new LoadMixItem(label, keys, null, false);
+            return new LoadMixItem(label, keys, null, false, false);
         }
 
         static LoadMixItem user(String label, PonyMixes.Mix mix) {
-            return new LoadMixItem(label, null, mix, false);
+            return new LoadMixItem(label, null, mix, false, false);
         }
 
         static LoadMixItem delete(String label) {
-            return new LoadMixItem(label, null, null, true);
+            return new LoadMixItem(label, null, null, true, false);
+        }
+
+        static LoadMixItem previous(String label) {
+            return new LoadMixItem(label, null, null, false, true);
         }
     }
 
@@ -965,7 +1029,12 @@ public class Settings extends PreferenceActivity {
             }
         }
         if (!known) {
-            waifu.setValue("");
+            PonyMixes.beginProgrammaticHerdChange();
+            try {
+                waifu.setValue("");
+            } finally {
+                PonyMixes.endProgrammaticHerdChange();
+            }
         }
     }
     
@@ -1035,7 +1104,14 @@ public class Settings extends PreferenceActivity {
         // Commit before attaching widgets. A CheckBoxPreference with no XML
         // defaultValue starts unchecked and persists that false on attach,
         // which would overwrite defaultOn (and can win a later apply() race).
-        if (editor != null) editor.commit();
+        if (editor != null) {
+            PonyMixes.beginProgrammaticHerdChange();
+            try {
+                editor.commit();
+            } finally {
+                PonyMixes.endProgrammaticHerdChange();
+            }
+        }
         for (int i = 0; i < customFiles.length; i++) {
             String fileName = customFiles[i].getName();
             String prefKey = "pref_custom_" + fileName;

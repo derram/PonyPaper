@@ -792,7 +792,13 @@ final class CustomStorage {
         }
         PonyEnableAll.removeKeyFromSnapshot(prefs, editor, PonyEnableAll.PREF_CUSTOM_SNAPSHOT, prefKey);
         PonyMixes.removeKeyFromAllMixes(prefs, editor, prefKey);
-        editor.commit();
+        PonyMixes.removeKeyFromPreviousHerd(prefs, editor, prefKey);
+        PonyMixes.beginProgrammaticHerdChange();
+        try {
+            editor.commit();
+        } finally {
+            PonyMixes.endProgrammaticHerdChange();
+        }
     }
 
     private static boolean deleteLibraryChild(Context context, List<LibraryChild> children,

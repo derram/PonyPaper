@@ -17,6 +17,11 @@ import org.json.JSONObject;
  * User mixes are a separate JSON list. Live checkbox booleans remain the
  * source of truth for the wallpaper.
  *
+ * <p>Load also keeps one unnamed previous-herd snapshot so the usual
+ * checkboxes can be restored. That snapshot is written only when leaving a
+ * non-loaded (home) state; hopping from mix to mix leaves it alone. A
+ * checkbox or favorite change marks the herd as home again.
+ *
  * <p>Custom ponies are stored by preference key ({@code pref_custom_} +
  * filename). Missing files are skipped on load; they are not copied into
  * the mix.
@@ -24,10 +29,14 @@ import org.json.JSONObject;
 final class PonyMixes {
 
     static final String PREF_MIXES_JSON = "pref_mixes_json";
+    static final String PREF_PREVIOUS_HERD_JSON = "pref_previous_herd_json";
+    static final String PREF_VIEWING_LOADED_MIX = "pref_viewing_loaded_mix";
     static final String PREF_WAIFU = "pref_waifu";
     static final String CUSTOM_PREFIX = "pref_custom_";
     static final int MAX_USER_MIXES = 20;
     static final int MAX_NAME_LENGTH = 40;
+
+    private static int programmaticHerdDepth;
 
     enum SaveResult {
         SAVED,
@@ -145,22 +154,137 @@ final class PonyMixes {
     /**
      * Replace every key in {@code herdKeys}; set waifu if it still exists.
      * Custom files are not loaded — missing {@code pref_custom_*} keys stay off.
+     *
+     * <p>Remembers the live herd as previous when this is the first load
+     * after a home state, then marks the checkboxes as a loaded mix.
      */
     static void applyUserMix(SharedPreferences prefs, Mix mix, List<String> herdKeys) {
         if (prefs == null || mix == null || herdKeys == null || herdKeys.isEmpty()) return;
-        SharedPreferences.Editor editor = prefs.edit();
-        PonyEnableAll.writeReplace(editor, herdKeys, mix.keys);
-        editor.putString(PREF_WAIFU, resolvedWaifu(mix.waifu, herdKeys));
-        editor.commit();
+        beginProgrammaticHerdChange();
+        try {
+            SharedPreferences.Editor editor = prefs.edit();
+            writePreviousHerdIfHome(prefs, editor, herdKeys);
+            PonyEnableAll.writeReplace(editor, herdKeys, mix.keys);
+            editor.putString(PREF_WAIFU, resolvedWaifu(mix.waifu, herdKeys));
+            editor.putBoolean(PREF_VIEWING_LOADED_MIX, true);
+            editor.commit();
+        } finally {
+            endProgrammaticHerdChange();
+        }
     }
 
     /**
      * Replace only {@code builtInKeys}. Custom checkboxes and waifu are left
      * alone (stock category shortcuts).
+     *
+     * <p>{@code herdKeys} is the full built-in plus custom list, used only
+     * for the previous-herd snapshot.
      */
-    static void applyStockMix(SharedPreferences prefs, Set<String> enabledBuiltIn, List<String> builtInKeys) {
+    static void applyStockMix(SharedPreferences prefs, Set<String> enabledBuiltIn,
+            List<String> builtInKeys, List<String> herdKeys) {
         if (prefs == null || builtInKeys == null || builtInKeys.isEmpty()) return;
-        PonyEnableAll.applyReplace(prefs, builtInKeys, enabledBuiltIn);
+        beginProgrammaticHerdChange();
+        try {
+            SharedPreferences.Editor editor = prefs.edit();
+            writePreviousHerdIfHome(prefs, editor, herdKeys != null ? herdKeys : builtInKeys);
+            PonyEnableAll.writeReplace(editor, builtInKeys, enabledBuiltIn);
+            editor.putBoolean(PREF_VIEWING_LOADED_MIX, true);
+            editor.commit();
+        } finally {
+            endProgrammaticHerdChange();
+        }
+    }
+
+    /**
+     * Restore the unnamed previous herd and mark the checkboxes as home.
+     * Returns the stored mix, or {@code null} when there is nothing to apply.
+     */
+    static Mix applyPreviousHerd(SharedPreferences prefs, List<String> herdKeys) {
+        Mix prev = loadPreviousHerd(prefs);
+        if (prefs == null || prev == null || herdKeys == null || herdKeys.isEmpty()) return null;
+        beginProgrammaticHerdChange();
+        try {
+            SharedPreferences.Editor editor = prefs.edit();
+            PonyEnableAll.writeReplace(editor, herdKeys, prev.keys);
+            editor.putString(PREF_WAIFU, resolvedWaifu(prev.waifu, herdKeys));
+            editor.putBoolean(PREF_VIEWING_LOADED_MIX, false);
+            editor.commit();
+        } finally {
+            endProgrammaticHerdChange();
+        }
+        return prev;
+    }
+
+    static Mix loadPreviousHerd(SharedPreferences prefs) {
+        if (prefs == null) return null;
+        return parsePrevious(prefs.getString(PREF_PREVIOUS_HERD_JSON, ""));
+    }
+
+    /**
+     * True when a previous herd exists, still has at least one live pony,
+     * and differs from the current checkboxes or favorite.
+     */
+    static boolean hasPreviousHerdDistinct(SharedPreferences prefs, List<String> herdKeys) {
+        Mix prev = loadPreviousHerd(prefs);
+        if (prev == null || retainedCount(prev.keys, herdKeys) == 0) return false;
+        return !sameLiveHerd(prefs, prev, herdKeys);
+    }
+
+    /**
+     * A user checkbox or favorite change leaves the loaded-mix state so the
+     * next load can refresh the previous-herd snapshot.
+     */
+    static void noteManualHerdEdit(SharedPreferences prefs) {
+        if (prefs == null || programmaticHerdDepth > 0) return;
+        if (!prefs.getBoolean(PREF_VIEWING_LOADED_MIX, false)) return;
+        prefs.edit().putBoolean(PREF_VIEWING_LOADED_MIX, false).commit();
+    }
+
+    static void beginProgrammaticHerdChange() {
+        programmaticHerdDepth++;
+    }
+
+    static void endProgrammaticHerdChange() {
+        if (programmaticHerdDepth > 0) programmaticHerdDepth--;
+    }
+
+    /**
+     * Write previous-herd when the live checkboxes are still a home state.
+     * An all-off home falls back to Disable-all snapshots so mute-then-load
+     * does not lose the usual herd. Empty captures do not overwrite.
+     */
+    static void writePreviousHerdIfHome(SharedPreferences prefs, SharedPreferences.Editor editor,
+            List<String> herdKeys) {
+        if (prefs == null || editor == null || herdKeys == null) return;
+        if (prefs.getBoolean(PREF_VIEWING_LOADED_MIX, false)) return;
+        HashSet<String> on = captureKeys(prefs, herdKeys);
+        if (on.isEmpty()) {
+            on = snapshotFallback(prefs, herdKeys);
+            if (on.isEmpty()) return;
+        }
+        editor.putString(PREF_PREVIOUS_HERD_JSON, encodePrevious(on, currentWaifu(prefs)));
+    }
+
+    /**
+     * Drop a custom-pony key from the unnamed previous herd on the same
+     * editor. Callers must {@code commit}.
+     */
+    static void removeKeyFromPreviousHerd(SharedPreferences prefs, SharedPreferences.Editor editor,
+            String prefKey) {
+        if (prefs == null || editor == null || prefKey == null) return;
+        Mix prev = loadPreviousHerd(prefs);
+        if (prev == null) return;
+        boolean dropKey = prev.keys.contains(prefKey);
+        boolean dropWaifu = prefKey.equals(prev.waifu);
+        if (!dropKey && !dropWaifu) return;
+        HashSet<String> keys = new HashSet<String>(prev.keys);
+        keys.remove(prefKey);
+        if (keys.isEmpty()) {
+            editor.remove(PREF_PREVIOUS_HERD_JSON);
+            return;
+        }
+        String waifu = dropWaifu ? "" : prev.waifu;
+        editor.putString(PREF_PREVIOUS_HERD_JSON, encodePrevious(keys, waifu));
     }
 
     /**
@@ -257,6 +381,74 @@ final class PonyMixes {
         } catch (Exception e) {
             return Collections.emptyList();
         }
+    }
+
+    static String encodePrevious(Set<String> keys, String waifu) {
+        JSONObject obj = new JSONObject();
+        try {
+            obj.put("waifu", waifu != null ? waifu : "");
+            JSONArray arr = new JSONArray();
+            ArrayList<String> sorted = new ArrayList<String>();
+            if (keys != null) sorted.addAll(keys);
+            Collections.sort(sorted);
+            for (int i = 0; i < sorted.size(); i++) {
+                String key = sorted.get(i);
+                if (key != null && key.length() > 0) arr.put(key);
+            }
+            obj.put("keys", arr);
+            return obj.toString();
+        } catch (Exception e) {
+            return "{}";
+        }
+    }
+
+    static Mix parsePrevious(String json) {
+        if (json == null || json.length() == 0) return null;
+        try {
+            JSONObject obj = new JSONObject(json);
+            HashSet<String> keys = new HashSet<String>();
+            JSONArray keyArr = obj.optJSONArray("keys");
+            if (keyArr != null) {
+                for (int k = 0; k < keyArr.length(); k++) {
+                    String key = keyArr.optString(k, "");
+                    if (key.length() > 0) keys.add(key);
+                }
+            }
+            if (keys.isEmpty()) return null;
+            return new Mix("", "", keys, obj.optString("waifu", ""));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static boolean sameLiveHerd(SharedPreferences prefs, Mix mix, List<String> herdKeys) {
+        HashSet<String> live = captureKeys(prefs, herdKeys);
+        HashSet<String> mixLive = retainedKeys(mix != null ? mix.keys : null, herdKeys);
+        if (!live.equals(mixLive)) return false;
+        String mixWaifu = resolvedWaifu(mix != null ? mix.waifu : "", herdKeys);
+        return mixWaifu.equals(resolvedWaifu(currentWaifu(prefs), herdKeys));
+    }
+
+    private static HashSet<String> retainedKeys(Set<String> keys, List<String> herdKeys) {
+        HashSet<String> out = new HashSet<String>();
+        if (keys == null || herdKeys == null) return out;
+        for (int i = 0; i < herdKeys.size(); i++) {
+            String key = herdKeys.get(i);
+            if (keys.contains(key)) out.add(key);
+        }
+        return out;
+    }
+
+    private static int retainedCount(Set<String> keys, List<String> herdKeys) {
+        return retainedKeys(keys, herdKeys).size();
+    }
+
+    private static HashSet<String> snapshotFallback(SharedPreferences prefs, List<String> herdKeys) {
+        HashSet<String> on = new HashSet<String>();
+        if (prefs == null) return on;
+        on.addAll(retainedKeys(prefs.getStringSet(PonyEnableAll.PREF_PONIES_SNAPSHOT, null), herdKeys));
+        on.addAll(retainedKeys(prefs.getStringSet(PonyEnableAll.PREF_CUSTOM_SNAPSHOT, null), herdKeys));
+        return on;
     }
 
     private static String resolvedWaifu(String waifu, List<String> herdKeys) {
