@@ -791,6 +791,7 @@ final class CustomStorage {
             editor.putString("pref_waifu", "");
         }
         PonyEnableAll.removeKeyFromSnapshot(prefs, editor, PonyEnableAll.PREF_CUSTOM_SNAPSHOT, prefKey);
+        PonyMixes.removeKeyFromAllMixes(prefs, editor, prefKey);
         editor.commit();
     }
 

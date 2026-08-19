@@ -25,6 +25,9 @@ import android.preference.PreferenceCategory;
 import android.preference.PreferenceManager;
 import android.provider.OpenableColumns;
 import android.util.TypedValue;
+import android.view.inputmethod.EditorInfo;
+import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import java.io.ByteArrayOutputStream;
@@ -34,6 +37,8 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 public class Settings extends PreferenceActivity {
     
@@ -80,6 +85,7 @@ public class Settings extends PreferenceActivity {
         refreshTargetFpsList();
         updateLibraryFolderSummary();
         setupEnableAllToggles();
+        setupMixActions();
         PreferenceManager.getDefaultSharedPreferences(this)
                 .registerOnSharedPreferenceChangeListener(enableAllListener);
         
@@ -348,6 +354,298 @@ public class Settings extends PreferenceActivity {
                     checkbox.setChecked(on);
                 }
             }
+        }
+    }
+
+    private ArrayList<String> allHerdKeys() {
+        ArrayList<String> keys = builtInPonyKeys();
+        keys.addAll(customPonyKeys());
+        return keys;
+    }
+
+    private void setupMixActions() {
+        Preference save = findPreference("pref_save_mix");
+        if (save != null) {
+            save.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    showSaveMixDialog();
+                    return true;
+                }
+            });
+        }
+        Preference load = findPreference("pref_load_mix");
+        if (load != null) {
+            load.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    showLoadMixDialog();
+                    return true;
+                }
+            });
+        }
+    }
+
+    private void showSaveMixDialog() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        Set<String> on = PonyMixes.captureKeys(prefs, allHerdKeys());
+        int builtIn = PonyMixes.countBuiltIn(on);
+        int custom = PonyMixes.countCustom(on);
+
+        int pad = (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, 16f, getResources().getDisplayMetrics());
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(pad, pad / 2, pad, 0);
+
+        TextView message = new TextView(this);
+        message.setText(getString(R.string.pref_save_mix_message, builtIn, custom));
+        message.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
+        layout.addView(message);
+
+        final EditText nameField = new EditText(this);
+        nameField.setSingleLine(true);
+        nameField.setHint(R.string.pref_save_mix_name_hint);
+        nameField.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+        nameField.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        nameField.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        layout.addView(nameField);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.pref_save_mix_title);
+        builder.setView(layout);
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        builder.setPositiveButton(R.string.dialog_save, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                // Replaced after show so we can keep the dialog open on errors.
+            }
+        });
+        final AlertDialog dialog = builder.create();
+        dialog.show();
+        android.view.View.OnClickListener saveClick = new android.view.View.OnClickListener() {
+            public void onClick(android.view.View v) {
+                onSaveMixNameEntered(dialog, nameField.getText().toString());
+            }
+        };
+        dialog.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener(saveClick);
+        nameField.setOnEditorActionListener(new android.widget.TextView.OnEditorActionListener() {
+            public boolean onEditorAction(TextView v, int actionId, android.view.KeyEvent event) {
+                if (actionId == EditorInfo.IME_ACTION_DONE) {
+                    onSaveMixNameEntered(dialog, nameField.getText().toString());
+                    return true;
+                }
+                return false;
+            }
+        });
+    }
+
+    private void onSaveMixNameEntered(AlertDialog host, String rawName) {
+        String name = PonyMixes.normalizeName(rawName);
+        if (name == null) {
+            showAlertDialog(getString(R.string.pref_save_mix_title),
+                    getString(R.string.pref_save_mix_empty_name));
+            return;
+        }
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        if (PonyMixes.hasName(prefs, name)) {
+            confirmReplaceMix(host, name);
+            return;
+        }
+        if (commitMix(name) && host != null) {
+            host.dismiss();
+        }
+    }
+
+    private void confirmReplaceMix(final AlertDialog host, final String name) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.pref_save_mix_overwrite_title);
+        builder.setMessage(getString(R.string.pref_save_mix_overwrite_message, name));
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        builder.setPositiveButton(R.string.dialog_replace, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                if (commitMix(name) && host != null) {
+                    host.dismiss();
+                }
+            }
+        });
+        builder.create().show();
+    }
+
+    private boolean commitMix(String name) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        Set<String> on = PonyMixes.captureKeys(prefs, allHerdKeys());
+        PonyMixes.SaveResult result = PonyMixes.save(prefs, name, on, PonyMixes.currentWaifu(prefs));
+        if (result == PonyMixes.SaveResult.BAD_NAME) {
+            showAlertDialog(getString(R.string.pref_save_mix_title),
+                    getString(R.string.pref_save_mix_empty_name));
+            return false;
+        }
+        if (result == PonyMixes.SaveResult.FULL) {
+            showAlertDialog(getString(R.string.pref_save_mix_full_title),
+                    getString(R.string.pref_save_mix_full_message, PonyMixes.MAX_USER_MIXES));
+            return false;
+        }
+        int builtIn = PonyMixes.countBuiltIn(on);
+        int custom = PonyMixes.countCustom(on);
+        showAlertDialog(getString(R.string.pref_save_mix_ok_title),
+                getString(R.string.pref_save_mix_ok_message, name, builtIn, custom));
+        return true;
+    }
+
+    private void showLoadMixDialog() {
+        final ArrayList<LoadMixItem> items = loadMixItems();
+        CharSequence[] labels = new CharSequence[items.size()];
+        for (int i = 0; i < items.size(); i++) {
+            labels[i] = items.get(i).label;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.pref_load_mix_title);
+        builder.setItems(labels, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                LoadMixItem item = items.get(which);
+                if (item.deleteAction) {
+                    showDeleteMixDialog();
+                } else if (item.stockKeys != null) {
+                    applyStockMix(item.stockKeys);
+                } else if (item.userMix != null) {
+                    applyUserMix(item.userMix);
+                }
+            }
+        });
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        builder.create().show();
+    }
+
+    private void showDeleteMixDialog() {
+        final List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(
+                PreferenceManager.getDefaultSharedPreferences(this));
+        if (mixes.isEmpty()) {
+            showAlertDialog(getString(R.string.pref_load_mix_delete_title),
+                    getString(R.string.pref_load_mix_empty_delete));
+            return;
+        }
+        CharSequence[] labels = new CharSequence[mixes.size()];
+        for (int i = 0; i < mixes.size(); i++) {
+            PonyMixes.Mix mix = mixes.get(i);
+            labels[i] = getString(R.string.pref_load_mix_user_item, mix.name,
+                    PonyMixes.countBuiltIn(mix.keys), PonyMixes.countCustom(mix.keys));
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.pref_load_mix_delete_title);
+        builder.setItems(labels, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                PonyMixes.deleteById(
+                        PreferenceManager.getDefaultSharedPreferences(Settings.this),
+                        mixes.get(which).id);
+            }
+        });
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        builder.create().show();
+    }
+
+    private ArrayList<LoadMixItem> loadMixItems() {
+        ArrayList<LoadMixItem> items = new ArrayList<LoadMixItem>();
+        PreferenceCategory[] cats = builtInPonyCategories();
+        for (int i = 0; i < cats.length; i++) {
+            PreferenceCategory cat = cats[i];
+            if (cat == null) continue;
+            HashSet<String> keys = new HashSet<String>();
+            for (int p = 0; p < cat.getPreferenceCount(); p++) {
+                Preference pref = cat.getPreference(p);
+                if (pref instanceof CheckBoxPreference && pref.getKey() != null) {
+                    keys.add(pref.getKey());
+                }
+            }
+            if (keys.isEmpty()) continue;
+            CharSequence title = cat.getTitle();
+            String label = getString(R.string.pref_load_mix_stock_item,
+                    title != null ? title.toString() : "");
+            items.add(LoadMixItem.stock(label, keys));
+        }
+        List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(
+                PreferenceManager.getDefaultSharedPreferences(this));
+        for (int i = 0; i < mixes.size(); i++) {
+            PonyMixes.Mix mix = mixes.get(i);
+            String label = getString(R.string.pref_load_mix_user_item, mix.name,
+                    PonyMixes.countBuiltIn(mix.keys), PonyMixes.countCustom(mix.keys));
+            items.add(LoadMixItem.user(label, mix));
+        }
+        if (!mixes.isEmpty()) {
+            items.add(LoadMixItem.delete(getString(R.string.pref_load_mix_delete_item)));
+        }
+        return items;
+    }
+
+    private void applyStockMix(Set<String> enabledBuiltIn) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        PonyMixes.applyStockMix(prefs, enabledBuiltIn, builtInPonyKeys());
+        syncCheckboxWidgets(builtInPonyCategories());
+        refreshEnableAllToggles();
+    }
+
+    private void applyUserMix(PonyMixes.Mix mix) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        ArrayList<String> customKeys = customPonyKeys();
+        int storedCustom = PonyMixes.countCustom(mix.keys);
+        int liveCustom = PonyEnableAll.matchingCount(customKeys, mix.keys);
+        int missing = storedCustom - liveCustom;
+        PonyMixes.applyUserMix(prefs, mix, allHerdKeys());
+        syncCheckboxWidgets(builtInPonyCategories());
+        syncCheckboxWidgets(customPonyCategories());
+        refreshWaifuValue();
+        refreshEnableAllToggles();
+        if (missing > 0) {
+            String ponyWord = missing == 1
+                    ? getString(R.string.pref_load_mix_missing_pony_one)
+                    : getString(R.string.pref_load_mix_missing_pony_many);
+            showAlertDialog(getString(R.string.pref_load_mix_missing_title),
+                    getString(R.string.pref_load_mix_missing_message, mix.name, missing, ponyWord));
+        }
+    }
+
+    private void refreshWaifuValue() {
+        ListPreference waifu = (ListPreference) findPreference("pref_waifu");
+        if (waifu == null) return;
+        String value = PonyMixes.currentWaifu(PreferenceManager.getDefaultSharedPreferences(this));
+        if (value == null) value = "";
+        CharSequence[] values = waifu.getEntryValues();
+        boolean known = false;
+        if (values != null) {
+            for (int i = 0; i < values.length; i++) {
+                if (value.equals(values[i].toString())) {
+                    known = true;
+                    break;
+                }
+            }
+        }
+        waifu.setValue(known ? value : "");
+    }
+
+    private static final class LoadMixItem {
+        final String label;
+        final Set<String> stockKeys;
+        final PonyMixes.Mix userMix;
+        final boolean deleteAction;
+
+        private LoadMixItem(String label, Set<String> stockKeys, PonyMixes.Mix userMix,
+                boolean deleteAction) {
+            this.label = label;
+            this.stockKeys = stockKeys;
+            this.userMix = userMix;
+            this.deleteAction = deleteAction;
+        }
+
+        static LoadMixItem stock(String label, Set<String> keys) {
+            return new LoadMixItem(label, keys, null, false);
+        }
+
+        static LoadMixItem user(String label, PonyMixes.Mix mix) {
+            return new LoadMixItem(label, null, mix, false);
+        }
+
+        static LoadMixItem delete(String label) {
+            return new LoadMixItem(label, null, null, true);
         }
     }
 

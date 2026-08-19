@@ -50,13 +50,65 @@ final class PonyEnableAll {
      * Stale names (deleted custom files) are ignored.
      */
     static int restoreCount(SharedPreferences prefs, List<String> keys, String snapshotKey) {
-        Set<String> snap = snapshotOf(prefs, snapshotKey);
-        if (snap.isEmpty() || keys == null) return 0;
+        return matchingCount(keys, snapshotOf(prefs, snapshotKey));
+    }
+
+    /**
+     * How many of {@code keys} appear in {@code enabled}. Stale names are
+     * ignored because they are simply not in {@code keys}.
+     */
+    static int matchingCount(List<String> keys, Set<String> enabled) {
+        if (keys == null || enabled == null || enabled.isEmpty()) return 0;
         int n = 0;
         for (int i = 0; i < keys.size(); i++) {
-            if (snap.contains(keys.get(i))) n++;
+            if (enabled.contains(keys.get(i))) n++;
         }
         return n;
+    }
+
+    /** Currently-on keys among {@code keys}. Missing prefs default on. */
+    static HashSet<String> capture(SharedPreferences prefs, List<String> keys) {
+        return enabledKeys(prefs, keys);
+    }
+
+    /**
+     * Set every key in {@code keys} on iff it is in {@code enabled}. One
+     * commit. Used by named mixes.
+     */
+    static void applyReplace(SharedPreferences prefs, List<String> keys, Set<String> enabled) {
+        if (prefs == null || keys == null || keys.isEmpty()) return;
+        SharedPreferences.Editor editor = prefs.edit();
+        writeReplace(editor, keys, enabled);
+        editor.commit();
+    }
+
+    /**
+     * Turn snapshot keys on; leave other current keys unchanged. One commit.
+     */
+    static void applyUnion(SharedPreferences prefs, List<String> keys, Set<String> enabled) {
+        if (prefs == null || keys == null || keys.isEmpty()) return;
+        SharedPreferences.Editor editor = prefs.edit();
+        writeUnion(editor, keys, enabled);
+        editor.commit();
+    }
+
+    static void writeReplace(SharedPreferences.Editor editor, List<String> keys, Set<String> enabled) {
+        if (editor == null || keys == null) return;
+        Set<String> on = enabled != null ? enabled : Collections.<String>emptySet();
+        for (int i = 0; i < keys.size(); i++) {
+            String key = keys.get(i);
+            editor.putBoolean(key, on.contains(key));
+        }
+    }
+
+    static void writeUnion(SharedPreferences.Editor editor, List<String> keys, Set<String> enabled) {
+        if (editor == null || keys == null || enabled == null || enabled.isEmpty()) return;
+        for (int i = 0; i < keys.size(); i++) {
+            String key = keys.get(i);
+            if (enabled.contains(key)) {
+                editor.putBoolean(key, true);
+            }
+        }
     }
 
     /**
@@ -79,7 +131,7 @@ final class PonyEnableAll {
         SharedPreferences.Editor editor = prefs.edit();
         switch (action) {
             case DISABLE_ALL:
-                HashSet<String> enabled = enabledKeys(prefs, keys);
+                HashSet<String> enabled = capture(prefs, keys);
                 if (!enabled.isEmpty()) {
                     editor.putStringSet(snapshotKey, enabled);
                 }
@@ -88,13 +140,7 @@ final class PonyEnableAll {
                 }
                 break;
             case RESTORE_PREVIOUS:
-                Set<String> snap = snapshotOf(prefs, snapshotKey);
-                for (int i = 0; i < keys.size(); i++) {
-                    String key = keys.get(i);
-                    if (snap.contains(key)) {
-                        editor.putBoolean(key, true);
-                    }
-                }
+                writeUnion(editor, keys, snapshotOf(prefs, snapshotKey));
                 break;
             case ENABLE_ALL:
                 for (int i = 0; i < keys.size(); i++) {
@@ -125,6 +171,7 @@ final class PonyEnableAll {
 
     private static HashSet<String> enabledKeys(SharedPreferences prefs, List<String> keys) {
         HashSet<String> on = new HashSet<String>();
+        if (prefs == null || keys == null) return on;
         for (int i = 0; i < keys.size(); i++) {
             String key = keys.get(i);
             if (prefs.getBoolean(key, true)) on.add(key);

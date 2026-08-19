@@ -107,6 +107,13 @@
                         android:entryValues="@array/pref_waifu_values"
                         android:defaultValue="" />
 
+        <Preference android:key="pref_save_mix"
+                    android:title="@string/pref_save_mix_title"
+                    android:summary="@string/pref_save_mix_summary" />
+        <Preference android:key="pref_load_mix"
+                    android:title="@string/pref_load_mix_title"
+                    android:summary="@string/pref_load_mix_summary" />
+
         <Preference android:key="pref_ponies_toggle_all"
                     android:title="@string/pref_disable_all_title"
                     android:summary="@string/pref_ponies_disable_all_summary" />
