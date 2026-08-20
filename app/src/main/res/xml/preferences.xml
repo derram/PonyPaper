@@ -33,6 +33,12 @@
                             android:entries="@array/pref_target_fps_entries"
                             android:entryValues="@array/pref_target_fps_values"
                             android:defaultValue="30" />
+            <uk.cpjsmith.ponypaper.ColorPreference
+                    android:key="pref_background_colour"
+                    android:title="@string/pref_background_colour_title"
+                    android:dialogTitle="@string/pref_background_colour_dialog"
+                    android:dialogMessage="@string/pref_background_colour_summary"
+                    android:defaultValue="@integer/pref_background_colour_default" />
             <CheckBoxPreference android:key="pref_background"
                                 android:title="Use background"
                                 android:defaultValue="false" />
@@ -55,7 +61,7 @@
                             android:title="@string/pref_power_category">
             <CheckBoxPreference android:key="pref_respect_battery_saver"
                                 android:title="Respect Battery Saver"
-                                android:summary="Limit to 25 FPS, at most 3 ponies, and replace image backgrounds with a solid colour when system Battery Saver is on"
+                                android:summary="Limit to 25 FPS, at most 3 ponies, and replace image backgrounds with the base colour when system Battery Saver is on"
                                 android:defaultValue="true" />
             <CheckBoxPreference android:key="pref_battery_default_fps"
                                 android:title="Default frame rate on battery"
@@ -67,7 +73,7 @@
                                 android:defaultValue="false" />
             <CheckBoxPreference android:key="pref_battery_disable_background"
                                 android:title="Disable background on battery"
-                                android:summary="Replace the background image with a solid colour while on battery"
+                                android:summary="Replace the background image with the base colour while on battery"
                                 android:defaultValue="false" />
         </PreferenceCategory>
 

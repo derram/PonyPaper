@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Packed ARGB for pref_background_colour; matches PonySceneController.DEFAULT_BACKGROUND_COLOUR. -->
+    <integer name="pref_background_colour_default">0xFF333333</integer>
+</resources>

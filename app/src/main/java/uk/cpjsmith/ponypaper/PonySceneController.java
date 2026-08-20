@@ -41,6 +41,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     static final String PREF_BATTERY_DEFAULT_PONIES = "pref_battery_default_ponies";
     /** When true, replace image backgrounds with a solid colour while on battery. */
     static final String PREF_BATTERY_DISABLE_BACKGROUND = "pref_battery_disable_background";
+    /** Packed ARGB for the solid fill behind ponies (and while a scene reload is in flight). */
+    static final String PREF_BACKGROUND_COLOUR = "pref_background_colour";
+    /** Historical hardcoded fill; also the preference default. */
+    static final int DEFAULT_BACKGROUND_COLOUR = 0xff333333;
     /** Preference key for the user's preferred number of on-screen ponies. */
     static final String PREF_NUM_PONIES = "pref_num_ponies";
     /** When true, the dream draws a large digital clock over the scene. */
@@ -65,6 +69,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private static final long MAX_DELTA_MS = 100;
     /** Original Berry Punch fade took ~3 frames at 25 FPS. */
     private static final int DRUNK_FADE_MS = 120;
+    /** Fill/sprite alpha after the Berry Punch fade. */
+    private static final int DRUNK_FILL_ALPHA = 0x33;
     /** Maximum FPS while system Battery Saver is active. */
     private static final int BATTERY_SAVER_MAX_FPS = 25;
     /** Maximum on-screen ponies while system Battery Saver is active. */
@@ -148,7 +154,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private boolean drunkMode = false;
     private final Paint paint = new Paint();
     private final DreamClock dreamClock = new DreamClock();
-    private int backgroundColour = 0;
+    /** Opaque user-chosen fill; drunk mode may paint a translucent copy. */
+    private int baseBackgroundColour = DEFAULT_BACKGROUND_COLOUR;
+    private int backgroundColour = DEFAULT_BACKGROUND_COLOUR;
     private int drunkElapsedMs = 0;
     /** Delay between draw callbacks; derived from {@link #PREF_TARGET_FPS}. */
     private int framePeriodMs = 1000 / DEFAULT_TARGET_FPS;
@@ -251,6 +259,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         Log.d("PonyPaper", "Initial battery temp: " + batteryTempTenths);
         applyTargetFps(getPreferences());
+        applyBackgroundColour(getPreferences(), true);
         registerPowerReceivers();
         registerThermalListener();
         registerDisplayListener();
@@ -315,9 +324,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         final SharedPreferences prefs = getPreferences();
         applyTargetFps(prefs);
         drunkMode = prefs.getBoolean("pref_drunk_mode", false);
-        drunkElapsedMs = 0;
-        backgroundColour = 0xff333333;
-        paint.setAlpha(0xff);
+        applyBackgroundColour(prefs, true);
 
         final int ponyCount = getEffectivePonyCount(prefs);
         final boolean wantBg = prefs.getBoolean("pref_background", false)
@@ -510,9 +517,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         if (ponies != null) ponies.reset();
         if (drunkMode) {
-            drunkElapsedMs = 0;
-            backgroundColour = 0xff333333;
-            paint.setAlpha(0xff);
+            applyBackgroundColour(getPreferences(), true);
         }
         lastFrameUptimeMs = 0;
         drawFrame();
@@ -756,6 +761,43 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
     }
 
+    /**
+     * Reads the opaque user fill. Missing values use
+     * {@link #DEFAULT_BACKGROUND_COLOUR}; stored colours have alpha forced to
+     * {@code 0xFF}.
+     */
+    static int backgroundColourFromPrefs(SharedPreferences prefs) {
+        int raw = DEFAULT_BACKGROUND_COLOUR;
+        if (prefs != null) {
+            raw = prefs.getInt(PREF_BACKGROUND_COLOUR, DEFAULT_BACKGROUND_COLOUR);
+        }
+        return 0xff000000 | (raw & 0x00ffffff);
+    }
+
+    private static int fadedFill(int opaque) {
+        return (DRUNK_FILL_ALPHA << 24) | (opaque & 0x00ffffff);
+    }
+
+    /**
+     * @param resetDrunkFade when true, restore opaque fill and restart the
+     *        Berry Punch fade timer; when false, keep the current fade stage
+     *        and only swap RGB (used for a live colour preference change).
+     */
+    private void applyBackgroundColour(SharedPreferences prefs, boolean resetDrunkFade) {
+        baseBackgroundColour = backgroundColourFromPrefs(prefs);
+        if (resetDrunkFade) {
+            drunkElapsedMs = 0;
+            paint.setAlpha(0xff);
+            backgroundColour = baseBackgroundColour;
+            return;
+        }
+        if (paint.getAlpha() == 0xff) {
+            backgroundColour = baseBackgroundColour;
+        } else {
+            backgroundColour = fadedFill(baseBackgroundColour);
+        }
+    }
+
     private void applyTargetFps(SharedPreferences prefs) {
         int fps = DEFAULT_TARGET_FPS;
         try {
@@ -897,6 +939,15 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             }
             return;
         }
+        if (PREF_BACKGROUND_COLOUR.equals(key)) {
+            applyBackgroundColour(prefs, false);
+            handler.removeCallbacks(drawFrameCallback);
+            if (active && !frozen) {
+                lastFrameUptimeMs = 0;
+                drawFrame();
+            }
+            return;
+        }
         if (PonySize.PREF_KEY.equals(key)) {
             if (ponies != null) {
                 ponies.setSizeFactor(PonySize.factor(prefs));
@@ -965,8 +1016,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 if (drunkMode && paint.getAlpha() == 0xff) {
                     drunkElapsedMs += (int) deltaMs;
                     if (drunkElapsedMs >= DRUNK_FADE_MS) {
-                        backgroundColour = 0x33333333;
-                        paint.setAlpha(0x33);
+                        backgroundColour = fadedFill(baseBackgroundColour);
+                        paint.setAlpha(DRUNK_FILL_ALPHA);
                     }
                 }
                 float xOffset = surface.getBackgroundXOffset();
