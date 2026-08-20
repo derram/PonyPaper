@@ -305,11 +305,28 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             ponies.unloadSprites();
             ponies = null;
         }
+        recycleDisplayedBackground();
+    }
+
+    /** Recycle and null {@link #background}. Handler thread only. */
+    private void recycleDisplayedBackground() {
         if (background != null) {
             if (!background.isRecycled()) {
                 background.recycle();
             }
             background = null;
+        }
+    }
+
+    /**
+     * Swap in {@code next} (may be null) and recycle the previous displayed
+     * bitmap. Handler thread only.
+     */
+    private void replaceBackground(Bitmap next) {
+        Bitmap old = background;
+        background = next;
+        if (old != null && old != next && !old.isRecycled()) {
+            old.recycle();
         }
     }
 
@@ -379,7 +396,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                             return;
                         }
                         ponies = readyHerd;
-                        background = readyBg;
+                        replaceBackground(readyBg);
                         if (active && !frozen && !thermalEmergency) {
                             lastFrameUptimeMs = 0;
                             drawFrame();
