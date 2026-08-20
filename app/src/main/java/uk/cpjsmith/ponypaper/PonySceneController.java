@@ -41,7 +41,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     static final String PREF_BATTERY_DEFAULT_PONIES = "pref_battery_default_ponies";
     /** When true, replace image backgrounds with a solid colour while on battery. */
     static final String PREF_BATTERY_DISABLE_BACKGROUND = "pref_battery_disable_background";
-    /** Packed ARGB for the solid fill behind ponies (and while a scene reload is in flight). */
+    /** Packed ARGB for the solid fill behind ponies when there is no image background. */
     static final String PREF_BACKGROUND_COLOUR = "pref_background_colour";
     /** Historical hardcoded fill; also the preference default. */
     static final int DEFAULT_BACKGROUND_COLOUR = 0xff333333;
@@ -289,13 +289,16 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         getPreferences().unregisterOnSharedPreferenceChangeListener(this);
         handler.removeCallbacks(drawFrameCallback);
         dropHerd();
+        recycleDisplayedBackground();
         thermalEmergency = false;
         thermalThrottle = false;
     }
 
     /**
-     * Unload the current herd and background. Cache pins drop so sheets still
-     * used by another host (e.g. dream vs wallpaper) stay decoded.
+     * Unload the current herd. Cache pins drop so sheets still used by another
+     * host (e.g. dream vs wallpaper) stay decoded. The displayed background is
+     * kept so {@link #drawFrame} can paint the last image until
+     * {@link #replaceBackground} or {@link #recycleDisplayedBackground}.
      */
     private void dropHerd() {
         sceneLoadGeneration++;
@@ -305,7 +308,6 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             ponies.unloadSprites();
             ponies = null;
         }
-        recycleDisplayedBackground();
     }
 
     /** Recycle and null {@link #background}. Handler thread only. */
@@ -332,7 +334,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     /**
      * Build the herd and decode the optional background on the decode worker.
-     * The frame loop paints a solid (or last-good) buffer until this completes.
+     * The frame loop keeps painting the last decoded background bitmap until
+     * this completes (solid fill only when there is no image yet).
      */
     private void ensureScenePrepared(final int canvasW, final int canvasH) {
         if (ponies != null || sceneLoadInFlight || sceneLoadFailed || !started) {
@@ -393,6 +396,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                         sceneLoadInFlight = false;
                         if (readyHerd == null) {
                             sceneLoadFailed = true;
+                            if (readyBg != null && !readyBg.isRecycled()) {
+                                readyBg.recycle();
+                            }
                             return;
                         }
                         ponies = readyHerd;
@@ -755,6 +761,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (thermalEmergency) {
             handler.removeCallbacks(drawFrameCallback);
             dropHerd();
+            recycleDisplayedBackground();
             if (active && surface.isDrawingEnabled() && !frozen) {
                 paintSolidFrame(THERMAL_SAFE_COLOUR);
             }
