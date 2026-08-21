@@ -40,6 +40,13 @@ public class Ponies {
     
     private ArrayList<Pony> inactivePonies;
     private Pony[] activePonies;
+    private final Rect clipBounds = new Rect();
+    private final Rect spriteSrc = new Rect();
+    private final Rect spriteDst = new Rect();
+    /** 5 ints per active pony; compared to {@link #lastVisualStamp} to skip blits. */
+    private int[] visualStamp;
+    private int[] lastVisualStamp;
+    private int visualStampLen = -1;
     /**
      * Preference key of the user's favorite pony ({@code pref_waifu}), or empty
      * for none. When non-empty, inactive ponies with this key are preferred when
@@ -135,6 +142,7 @@ public class Ponies {
                 activePonies[i].setSizeFactor(factor);
             }
         }
+        invalidateVisualStamp();
     }
 
     private void applySizeFactor(float factor) {
@@ -149,6 +157,7 @@ public class Ponies {
      */
     public void reset() {
         for (Pony pony : activePonies) pony.reset();
+        invalidateVisualStamp();
     }
 
     /**
@@ -188,8 +197,20 @@ public class Ponies {
      *                framerates)
      */
     public void drawAndUpdate(Canvas c, long deltaMs) {
+        c.getClipBounds(clipBounds);
+        update(clipBounds, deltaMs);
+        draw(c);
+    }
+
+    /**
+     * Advances motion/animation. {@code clip} is copied; the caller may reuse it.
+     *
+     * @return true if a later {@link #draw} would differ from the previous one
+     */
+    boolean update(Rect clip, long deltaMs) {
+        clipBounds.set(clip);
         for (int i = 0; i < activePonies.length; i++) {
-            activePonies[i].doUpdate(c.getClipBounds(), deltaMs);
+            activePonies[i].doUpdate(clipBounds, deltaMs);
             if (activePonies[i].goneOffScreen()) {
                 Pony temp = activePonies[i];
                 temp.reset();
@@ -197,14 +218,56 @@ public class Ponies {
                     activePonies[i] = takeFromInactive();
                     inactivePonies.add(temp);
                 }
-                activePonies[i].doUpdate(c.getClipBounds(), 0);
+                activePonies[i].doUpdate(clipBounds, 0);
             }
         }
         updateReplacementPrefetch();
         Arrays.sort(activePonies, compareY);
+        return captureVisualDirty();
+    }
+
+    void draw(Canvas c) {
         for (int i = 0; i < activePonies.length; i++) {
-            activePonies[i].drawOn(c);
+            activePonies[i].drawOn(c, spriteSrc, spriteDst);
         }
+    }
+
+    /** True when every on-screen pony is waiting or still spawning. */
+    boolean allIdle() {
+        for (int i = 0; i < activePonies.length; i++) {
+            if (!activePonies[i].isVisuallyIdle()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void invalidateVisualStamp() {
+        visualStampLen = -1;
+    }
+
+    private boolean captureVisualDirty() {
+        int n = activePonies.length * 5;
+        if (visualStamp == null || visualStamp.length < n) {
+            visualStamp = new int[n];
+            lastVisualStamp = new int[n];
+            visualStampLen = -1;
+        }
+        for (int i = 0; i < activePonies.length; i++) {
+            activePonies[i].writeVisualStamp(visualStamp, i * 5);
+        }
+        boolean dirty = visualStampLen != n;
+        if (!dirty) {
+            for (int i = 0; i < n; i++) {
+                if (visualStamp[i] != lastVisualStamp[i]) {
+                    dirty = true;
+                    break;
+                }
+            }
+        }
+        System.arraycopy(visualStamp, 0, lastVisualStamp, 0, n);
+        visualStampLen = n;
+        return dirty;
     }
     
     /**

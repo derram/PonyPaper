@@ -11,7 +11,6 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
-import android.graphics.RectF;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Handler;
@@ -21,6 +20,7 @@ import android.preference.PreferenceManager;
 import android.util.Log;
 import android.view.Display;
 import android.view.MotionEvent;
+import android.view.Surface;
 import android.view.SurfaceHolder;
 import java.io.File;
 
@@ -71,6 +71,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private static final int DRUNK_FADE_MS = 120;
     /** Fill/sprite alpha after the Berry Punch fade. */
     private static final int DRUNK_FILL_ALPHA = 0x33;
+    /**
+     * Cap while every on-screen pony is idle. Sprite timings are centiseconds,
+     * so 15 FPS still catches frame changes; moving ponies keep {@link #targetFps}.
+     */
+    private static final int IDLE_MAX_FPS = 15;
     /** Maximum FPS while system Battery Saver is active. */
     private static final int BATTERY_SAVER_MAX_FPS = 25;
     /** Maximum on-screen ponies while system Battery Saver is active. */
@@ -143,6 +148,24 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         default Display getHostDisplay() {
             return TargetFps.displayFor(getContext());
         }
+
+        /**
+         * Whether to call {@link Surface#setFrameRate} on this host's surface.
+         * Live-wallpaper BLAST surfaces should return false; a rate hint there
+         * can stall later {@code lockCanvas} after the surface is hidden.
+         */
+        default boolean shouldHintSurfaceFrameRate() {
+            return true;
+        }
+
+        /**
+         * Whether to use {@link SurfaceHolder#lockHardwareCanvas()}. Wallpaper
+         * BLAST surfaces should return false; hardware locks can hang after
+         * Dream or a display-rate change. Dream {@code SurfaceView}s can use it.
+         */
+        default boolean shouldLockHardwareCanvas() {
+            return true;
+        }
     }
 
     private final Context appContext;
@@ -151,8 +174,31 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     private Ponies ponies = null;
     private Bitmap background = null;
+    /** Cover-scaled copy of {@link #background} for the current surface size. */
+    private Bitmap backgroundScaled = null;
+    private int backgroundScaledW = 0;
+    private int backgroundScaledH = 0;
     private boolean drunkMode = false;
     private final Paint paint = new Paint();
+    /** Nearest-neighbor paint for one-time background cover-scale. */
+    private final Paint scalePaint = new Paint();
+    private final Rect tmpSrc = new Rect();
+    private final Rect tmpDst = new Rect();
+    private final Rect clipRect = new Rect();
+    /** When true, the next locked frame must paint even if ponies look unchanged. */
+    private boolean forceSceneRedraw = true;
+    private int lastBgDestLeft = Integer.MIN_VALUE;
+    private int lastBgDestTop = Integer.MIN_VALUE;
+    /** False after {@link HardwareCanvasSupport#lock} fails for this controller. */
+    private boolean hardwareCanvasAllowed = true;
+    /** Last FPS pushed to {@link Surface#setFrameRate}; negative means unset. */
+    private float lastSurfaceFps = -1f;
+    /**
+     * Wallpaper-picker preview. Set from {@code Engine.onCreate} after the
+     * wallpaper wrapper is attached; {@code Engine.isPreview()} NPEs in the
+     * engine constructor.
+     */
+    private boolean previewEngine = false;
     private final DreamClock dreamClock = new DreamClock();
     /** Opaque user-chosen fill; drunk mode may paint a translucent copy. */
     private int baseBackgroundColour = DEFAULT_BACKGROUND_COLOUR;
@@ -160,6 +206,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private int drunkElapsedMs = 0;
     /** Delay between draw callbacks; derived from {@link #PREF_TARGET_FPS}. */
     private int framePeriodMs = 1000 / DEFAULT_TARGET_FPS;
+    /** Policy target FPS (idle schedule may use a longer period). */
+    private int targetFps = DEFAULT_TARGET_FPS;
     /** Last known system Battery Saver state. */
     private boolean powerSaveMode = false;
     /** True when the device is not plugged in (running on battery). */
@@ -241,6 +289,23 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * Registers preference, power, and thermal listeners. Safe to call once per
      * controller lifetime.
      */
+    /**
+     * Wallpaper picker vs live instance. Call from {@code Engine.onCreate} after
+     * {@code super.onCreate}, never from the engine constructor.
+     */
+    public void setPreviewEngine(boolean preview) {
+        if (previewEngine == preview) return;
+        previewEngine = preview;
+        if (!started) return;
+        applyTargetFps(getPreferences());
+        handler.removeCallbacks(drawFrameCallback);
+        if (active && !frozen && surface.isDrawingEnabled()) {
+            lastFrameUptimeMs = 0;
+            forceSceneRedraw = true;
+            drawFrame();
+        }
+    }
+
     public void start() {
         if (started) return;
         started = true;
@@ -308,16 +373,32 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             ponies.unloadSprites();
             ponies = null;
         }
+        forceSceneRedraw = true;
     }
 
     /** Recycle and null {@link #background}. Handler thread only. */
     private void recycleDisplayedBackground() {
+        recycleScaledBackground();
         if (background != null) {
             if (!background.isRecycled()) {
                 background.recycle();
             }
             background = null;
         }
+        forceSceneRedraw = true;
+    }
+
+    /**
+     * Recycle the cover-scaled blit copy. No-op when it aliases {@link #background}.
+     */
+    private void recycleScaledBackground() {
+        if (backgroundScaled != null && backgroundScaled != background
+                && !backgroundScaled.isRecycled()) {
+            backgroundScaled.recycle();
+        }
+        backgroundScaled = null;
+        backgroundScaledW = 0;
+        backgroundScaledH = 0;
     }
 
     /**
@@ -325,11 +406,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * bitmap. Handler thread only.
      */
     private void replaceBackground(Bitmap next) {
+        recycleScaledBackground();
         Bitmap old = background;
         background = next;
         if (old != null && old != next && !old.isRecycled()) {
             old.recycle();
         }
+        forceSceneRedraw = true;
     }
 
     /**
@@ -434,6 +517,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         bfo.inJustDecodeBounds = false;
         bfo.inSampleSize = scale;
+        bfo.inPreferredConfig = Bitmap.Config.RGB_565;
         return BitmapFactory.decodeFile(bgFile.toString(), bfo);
     }
 
@@ -455,6 +539,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         this.active = true;
         this.frozen = false;
         lastFrameUptimeMs = 0;
+        forceSceneRedraw = true;
+        lastSurfaceFps = -1f;
         if (thermalEmergency) {
             paintSolidFrame(THERMAL_SAFE_COLOUR);
             // Dream may have attached while already hot (hard-stop was a no-op then).
@@ -500,6 +586,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         handler.removeCallbacks(drawFrameCallback);
         if (!frozen && active && !thermalEmergency && surface.isDrawingEnabled()) {
             lastFrameUptimeMs = 0;
+            forceSceneRedraw = true;
             drawFrame();
         }
     }
@@ -518,7 +605,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (holder == null) return;
         Canvas c = null;
         try {
-            c = holder.lockCanvas();
+            c = lockFrameCanvas(holder);
             if (c != null && c.getWidth() > 0 && c.getHeight() > 0) {
                 c.drawColor(color);
             }
@@ -542,12 +629,40 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (drunkMode) {
             applyBackgroundColour(getPreferences(), true);
         }
+        recycleScaledBackground();
+        lastSurfaceFps = -1f;
+        lastBgDestLeft = Integer.MIN_VALUE;
+        lastBgDestTop = Integer.MIN_VALUE;
         lastFrameUptimeMs = 0;
+        forceSceneRedraw = true;
+        drawFrame();
+    }
+
+    /**
+     * Home-screen parallax step. Runs a frame immediately so an idle FPS cap
+     * does not delay background panning.
+     */
+    public void onOffsetsChanged() {
+        if (!started || !active || frozen || thermalEmergency) {
+            return;
+        }
+        if (!surface.isDrawingEnabled()) {
+            return;
+        }
+        handler.removeCallbacks(drawFrameCallback);
         drawFrame();
     }
 
     public void onTouchEvent(MotionEvent event) {
         if (ponies != null) ponies.onTouchEvent(event);
+        // Hold-to-drag should follow the finger even while the idle schedule is
+        // in effect; home-screen swipes never set this (long-press required).
+        if (ponies != null && ponies.didDragThisGesture()
+                && active && !frozen && !thermalEmergency
+                && surface.isDrawingEnabled()) {
+            handler.removeCallbacks(drawFrameCallback);
+            drawFrame();
+        }
     }
 
     /**
@@ -813,6 +928,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             drunkElapsedMs = 0;
             paint.setAlpha(0xff);
             backgroundColour = baseBackgroundColour;
+            forceSceneRedraw = true;
             return;
         }
         if (paint.getAlpha() == 0xff) {
@@ -820,6 +936,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         } else {
             backgroundColour = fadedFill(baseBackgroundColour);
         }
+        forceSceneRedraw = true;
     }
 
     private void applyTargetFps(SharedPreferences prefs) {
@@ -842,6 +959,14 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             fps = Math.min(fps, THERMAL_MODERATE_MAX_FPS);
         }
         fps = Math.min(fps, TargetFps.maxListedFps(hostDisplay()));
+        if (previewEngine) {
+            fps = Math.min(fps, DEFAULT_TARGET_FPS);
+        }
+        if (fps != targetFps) {
+            lastSurfaceFps = -1f;
+            forceSceneRedraw = true;
+        }
+        targetFps = fps;
         framePeriodMs = Math.max(1, 1000 / fps);
     }
 
@@ -1027,54 +1152,186 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         lastFrameUptimeMs = now;
 
         Rect surfaceFrame = holder.getSurfaceFrame();
-        if (ponies == null && surfaceFrame != null
-                && surfaceFrame.width() > 0 && surfaceFrame.height() > 0) {
-            ensureScenePrepared(surfaceFrame.width(), surfaceFrame.height());
+        int frameW = 0;
+        int frameH = 0;
+        if (surfaceFrame != null) {
+            frameW = surfaceFrame.width();
+            frameH = surfaceFrame.height();
+        }
+        if (ponies == null && frameW > 0 && frameH > 0) {
+            ensureScenePrepared(frameW, frameH);
+        }
+
+        applySurfaceFrameRate(holder, targetFps);
+
+        if (drunkMode && paint.getAlpha() == 0xff) {
+            drunkElapsedMs += (int) deltaMs;
+            if (drunkElapsedMs >= DRUNK_FADE_MS) {
+                backgroundColour = fadedFill(baseBackgroundColour);
+                paint.setAlpha(DRUNK_FILL_ALPHA);
+                forceSceneRedraw = true;
+            }
+        }
+
+        if (frameW > 0 && frameH > 0) {
+            clipRect.set(surfaceFrame);
+        }
+
+        boolean needDraw = forceSceneRedraw;
+        if (ponies != null && frameW > 0 && frameH > 0) {
+            if (ponies.update(clipRect, deltaMs)) {
+                needDraw = true;
+            }
+        }
+
+        float xOffset = surface.getBackgroundXOffset();
+        float yOffset = surface.getBackgroundYOffset();
+        Bitmap bg = displayedBackground(frameW, frameH);
+        if (bg != null) {
+            int bgLeft = Math.round((frameW - bg.getWidth()) * xOffset);
+            int bgTop = Math.round((frameH - bg.getHeight()) * yOffset);
+            if (bgLeft != lastBgDestLeft || bgTop != lastBgDestTop) {
+                needDraw = true;
+            }
+        }
+
+        if (surface.shouldShowClock()) {
+            needDraw = true;
+        }
+
+        if (!needDraw) {
+            scheduleNextFrame();
+            return;
         }
 
         Canvas c = null;
         try {
-            c = holder.lockCanvas();
+            c = lockFrameCanvas(holder);
             // Surface may be lost or not yet ready; never touch a null/zero canvas.
             if (c != null && c.getWidth() > 0 && c.getHeight() > 0) {
-                if (drunkMode && paint.getAlpha() == 0xff) {
-                    drunkElapsedMs += (int) deltaMs;
-                    if (drunkElapsedMs >= DRUNK_FADE_MS) {
-                        backgroundColour = fadedFill(baseBackgroundColour);
-                        paint.setAlpha(DRUNK_FILL_ALPHA);
-                    }
-                }
-                float xOffset = surface.getBackgroundXOffset();
-                float yOffset = surface.getBackgroundYOffset();
-                if (background != null && !background.isRecycled()) {
-                    Rect srcRect = new Rect(0, 0, background.getWidth(), background.getHeight());
-                    Rect cb = c.getClipBounds();
-                    float scale = Math.max((float) cb.height() / (float) srcRect.height(),
-                            (float) cb.width() / (float) srcRect.width());
-                    RectF dstRect = new RectF((cb.width() - srcRect.width() * scale) * xOffset,
-                            (cb.height() - srcRect.height() * scale) * yOffset,
-                            (cb.width() - srcRect.width() * scale) * xOffset + srcRect.width() * scale,
-                            (cb.height() - srcRect.height() * scale) * yOffset + srcRect.height() * scale);
-                    c.drawBitmap(background, srcRect, dstRect, paint);
-                } else {
+                int canvasW = c.getWidth();
+                int canvasH = c.getHeight();
+                Bitmap drawBg = displayedBackground(canvasW, canvasH);
+                if (drawBg == null || paint.getAlpha() != 0xff) {
                     c.drawColor(backgroundColour);
                 }
-                if (ponies != null) {
-                    ponies.drawAndUpdate(c, deltaMs);
+                if (drawBg != null && !drawBg.isRecycled()) {
+                    int left = Math.round((canvasW - drawBg.getWidth()) * xOffset);
+                    int top = Math.round((canvasH - drawBg.getHeight()) * yOffset);
+                    tmpSrc.set(0, 0, drawBg.getWidth(), drawBg.getHeight());
+                    tmpDst.set(left, top, left + drawBg.getWidth(), top + drawBg.getHeight());
+                    c.drawBitmap(drawBg, tmpSrc, tmpDst, paint);
+                    lastBgDestLeft = left;
+                    lastBgDestTop = top;
                 }
-                // Clock on top so digits stay readable over ponies / backgrounds.
+                if (ponies != null) {
+                    ponies.draw(c);
+                }
                 if (surface.shouldShowClock()) {
                     dreamClock.draw(c, surface.getContext(), surface.shouldShowClockDate());
                 }
+                forceSceneRedraw = false;
             }
         } finally {
             if (c != null) holder.unlockCanvasAndPost(c);
         }
 
-        // Reschedule the next redraw at the effective target rate.
+        scheduleNextFrame();
+    }
+
+    private void scheduleNextFrame() {
         handler.removeCallbacks(drawFrameCallback);
         if (active && surface.isDrawingEnabled() && !thermalEmergency && !frozen) {
-            handler.postDelayed(drawFrameCallback, framePeriodMs);
+            handler.postDelayed(drawFrameCallback, currentSchedulePeriodMs());
         }
+    }
+
+    private int currentSchedulePeriodMs() {
+        int period = framePeriodMs;
+        if (ponies != null && ponies.allIdle()) {
+            int idlePeriod = Math.max(1, 1000 / IDLE_MAX_FPS);
+            if (idlePeriod > period) {
+                period = idlePeriod;
+            }
+        }
+        return period;
+    }
+
+    private Canvas lockFrameCanvas(SurfaceHolder holder) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                && hardwareCanvasAllowed
+                && surface.shouldLockHardwareCanvas()) {
+            try {
+                Canvas hw = HardwareCanvasSupport.lock(holder);
+                if (hw != null) {
+                    return hw;
+                }
+            } catch (RuntimeException e) {
+                Log.w("PonyPaper", "Hardware canvas unavailable; using software", e);
+            }
+            hardwareCanvasAllowed = false;
+        }
+        return holder.lockCanvas();
+    }
+
+    private void applySurfaceFrameRate(SurfaceHolder holder, float fps) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
+        if (!surface.shouldHintSurfaceFrameRate()) return;
+        if (holder == null || fps <= 0f) return;
+        if (fps == lastSurfaceFps) return;
+        Surface s = holder.getSurface();
+        if (s == null || !s.isValid()) return;
+        try {
+            SurfaceFrameRateSupport.apply(s, fps);
+            lastSurfaceFps = fps;
+        } catch (RuntimeException e) {
+            Log.d("PonyPaper", "Surface setFrameRate failed", e);
+        }
+    }
+
+    /**
+     * Cover-scaled background for {@code canvasW}×{@code canvasH}, or null.
+     * The source bitmap is unchanged; a 1:1 size reuses it without a copy.
+     */
+    private Bitmap displayedBackground(int canvasW, int canvasH) {
+        if (background == null || background.isRecycled() || canvasW <= 0 || canvasH <= 0) {
+            return null;
+        }
+        if (backgroundScaled != null && !backgroundScaled.isRecycled()
+                && backgroundScaledW == canvasW && backgroundScaledH == canvasH) {
+            return backgroundScaled;
+        }
+        recycleScaledBackground();
+        backgroundScaled = scaleBackgroundToCover(background, canvasW, canvasH);
+        backgroundScaledW = canvasW;
+        backgroundScaledH = canvasH;
+        return backgroundScaled;
+    }
+
+    private Bitmap scaleBackgroundToCover(Bitmap src, int canvasW, int canvasH) {
+        int srcW = src.getWidth();
+        int srcH = src.getHeight();
+        if (srcW <= 0 || srcH <= 0) {
+            return src;
+        }
+        float scale = Math.max((float) canvasH / (float) srcH, (float) canvasW / (float) srcW);
+        int dstW = Math.max(1, Math.round(srcW * scale));
+        int dstH = Math.max(1, Math.round(srcH * scale));
+        if (dstW == srcW && dstH == srcH) {
+            return src;
+        }
+        Bitmap.Config config = src.hasAlpha() ? Bitmap.Config.ARGB_8888 : Bitmap.Config.RGB_565;
+        Bitmap dst;
+        try {
+            dst = Bitmap.createBitmap(dstW, dstH, config);
+        } catch (OutOfMemoryError e) {
+            Log.w("PonyPaper", "Background scale skipped (OOM)", e);
+            return src;
+        }
+        Canvas c = new Canvas(dst);
+        tmpSrc.set(0, 0, srcW, srcH);
+        tmpDst.set(0, 0, dstW, dstH);
+        c.drawBitmap(src, tmpSrc, tmpDst, scalePaint);
+        return dst;
     }
 }

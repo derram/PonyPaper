@@ -21,6 +21,7 @@ public class PonyWallpaper extends WallpaperService {
 
         private final PonySceneController controller;
         private boolean isVisible = false;
+        private boolean surfaceReady = false;
         private float xOffset = 0.5f;
         private float yOffset = 0.5f;
 
@@ -32,13 +33,20 @@ public class PonyWallpaper extends WallpaperService {
         }
 
         @Override
+        public void onCreate(SurfaceHolder surfaceHolder) {
+            super.onCreate(surfaceHolder);
+            // isPreview() NPEs in the Engine constructor (wrapper not attached yet).
+            controller.setPreviewEngine(isPreview());
+        }
+
+        @Override
         public SurfaceHolder getSurfaceHolder() {
             return super.getSurfaceHolder();
         }
 
         @Override
         public boolean isDrawingEnabled() {
-            return isVisible;
+            return isVisible && surfaceReady;
         }
 
         @Override
@@ -69,6 +77,16 @@ public class PonyWallpaper extends WallpaperService {
         }
 
         @Override
+        public boolean shouldHintSurfaceFrameRate() {
+            return false;
+        }
+
+        @Override
+        public boolean shouldLockHardwareCanvas() {
+            return false;
+        }
+
+        @Override
         public boolean shouldShowClock() {
             return false;
         }
@@ -87,7 +105,7 @@ public class PonyWallpaper extends WallpaperService {
         @Override
         public void onVisibilityChanged(boolean visible) {
             isVisible = visible;
-            controller.setActive(visible);
+            updateActive();
         }
 
         @Override
@@ -95,19 +113,33 @@ public class PonyWallpaper extends WallpaperService {
                 int xPixelOffset, int yPixelOffset) {
             this.xOffset = xOffset;
             this.yOffset = yOffset;
+            controller.onOffsetsChanged();
+        }
+
+        @Override
+        public void onSurfaceCreated(SurfaceHolder holder) {
+            super.onSurfaceCreated(holder);
+            surfaceReady = true;
+            updateActive();
         }
 
         @Override
         public void onSurfaceChanged(SurfaceHolder holder, int format, int width, int height) {
             super.onSurfaceChanged(holder, format, width, height);
+            surfaceReady = true;
             controller.onSurfaceSizeChanged();
+            updateActive();
         }
 
         @Override
         public void onSurfaceDestroyed(SurfaceHolder holder) {
             super.onSurfaceDestroyed(holder);
-            isVisible = false;
+            surfaceReady = false;
             controller.setActive(false);
+        }
+
+        private void updateActive() {
+            controller.setActive(isVisible && surfaceReady);
         }
 
         @Override

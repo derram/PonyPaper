@@ -17,6 +17,8 @@ public class SpriteSheet {
     public int frameHeight;
     
     private int[] frameTimes;
+    /** Exclusive end time of each frame; {@code cumulative[i] == sum(frameTimes[0..i])}. */
+    private int[] cumulative;
     
     private static BitmapFactory.Options decodeOptions() {
         BitmapFactory.Options opts = new BitmapFactory.Options();
@@ -66,12 +68,39 @@ public class SpriteSheet {
      * @throws IllegalArgumentException if {@code time} is invalid
      */
     public Rect getRect(int time) {
-        if (time < 0) throw new IllegalArgumentException("Invalid frame time.");
-        for (int frame = 0; frame < frameTimes.length; frame++) {
-            if (time < frameTimes[frame]) return new Rect(frameWidth * frame, 0, frameWidth * (frame + 1), frameHeight);
-            time -= frameTimes[frame];
+        Rect out = new Rect();
+        getRect(time, out);
+        return out;
+    }
+
+    /**
+     * Same as {@link #getRect(int)} but writes into {@code out} (no allocation).
+     */
+    public void getRect(int time, Rect out) {
+        int frame = getFrameIndex(time);
+        int left = frameWidth * frame;
+        out.set(left, 0, left + frameWidth, frameHeight);
+    }
+
+    /**
+     * Zero-based frame whose interval contains {@code time}.
+     * Requires {@code 0 <= time < totalTime}.
+     */
+    public int getFrameIndex(int time) {
+        if (time < 0 || time >= totalTime) {
+            throw new IllegalArgumentException("Invalid frame time.");
         }
-        throw new IllegalArgumentException("Invalid frame time.");
+        int lo = 0;
+        int hi = cumulative.length - 1;
+        while (lo < hi) {
+            int mid = (lo + hi) >>> 1;
+            if (cumulative[mid] <= time) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        return lo;
     }
     
     private void setInternals() {
@@ -81,8 +110,13 @@ public class SpriteSheet {
         if (frameTimes == null || frameTimes.length == 0) {
             throw new IllegalArgumentException("Sprite sheet has no frame times");
         }
-        totalTime = 0;
-        for (int x : frameTimes) totalTime += x;
+        cumulative = new int[frameTimes.length];
+        int sum = 0;
+        for (int i = 0; i < frameTimes.length; i++) {
+            sum += frameTimes[i];
+            cumulative[i] = sum;
+        }
+        totalTime = sum;
         frameWidth = bitmap.getWidth() / frameTimes.length;
         frameHeight = bitmap.getHeight();
     }

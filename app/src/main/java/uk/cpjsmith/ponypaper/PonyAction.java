@@ -4,7 +4,7 @@ import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
-import android.graphics.Point;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.util.Base64;
 import java.util.Random;
@@ -361,7 +361,7 @@ public class PonyAction {
         if (!Float.isNaN(anchorX[dir])) {
             return anchorX[dir];
         }
-        return getFrameSize(dir)[0] / 2f;
+        return getFrameWidth(dir) / 2f;
     }
     
     /**
@@ -377,7 +377,7 @@ public class PonyAction {
         if (!Float.isNaN(anchorY[dir])) {
             return anchorY[dir];
         }
-        return getFrameSize(dir)[1];
+        return getFrameHeight(dir);
     }
     
     private static void checkDir(int dir) {
@@ -546,6 +546,10 @@ public class PonyAction {
     public int getAnimationTime(int dir) {
         return sprites[dir].totalTime;
     }
+
+    public int getFrameIndex(int dir, int time) {
+        return sprites[dir].getFrameIndex(time);
+    }
     
     /**
      * Unscaled frame size for the given facing. Used for hit-testing and layout
@@ -555,8 +559,21 @@ public class PonyAction {
      * @return {@code int[]{frameWidth, frameHeight}} in source pixels
      */
     public int[] getFrameSize(int dir) {
-        SpriteSheet sprite = sprites[dir];
-        return new int[] { sprite.frameWidth, sprite.frameHeight };
+        return new int[] { getFrameWidth(dir), getFrameHeight(dir) };
+    }
+
+    public int getFrameWidth(int dir) {
+        if (sprites == null || dir < 0 || dir >= sprites.length || sprites[dir] == null) {
+            return 0;
+        }
+        return sprites[dir].frameWidth;
+    }
+
+    public int getFrameHeight(int dir) {
+        if (sprites == null || dir < 0 || dir >= sprites.length || sprites[dir] == null) {
+            return 0;
+        }
+        return sprites[dir].frameHeight;
     }
     
     /**
@@ -567,15 +584,35 @@ public class PonyAction {
      * when actions change.
      */
     public RectF getDrawBounds(float x, float y, float scale, int dir) {
-        int[] size = getFrameSize(dir);
-        float dW = size[0] * scale;
-        float dH = size[1] * scale;
+        RectF out = new RectF();
+        fillDrawBounds(x, y, scale, dir, out);
+        return out;
+    }
+
+    void fillDrawBounds(float x, float y, float scale, int dir, RectF out) {
+        float dW = getFrameWidth(dir) * scale;
+        float dH = getFrameHeight(dir) * scale;
         float ax = getAnchorX(dir) * scale;
         float ay = getAnchorY(dir) * scale;
-        return new RectF(x - ax, y - ay, x - ax + dW, y - ay + dH);
+        out.set(x - ax, y - ay, x - ax + dW, y - ay + dH);
+    }
+
+    /**
+     * Pixel-snapped destination for {@link Canvas#drawBitmap}. Width/height are
+     * rounded independently of origin so the sprite does not breathe by 1px.
+     */
+    void fillDestRect(float x, float y, float scale, int dir, Rect out) {
+        float dW = getFrameWidth(dir) * scale;
+        float dH = getFrameHeight(dir) * scale;
+        float ax = getAnchorX(dir) * scale;
+        float ay = getAnchorY(dir) * scale;
+        int left = Math.round(x - ax);
+        int top = Math.round(y - ay);
+        out.set(left, top, left + Math.round(dW), top + Math.round(dH));
     }
     
-    public void drawOn(Canvas c, int dir, int time, Point p, float scale, boolean dragged) {
+    public void drawOn(Canvas c, int dir, int time, float x, float y, float scale,
+            boolean dragged, Rect srcScratch, Rect dstScratch) {
         if (sprites == null || dir < 0 || dir >= sprites.length) return;
         SpriteSheet sprite = sprites[dir];
         // Recycled / unloaded sheets must not be blitted: that produces the
@@ -583,17 +620,16 @@ public class PonyAction {
         if (sprite == null || sprite.bitmap == null || sprite.bitmap.isRecycled()) {
             return;
         }
-        
+
         if (dragged) {
-            p = new Point(p);
             // Logical position is feet. Lift so the whole sprite hangs above the
             // finger instead of sitting under it.
-            p.y -= (int)(20 * scale);
+            y -= 20f * scale;
         }
-        
-        RectF dstRect = getDrawBounds(p.x, p.y, scale, dir);
-        
-        c.drawBitmap(sprite.bitmap, sprite.getRect(time), dstRect, null);
+
+        sprite.getRect(time, srcScratch);
+        fillDestRect(x, y, scale, dir, dstScratch);
+        c.drawBitmap(sprite.bitmap, srcScratch, dstScratch, null);
     }
     
     public void setNextWaiting(PonyAction[] states) {

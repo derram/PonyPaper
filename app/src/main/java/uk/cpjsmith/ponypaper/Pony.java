@@ -191,7 +191,10 @@ public class Pony {
      *                   pure spawn/layout pass)
      */
     public void doUpdate(Rect clipBounds, long deltaMs) {
-        screenBounds = clipBounds;
+        if (screenBounds == null) {
+            screenBounds = new Rect();
+        }
+        screenBounds.set(clipBounds);
         
         float scale = getScale();
         
@@ -321,16 +324,61 @@ public class Pony {
         }
     }
     
-    public void drawOn(Canvas c) {
+    public void drawOn(Canvas c, Rect srcScratch, Rect dstScratch) {
         if (currentAction == null || !currentAction.isReady()) {
             return;
         }
+        if (currentAction.getAnimationTime(direction) <= 0) {
+            return;
+        }
+        int time = clampedAnimTime();
+        currentAction.drawOn(c, direction, time, posX, posY, getScale(),
+                motion == MOTION_DRAGGED, srcScratch, dstScratch);
+    }
+
+    /**
+     * Packed visual identity after {@link #doUpdate}: action, facing, sprite
+     * frame, and pixel-snapped feet (with drag lift). Used to skip identical
+     * canvas locks.
+     */
+    void writeVisualStamp(int[] out, int offset) {
+        if (currentAction == null || !currentAction.isReady() || screenBounds == null) {
+            out[offset] = 0;
+            out[offset + 1] = 0;
+            out[offset + 2] = -1;
+            out[offset + 3] = 0;
+            out[offset + 4] = 0;
+            return;
+        }
+        int animTime = currentAction.getAnimationTime(direction);
+        int time = animTime > 0 ? clampedAnimTime() : 0;
+        float scale = getScale();
+        int x = Math.round(posX);
+        int y = Math.round(posY);
+        if (motion == MOTION_DRAGGED) {
+            y -= Math.round(20f * scale);
+        }
+        out[offset] = System.identityHashCode(currentAction);
+        out[offset + 1] = direction;
+        out[offset + 2] = animTime > 0 ? currentAction.getFrameIndex(direction, time) : -1;
+        out[offset + 3] = x;
+        out[offset + 4] = y;
+    }
+
+    /**
+     * True when this pony is not interpolating travel or a special clip, so a
+     * lower redraw rate is enough until a sprite frame or wait expiry.
+     */
+    boolean isVisuallyIdle() {
+        return motion == MOTION_WAITING || motion == MOTION_INIT;
+    }
+
+    private int clampedAnimTime() {
         int animTime = currentAction.getAnimationTime(direction);
         int time = Math.round(frameTime);
-        // SpriteSheet.getRect requires 0 <= time < totalTime.
         if (animTime > 0 && time >= animTime) time = animTime - 1;
         if (time < 0) time = 0;
-        currentAction.drawOn(c, direction, time, currentPoint(), getScale(), motion == MOTION_DRAGGED);
+        return time;
     }
     
     /**
@@ -419,9 +467,7 @@ public class Pony {
         posY = pos.y;
     }
     
-    private Point currentPoint() {
-        return new Point(Math.round(posX), Math.round(posY));
-    }
+
     
     /**
      * Picks a next waiting action if the list has real successors.
@@ -667,7 +713,7 @@ public class Pony {
         int maxH = 0;
         for (int i = 0; i < allActions.length; i++) {
             for (int dir = PonyAction.LEFT; dir <= PonyAction.RIGHT; dir++) {
-                int h = allActions[i].getFrameSize(dir)[1];
+                int h = allActions[i].isReady() ? allActions[i].getFrameHeight(dir) : 0;
                 if (h > maxH) {
                     maxH = h;
                 }
