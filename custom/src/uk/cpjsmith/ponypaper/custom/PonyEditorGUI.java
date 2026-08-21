@@ -227,6 +227,12 @@ public class PonyEditorGUI extends JPanel {
                 exportSpritesheet("left");
             }
         };
+
+        ActionListener exportFramesLeftListener = new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                exportFrames("left");
+            }
+        };
         
         DocumentListener timingsLeftListener = new MyDocumentListener() {
             public void update(DocumentEvent e) {
@@ -268,6 +274,12 @@ public class PonyEditorGUI extends JPanel {
         ActionListener exportRightListener = new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 exportSpritesheet("right");
+            }
+        };
+
+        ActionListener exportFramesRightListener = new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                exportFrames("right");
             }
         };
         
@@ -332,6 +344,7 @@ public class PonyEditorGUI extends JPanel {
         JButton imageLeftImport;
         JButton imageLeftImportFrames;
         JButton imageLeftExport;
+        JButton imageLeftExportFrames;
         JTextField timingsLeftField;
         JButton timingsLeftMinus;
         JButton timingsLeftPlus;
@@ -341,6 +354,7 @@ public class PonyEditorGUI extends JPanel {
         JButton imageRightImport;
         JButton imageRightImportFrames;
         JButton imageRightExport;
+        JButton imageRightExportFrames;
         JTextField timingsRightField;
         JButton timingsRightMinus;
         JButton timingsRightPlus;
@@ -573,11 +587,17 @@ public class PonyEditorGUI extends JPanel {
             imageLeftExport = new JButton("Export Spritesheet");
             imageLeftExport.setToolTipText("Save the left spritesheet as a PNG file.");
             imageLeftExport.addActionListener(exportLeftListener);
+            imageLeftExportFrames = new JButton("Export Frames");
+            imageLeftExportFrames.setToolTipText(
+                    "Save each left cell as its own PNG (sheet width ÷ timings count). "
+                            + "Use this instead of cropping the strip by hand.");
+            imageLeftExportFrames.addActionListener(exportFramesLeftListener);
             c = getConstraints(1, 10);
             c.weighty = 0.5;
             c.anchor = GridBagConstraints.NORTH;
             c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapImportExportButtons(imageLeftImport, imageLeftImportFrames, imageLeftExport), c);
+            add(wrapImportExportButtons(
+                    imageLeftImport, imageLeftImportFrames, imageLeftExport, imageLeftExportFrames), c);
             
             JLabel timingsLeftLabel = new JLabel("Left timings:");
             c = getConstraints(0, 11);
@@ -639,11 +659,17 @@ public class PonyEditorGUI extends JPanel {
             imageRightExport = new JButton("Export Spritesheet");
             imageRightExport.setToolTipText("Save the right spritesheet as a PNG file.");
             imageRightExport.addActionListener(exportRightListener);
+            imageRightExportFrames = new JButton("Export Frames");
+            imageRightExportFrames.setToolTipText(
+                    "Save each right cell as its own PNG (sheet width ÷ timings count). "
+                            + "Use this instead of cropping the strip by hand.");
+            imageRightExportFrames.addActionListener(exportFramesRightListener);
             c = getConstraints(1, 14);
             c.weighty = 0.5;
             c.anchor = GridBagConstraints.NORTH;
             c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapImportExportButtons(imageRightImport, imageRightImportFrames, imageRightExport), c);
+            add(wrapImportExportButtons(
+                    imageRightImport, imageRightImportFrames, imageRightExport, imageRightExportFrames), c);
             
             JLabel timingsRightLabel = new JLabel("Right timings:");
             c = getConstraints(0, 15);
@@ -915,14 +941,16 @@ public class PonyEditorGUI extends JPanel {
         }
 
         private static JPanel wrapImportExportButtons(
-                JButton importButton, JButton importFramesButton, JButton exportButton) {
-            JPanel col = new JPanel(new GridLayout(2, 1, 0, 4));
-            JPanel top = new JPanel(new GridLayout(1, 2, 4, 0));
-            top.add(importButton);
-            top.add(importFramesButton);
-            col.add(top);
-            col.add(exportButton);
-            return col;
+                JButton importButton,
+                JButton importFramesButton,
+                JButton exportSheetButton,
+                JButton exportFramesButton) {
+            JPanel grid = new JPanel(new GridLayout(2, 2, 4, 4));
+            grid.add(importButton);
+            grid.add(importFramesButton);
+            grid.add(exportSheetButton);
+            grid.add(exportFramesButton);
+            return grid;
         }
 
         private static JPanel wrapTimingsField(JTextField field, JButton minus, JButton plus) {
@@ -1511,6 +1539,152 @@ public class PonyEditorGUI extends JPanel {
                         JOptionPane.ERROR_MESSAGE);
             }
         }
+
+        /**
+         * Splits the current action's spritesheet for {@code direction} into one
+         * PNG per timings cell (same {@code width / frameCount} as the wallpaper)
+         * and writes numbered files into a chosen folder.
+         */
+        void exportFrames(String direction) {
+            if (currentIndex < 0) {
+                return;
+            }
+            String b64Image = editor.getActionImage(currentIndex, direction);
+            if (b64Image == null || b64Image.isEmpty()) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "No " + direction + " spritesheet is loaded for this action.",
+                        "Export Frames",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            byte[] rawImage;
+            try {
+                rawImage = Base64.getDecoder().decode(b64Image);
+            } catch (IllegalArgumentException e) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "The image could not be decoded. Please load a new image.",
+                        "Export Frames",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            List<BufferedImage> frames;
+            int cellW;
+            int cellH;
+            try {
+                Image image = ImageIO.read(new ByteArrayInputStream(rawImage));
+                if (image == null) {
+                    throw new IOException("Could not decode spritesheet");
+                }
+                String timings = editor.getActionTimings(currentIndex, direction);
+                int frameCount = frameCountFromTimings(timings);
+                BufferedImage sheet = SpriteSheetPreview.toBufferedImage(image);
+                frames = ImageImport.splitSheet(sheet, frameCount);
+                cellW = frames.get(0).getWidth();
+                cellH = frames.get(0).getHeight();
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        e.getMessage() != null ? e.getMessage()
+                                : "The image could not be decoded. Please load a new image.",
+                        "Export Frames",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            String prefix = ImageImport.sanitizeExportPrefix(
+                    editor.getActionName(currentIndex) + "_" + direction);
+            File dir = chooseExportFramesDirectory();
+            if (dir == null) {
+                return;
+            }
+            if (!dir.isDirectory()) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "\"" + dir.getName() + "\" is not a folder.",
+                        "Export Frames",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            List<File> dest = ImageImport.frameExportFiles(dir, prefix, frames.size());
+            int existing = 0;
+            String firstExisting = null;
+            for (File file : dest) {
+                if (file.exists()) {
+                    existing++;
+                    if (firstExisting == null) {
+                        firstExisting = file.getName();
+                    }
+                }
+            }
+            if (existing > 0) {
+                String message = existing == 1
+                        ? "\"" + firstExisting + "\" already exists.\nDo you want to replace it?"
+                        : existing + " files already exist (e.g. \"" + firstExisting
+                                + "\").\nDo you want to replace them?";
+                int choice = JOptionPane.showConfirmDialog(
+                        this,
+                        message,
+                        "Confirm Overwrite",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+                if (choice != JOptionPane.YES_OPTION) {
+                    return;
+                }
+            }
+
+            try {
+                ImageImport.writeFramePngs(frames, dir, prefix);
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Failed to write frames: " + e.getMessage(),
+                        "Export Frames",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            String firstName = dest.get(0).getName();
+            String lastName = dest.get(dest.size() - 1).getName();
+            String range = dest.size() == 1 ? firstName : firstName + " … " + lastName;
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Wrote " + dest.size() + " frame" + (dest.size() == 1 ? "" : "s")
+                            + " (" + cellW + "×" + cellH + " px each):\n" + range,
+                    "Export Frames",
+                    JOptionPane.INFORMATION_MESSAGE);
+        }
+
+        /**
+         * Folder chooser for {@link #exportFrames}. Restores the shared
+         * {@link JFileChooser} so XML / PNG saves keep their last path.
+         */
+        private File chooseExportFramesDirectory() {
+            int oldMode = fc.getFileSelectionMode();
+            boolean oldAcceptAll = fc.isAcceptAllFileFilterUsed();
+            File previous = fc.getSelectedFile();
+            fc.resetChoosableFileFilters();
+            fc.setAcceptAllFileFilterUsed(true);
+            fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            fc.setDialogTitle("Export Frames");
+            fc.setSelectedFile(fc.getCurrentDirectory());
+            int result = fc.showDialog(this, "Export");
+            File chosen = result == JFileChooser.APPROVE_OPTION ? fc.getSelectedFile() : null;
+            if (previous != null) {
+                fc.setSelectedFile(previous);
+            } else {
+                fc.setSelectedFile(null);
+            }
+            fc.setFileSelectionMode(oldMode);
+            fc.setAcceptAllFileFilterUsed(oldAcceptAll);
+            fc.resetChoosableFileFilters();
+            fc.setDialogTitle(null);
+            return chosen;
+        }
         
         @Override
         public void setEnabled(boolean enabled) {
@@ -1538,6 +1712,7 @@ public class PonyEditorGUI extends JPanel {
             imageLeftImport.setEnabled(enabled);
             imageLeftImportFrames.setEnabled(enabled);
             imageLeftExport.setEnabled(enabled);
+            imageLeftExportFrames.setEnabled(enabled);
             timingsLeftField.setEnabled(enabled);
             timingsLeftMinus.setEnabled(enabled);
             timingsLeftPlus.setEnabled(enabled);
@@ -1547,6 +1722,7 @@ public class PonyEditorGUI extends JPanel {
             imageRightImport.setEnabled(enabled);
             imageRightImportFrames.setEnabled(enabled);
             imageRightExport.setEnabled(enabled);
+            imageRightExportFrames.setEnabled(enabled);
             timingsRightField.setEnabled(enabled);
             timingsRightMinus.setEnabled(enabled);
             timingsRightPlus.setEnabled(enabled);

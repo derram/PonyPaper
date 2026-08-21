@@ -44,6 +44,9 @@ public final class ImageImportPackTest {
         failures += run("permuteOrder", ImageImportPackTest::testPermuteOrder);
         failures += run("permutePacksInGivenOrder", ImageImportPackTest::testPermutePacksInGivenOrder);
         failures += run("permuteTimingsTravel", ImageImportPackTest::testPermuteTimingsTravel);
+        failures += run("splitSheetRoundTrip", ImageImportPackTest::testSplitSheetRoundTrip);
+        failures += run("frameExportFileName", ImageImportPackTest::testFrameExportFileName);
+        failures += run("writeFramePngs", ImageImportPackTest::testWriteFramePngs);
         if (failures > 0) {
             System.err.println(failures + " packer check(s) failed.");
             System.exit(1);
@@ -433,6 +436,71 @@ public final class ImageImportPackTest {
         ImageImport packed = ImageImport.fromFrames(
                 ImageImport.permute(Arrays.asList(a, a, a), order), opts);
         assertEq("timings follow frames", "11,3,7", packed.timings);
+    }
+
+    private static void testSplitSheetRoundTrip() throws IOException {
+        BufferedImage red = solid(12, 8, 0xffff0000);
+        BufferedImage blue = solid(12, 8, 0xff0000ff);
+        BufferedImage green = solid(12, 8, 0xff00ff00);
+        ImageImport packed = ImageImport.fromFrames(
+                Arrays.asList(red, blue, green), new ImageImport.PackOptions());
+        BufferedImage sheet = decode(packed.loadedImage);
+        assertEq("sheetW", 36, sheet.getWidth());
+        List<BufferedImage> cells = ImageImport.splitSheet(sheet, 3);
+        assertEq("cell count", 3, cells.size());
+        assertEq("cellW", 12, cells.get(0).getWidth());
+        assertEq("cellH", 8, cells.get(0).getHeight());
+        assertEq("cell 0", 0xffff0000, cells.get(0).getRGB(6, 4));
+        assertEq("cell 1", 0xff0000ff, cells.get(1).getRGB(6, 4));
+        assertEq("cell 2", 0xff00ff00, cells.get(2).getRGB(6, 4));
+
+        // Remainder pixels on the right of a non-divisible sheet are dropped
+        // (11 / 2 = 5; pixel x=10 is unused).
+        BufferedImage uneven = new BufferedImage(11, 4, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < 4; y++) {
+            for (int x = 0; x < 11; x++) {
+                uneven.setRGB(x, y, x < 5 ? 0xffff0000 : (x < 10 ? 0xff0000ff : 0xff00ff00));
+            }
+        }
+        List<BufferedImage> two = ImageImport.splitSheet(uneven, 2);
+        assertEq("uneven cellW", 5, two.get(0).getWidth());
+        assertEq("first cell", 0xffff0000, two.get(0).getRGB(4, 0));
+        assertEq("second cell", 0xff0000ff, two.get(1).getRGB(0, 0));
+        assertEq("second cell last used", 0xff0000ff, two.get(1).getRGB(4, 0));
+    }
+
+    private static void testFrameExportFileName() {
+        assertEq("two digits", "walk_left_01.png",
+                ImageImport.frameExportFileName("walk_left", 0, 8));
+        assertEq("last of eight", "walk_left_08.png",
+                ImageImport.frameExportFileName("walk_left", 7, 8));
+        assertEq("three digits at 100", "hop_right_001.png",
+                ImageImport.frameExportFileName("hop_right", 0, 100));
+        assertEq("sanitize slash", "a_b", ImageImport.sanitizeExportPrefix("a/b"));
+        assertEq("sanitize colon", "c_d", ImageImport.sanitizeExportPrefix("c:d"));
+    }
+
+    private static void testWriteFramePngs() throws Exception {
+        File dir = Files.createTempDirectory("pp-export-frames-").toFile();
+        try {
+            BufferedImage a = solid(6, 4, 0xffff0000);
+            BufferedImage b = solid(6, 4, 0xff0000ff);
+            List<File> written = ImageImport.writeFramePngs(Arrays.asList(a, b), dir, "stand_left");
+            assertEq("wrote 2", 2, written.size());
+            assertEq("name 0", "stand_left_01.png", written.get(0).getName());
+            assertEq("name 1", "stand_left_02.png", written.get(1).getName());
+            BufferedImage loaded0 = ImageIO.read(written.get(0));
+            BufferedImage loaded1 = ImageIO.read(written.get(1));
+            assertEq("w0", 6, loaded0.getWidth());
+            assertEq("h0", 4, loaded0.getHeight());
+            assertEq("px0", 0xffff0000, loaded0.getRGB(3, 2));
+            assertEq("px1", 0xff0000ff, loaded1.getRGB(3, 2));
+
+            List<File> planned = ImageImport.frameExportFiles(dir, "stand_left", 2);
+            assertEq("planned exists", true, planned.get(0).exists());
+        } finally {
+            deleteTree(dir);
+        }
     }
 
     private static void testGifLoadHalfScale() throws Exception {

@@ -837,6 +837,101 @@ public class ImageImport {
     }
 
     /**
+     * File name for exported frame {@code index} (0-based) of {@code count}:
+     * {@code prefix_01.png}, {@code prefix_02.png}, … Digit width is at least
+     * 2 so a later {@link #collectFrameFiles} natural-sort stays in order.
+     */
+    public static String frameExportFileName(String prefix, int index, int count) {
+        if (prefix == null || prefix.isEmpty()) {
+            throw new IllegalArgumentException("prefix");
+        }
+        if (index < 0 || count < 1 || index >= count) {
+            throw new IllegalArgumentException("index/count");
+        }
+        int digits = Math.max(2, Integer.toString(count).length());
+        return String.format(Locale.ROOT, "%s_%0" + digits + "d.png", prefix, index + 1);
+    }
+
+    /**
+     * Replaces path separators in an action/direction prefix so the name is a
+     * single path segment.
+     */
+    public static String sanitizeExportPrefix(String prefix) {
+        if (prefix == null) {
+            return "";
+        }
+        String t = prefix.trim();
+        if (t.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(t.length());
+        for (int i = 0; i < t.length(); i++) {
+            char c = t.charAt(i);
+            if (c == '/' || c == '\\' || c == ':' || c == 0) {
+                sb.append('_');
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Destination files {@link #writeFramePngs} would create, in frame order.
+     */
+    public static List<File> frameExportFiles(File dir, String prefix, int count) {
+        if (dir == null) {
+            throw new IllegalArgumentException("dir");
+        }
+        String safe = sanitizeExportPrefix(prefix);
+        if (safe.isEmpty()) {
+            throw new IllegalArgumentException("prefix");
+        }
+        if (count < 1) {
+            throw new IllegalArgumentException("count");
+        }
+        List<File> files = new ArrayList<File>(count);
+        for (int i = 0; i < count; i++) {
+            files.add(new File(dir, frameExportFileName(safe, i, count)));
+        }
+        return files;
+    }
+
+    /**
+     * Writes each cell as a numbered PNG in {@code dir} using
+     * {@link #frameExportFileName}. Overwrites existing files of the same name.
+     *
+     * @return the files written, in frame order
+     */
+    public static List<File> writeFramePngs(List<BufferedImage> frames, File dir, String prefix)
+            throws IOException {
+        if (frames == null || frames.isEmpty()) {
+            throw new IOException("No frames to export");
+        }
+        if (dir == null || !dir.isDirectory()) {
+            throw new IOException("Export folder does not exist");
+        }
+        String safe = sanitizeExportPrefix(prefix);
+        if (safe.isEmpty()) {
+            throw new IOException("Export prefix is empty");
+        }
+        int n = frames.size();
+        List<File> out = new ArrayList<File>(n);
+        for (int i = 0; i < n; i++) {
+            BufferedImage frame = frames.get(i);
+            if (frame == null) {
+                throw new IOException("Null frame " + (i + 1));
+            }
+            File file = new File(dir, frameExportFileName(safe, i, n));
+            if (!ImageIO.write(frame, "png", file)) {
+                throw new IOException("Failed to encode " + file.getName());
+            }
+            out.add(file);
+        }
+        return out;
+    }
+
+    /**
      * Splits a left-to-right strip into {@code frameCount} cells using the same
      * integer division as the wallpaper ({@code width / frameCount}).
      */
