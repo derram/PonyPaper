@@ -21,4 +21,12 @@ final class SurfaceFrameRateSupport {
         }
         surface.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
     }
+
+    /** Drops a previous {@link #apply} vote so the display can idle or sleep. */
+    static void clear(Surface surface) {
+        if (surface == null || !surface.isValid()) {
+            return;
+        }
+        surface.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
+    }
 }

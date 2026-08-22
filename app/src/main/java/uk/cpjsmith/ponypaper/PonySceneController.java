@@ -135,8 +135,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
         /**
          * Called once when thermal emergency begins (effective status CRITICAL+).
-         * Wallpaper may ignore; the dream should {@code finish()} so the display
-         * can sleep instead of holding a frozen screensaver.
+         * Wallpaper may ignore; the dream should sleep or park the display
+         * instead of holding a frozen screensaver.
          */
         default void onThermalHardStop() {}
 
@@ -578,13 +578,20 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * Freezes or unfreezes the scene. While frozen, no further frames are
      * scheduled and the last posted surface buffer is left as-is (no bitmap
      * recycle, no herd reset). Dream hosts use this during content fade-out
-     * before {@code wakeUp()}/{@code finish()}.
+     * before {@code wakeUp()}/{@code finish()}/park. Also drops any
+     * {@code setFrameRate} vote so the display can idle.
      */
     public void setFrozen(boolean frozen) {
         if (this.frozen == frozen) return;
         this.frozen = frozen;
         handler.removeCallbacks(drawFrameCallback);
-        if (!frozen && active && !thermalEmergency && surface.isDrawingEnabled()) {
+        if (frozen) {
+            // Hardware canvas + setFrameRate holds a display vote; drop it so
+            // idle-timeout sleep/park is not fighting an active surface.
+            clearSurfaceFrameRate(surface.getSurfaceHolder());
+            return;
+        }
+        if (active && !thermalEmergency && surface.isDrawingEnabled()) {
             lastFrameUptimeMs = 0;
             forceSceneRedraw = true;
             drawFrame();
@@ -698,7 +705,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Idle milliseconds before the dream should {@code finish()} with no touch.
+     * Idle milliseconds before the dream should sleep the display with no touch.
      * {@code 0} means never (session keep-on / thermal hard-stop still apply).
      */
     static long dreamIdleTimeoutMs(SharedPreferences prefs) {
@@ -1286,6 +1293,19 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             lastSurfaceFps = fps;
         } catch (RuntimeException e) {
             Log.d("PonyPaper", "Surface setFrameRate failed", e);
+        }
+    }
+
+    private void clearSurfaceFrameRate(SurfaceHolder holder) {
+        lastSurfaceFps = -1f;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
+        if (holder == null) return;
+        Surface s = holder.getSurface();
+        if (s == null || !s.isValid()) return;
+        try {
+            SurfaceFrameRateSupport.clear(s);
+        } catch (RuntimeException e) {
+            Log.d("PonyPaper", "Surface clearFrameRate failed", e);
         }
     }
 
