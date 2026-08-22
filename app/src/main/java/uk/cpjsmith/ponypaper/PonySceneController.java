@@ -116,6 +116,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private static final int BATTERY_TEMP_UNKNOWN = Integer.MIN_VALUE;
     /** Solid fill while animation is frozen for thermal emergency. */
     private static final int THERMAL_SAFE_COLOUR = 0xff333333;
+    /** Matches {@code pref_pixelation} default in {@code preferences.xml}. */
+    private static final int DEFAULT_PIXELATION = 4;
+    private static final int MIN_PIXELATION = 1;
+    private static final int MAX_PIXELATION = 24;
 
     /**
      * Provides the surface and host-specific drawing state for the controller.
@@ -180,14 +184,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     private Ponies ponies = null;
     private Bitmap background = null;
-    /** Cover-scaled copy of {@link #background} for the current surface size. */
-    private Bitmap backgroundScaled = null;
-    private int backgroundScaledW = 0;
-    private int backgroundScaledH = 0;
     private boolean drunkMode = false;
     private final Paint paint = new Paint();
-    /** Nearest-neighbor paint for one-time background cover-scale. */
-    private final Paint scalePaint = new Paint();
     private final Rect tmpSrc = new Rect();
     private final Rect tmpDst = new Rect();
     private final Rect clipRect = new Rect();
@@ -289,6 +287,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 : context;
         this.handler = handler;
         this.surface = surface;
+        // Nearest-neighbour: software wallpaper fills the surface every frame, and
+        // bilinear filtering of a large background is a major heat source.
+        paint.setFilterBitmap(false);
+        paint.setDither(false);
     }
 
     /**
@@ -385,7 +387,6 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     /** Recycle and null {@link #background}. Handler thread only. */
     private void recycleDisplayedBackground() {
-        recycleScaledBackground();
         if (background != null) {
             if (!background.isRecycled()) {
                 background.recycle();
@@ -396,24 +397,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Recycle the cover-scaled blit copy. No-op when it aliases {@link #background}.
-     */
-    private void recycleScaledBackground() {
-        if (backgroundScaled != null && backgroundScaled != background
-                && !backgroundScaled.isRecycled()) {
-            backgroundScaled.recycle();
-        }
-        backgroundScaled = null;
-        backgroundScaledW = 0;
-        backgroundScaledH = 0;
-    }
-
-    /**
      * Swap in {@code next} (may be null) and recycle the previous displayed
      * bitmap. Handler thread only.
      */
     private void replaceBackground(Bitmap next) {
-        recycleScaledBackground();
         Bitmap old = background;
         background = next;
         if (old != null && old != next && !old.isRecycled()) {
@@ -439,7 +426,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         final int ponyCount = getEffectivePonyCount(prefs);
         final boolean wantBg = prefs.getBoolean("pref_background", false)
                 && !shouldDisableBackgroundImage(prefs);
-        final int pixelation = prefs.getInt("pref_pixelation", 1);
+        final int pixelation = pixelationFromPrefs(prefs);
         File filesDir = appContext.getExternalFilesDir(null);
         final File bgFile = (wantBg && filesDir != null)
                 ? new File(filesDir, CustomStorage.BACKGROUND_NAME) : null;
@@ -503,29 +490,143 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         });
     }
 
+    private static int pixelationFromPrefs(SharedPreferences prefs) {
+        int pixelation = prefs.getInt("pref_pixelation", DEFAULT_PIXELATION);
+        if (pixelation < MIN_PIXELATION) return MIN_PIXELATION;
+        if (pixelation > MAX_PIXELATION) return MAX_PIXELATION;
+        return pixelation;
+    }
+
+    /**
+     * Decode the background at cover-size / {@code pixelation}, in RGB_565.
+     * The frame loop cover-stretches this bitmap; it is not upsampled back to
+     * the surface, so pixelation remains a memory-bandwidth / heat control.
+     */
     private static Bitmap decodeBackgroundFile(File bgFile, int canvasW, int canvasH,
             int pixelation) {
+        if (pixelation < MIN_PIXELATION) pixelation = MIN_PIXELATION;
         BitmapFactory.Options bfo = new BitmapFactory.Options();
         bfo.inScaled = false;
         bfo.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(bgFile.toString(), bfo);
-        int h = bfo.outHeight;
-        int w = bfo.outWidth;
-        int scale = 1;
-        if (h > 0 && w > 0 && canvasH > 0 && canvasW > 0) {
-            scale = Math.min(h / canvasH, w / canvasW);
-            if (scale < 1) {
-                scale = 1;
-            }
+        int srcW = bfo.outWidth;
+        int srcH = bfo.outHeight;
+        int coverW;
+        int coverH;
+        if (srcW > 0 && srcH > 0 && canvasW > 0 && canvasH > 0) {
+            float coverScale = Math.max((float) canvasW / (float) srcW, (float) canvasH / (float) srcH);
+            coverW = Math.max(1, Math.round(srcW * coverScale));
+            coverH = Math.max(1, Math.round(srcH * coverScale));
+        } else {
+            coverW = Math.max(1, canvasW > 0 ? canvasW : srcW);
+            coverH = Math.max(1, canvasH > 0 ? canvasH : srcH);
         }
-        scale *= pixelation;
-        if (scale < 1) {
-            scale = 1;
-        }
+        int targetW = Math.max(1, coverW / pixelation);
+        int targetH = Math.max(1, coverH / pixelation);
+
         bfo.inJustDecodeBounds = false;
-        bfo.inSampleSize = scale;
+        bfo.inSampleSize = inSampleSizeForTarget(srcW, srcH, targetW, targetH);
         bfo.inPreferredConfig = Bitmap.Config.RGB_565;
-        return BitmapFactory.decodeFile(bgFile.toString(), bfo);
+        bfo.inDither = true;
+        Bitmap decoded = BitmapFactory.decodeFile(bgFile.toString(), bfo);
+        if (decoded == null) {
+            return null;
+        }
+        Bitmap working = asRgb565(decoded);
+        // Shrink extra pixels left by power-of-two inSampleSize. Do not upscale:
+        // a full-surface copy would undo pixelation and cost a full blit every frame.
+        boolean filter = pixelation == 1;
+        working = scaleDownToTarget(working, targetW, targetH, filter);
+        working = asRgb565(working);
+        if (working != null && !working.isRecycled()) {
+            working.prepareToDraw();
+        }
+        return working;
+    }
+
+    /** Largest power-of-two {@link BitmapFactory.Options#inSampleSize} that keeps both sides ≥ target. */
+    private static int inSampleSizeForTarget(int srcW, int srcH, int targetW, int targetH) {
+        if (srcW <= 0 || srcH <= 0 || targetW <= 0 || targetH <= 0) {
+            return 1;
+        }
+        int sample = Math.min(srcW / targetW, srcH / targetH);
+        if (sample < 1) {
+            return 1;
+        }
+        int pow2 = 1;
+        while (pow2 * 2 <= sample) {
+            pow2 *= 2;
+        }
+        return pow2;
+    }
+
+    /** RGB_565 copy when the decoder ignored {@code inPreferredConfig} (typical for PNG). */
+    private static Bitmap asRgb565(Bitmap src) {
+        if (src == null || src.isRecycled()) {
+            return src;
+        }
+        if (src.getConfig() == Bitmap.Config.RGB_565) {
+            return src;
+        }
+        try {
+            Bitmap converted = src.copy(Bitmap.Config.RGB_565, false);
+            if (converted != null) {
+                src.recycle();
+                return converted;
+            }
+        } catch (OutOfMemoryError e) {
+            Log.w("PonyPaper", "Background RGB_565 copy skipped (OOM)", e);
+        }
+        return src;
+    }
+
+    /** Downscale when the decode is larger than the pixelated target. Never upscales. */
+    private static Bitmap scaleDownToTarget(Bitmap src, int targetW, int targetH, boolean filter) {
+        if (src == null || src.isRecycled() || targetW <= 0 || targetH <= 0) {
+            return src;
+        }
+        int w = src.getWidth();
+        int h = src.getHeight();
+        if (w <= targetW && h <= targetH) {
+            return src;
+        }
+        float scale = Math.min((float) targetW / (float) w, (float) targetH / (float) h);
+        if (scale >= 1f) {
+            return src;
+        }
+        int dstW = Math.max(1, Math.round(w * scale));
+        int dstH = Math.max(1, Math.round(h * scale));
+        if (dstW == w && dstH == h) {
+            return src;
+        }
+        try {
+            Bitmap scaled = Bitmap.createScaledBitmap(src, dstW, dstH, filter);
+            if (scaled != null && scaled != src) {
+                src.recycle();
+                return scaled;
+            }
+        } catch (OutOfMemoryError e) {
+            Log.w("PonyPaper", "Background downscale skipped (OOM)", e);
+        }
+        return src;
+    }
+
+    /** Cover-fit destination inside the canvas, panned by home-screen offsets. */
+    private static void coverDestRect(int srcW, int srcH, int canvasW, int canvasH,
+            float xOffset, float yOffset, Rect out) {
+        int dstW;
+        int dstH;
+        if (srcW > 0 && srcH > 0 && canvasW > 0 && canvasH > 0) {
+            float scale = Math.max((float) canvasW / (float) srcW, (float) canvasH / (float) srcH);
+            dstW = Math.max(1, Math.round(srcW * scale));
+            dstH = Math.max(1, Math.round(srcH * scale));
+        } else {
+            dstW = Math.max(1, canvasW);
+            dstH = Math.max(1, canvasH);
+        }
+        int left = Math.round((canvasW - dstW) * xOffset);
+        int top = Math.round((canvasH - dstH) * yOffset);
+        out.set(left, top, left + dstW, top + dstH);
     }
 
     /**
@@ -643,7 +744,6 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (drunkMode) {
             applyBackgroundColour(getPreferences(), true);
         }
-        recycleScaledBackground();
         lastSurfaceFps = -1f;
         lastBgDestLeft = Integer.MIN_VALUE;
         lastBgDestTop = Integer.MIN_VALUE;
@@ -1236,11 +1336,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
         float xOffset = surface.getBackgroundXOffset();
         float yOffset = surface.getBackgroundYOffset();
-        Bitmap bg = displayedBackground(frameW, frameH);
-        if (bg != null) {
-            int bgLeft = Math.round((frameW - bg.getWidth()) * xOffset);
-            int bgTop = Math.round((frameH - bg.getHeight()) * yOffset);
-            if (bgLeft != lastBgDestLeft || bgTop != lastBgDestTop) {
+        if (background != null && !background.isRecycled() && frameW > 0 && frameH > 0) {
+            coverDestRect(background.getWidth(), background.getHeight(),
+                    frameW, frameH, xOffset, yOffset, tmpDst);
+            if (tmpDst.left != lastBgDestLeft || tmpDst.top != lastBgDestTop) {
                 needDraw = true;
             }
         }
@@ -1261,18 +1360,20 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             if (c != null && c.getWidth() > 0 && c.getHeight() > 0) {
                 int canvasW = c.getWidth();
                 int canvasH = c.getHeight();
-                Bitmap drawBg = displayedBackground(canvasW, canvasH);
+                Bitmap drawBg = background;
+                if (drawBg != null && drawBg.isRecycled()) {
+                    drawBg = null;
+                }
                 if (drawBg == null || paint.getAlpha() != 0xff) {
                     c.drawColor(backgroundColour);
                 }
-                if (drawBg != null && !drawBg.isRecycled()) {
-                    int left = Math.round((canvasW - drawBg.getWidth()) * xOffset);
-                    int top = Math.round((canvasH - drawBg.getHeight()) * yOffset);
+                if (drawBg != null) {
                     tmpSrc.set(0, 0, drawBg.getWidth(), drawBg.getHeight());
-                    tmpDst.set(left, top, left + drawBg.getWidth(), top + drawBg.getHeight());
+                    coverDestRect(drawBg.getWidth(), drawBg.getHeight(),
+                            canvasW, canvasH, xOffset, yOffset, tmpDst);
                     c.drawBitmap(drawBg, tmpSrc, tmpDst, paint);
-                    lastBgDestLeft = left;
-                    lastBgDestTop = top;
+                    lastBgDestLeft = tmpDst.left;
+                    lastBgDestTop = tmpDst.top;
                 }
                 if (ponies != null) {
                     ponies.draw(c);
@@ -1352,49 +1453,4 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
     }
 
-    /**
-     * Cover-scaled background for {@code canvasW}×{@code canvasH}, or null.
-     * The source bitmap is unchanged; a 1:1 size reuses it without a copy.
-     */
-    private Bitmap displayedBackground(int canvasW, int canvasH) {
-        if (background == null || background.isRecycled() || canvasW <= 0 || canvasH <= 0) {
-            return null;
-        }
-        if (backgroundScaled != null && !backgroundScaled.isRecycled()
-                && backgroundScaledW == canvasW && backgroundScaledH == canvasH) {
-            return backgroundScaled;
-        }
-        recycleScaledBackground();
-        backgroundScaled = scaleBackgroundToCover(background, canvasW, canvasH);
-        backgroundScaledW = canvasW;
-        backgroundScaledH = canvasH;
-        return backgroundScaled;
-    }
-
-    private Bitmap scaleBackgroundToCover(Bitmap src, int canvasW, int canvasH) {
-        int srcW = src.getWidth();
-        int srcH = src.getHeight();
-        if (srcW <= 0 || srcH <= 0) {
-            return src;
-        }
-        float scale = Math.max((float) canvasH / (float) srcH, (float) canvasW / (float) srcW);
-        int dstW = Math.max(1, Math.round(srcW * scale));
-        int dstH = Math.max(1, Math.round(srcH * scale));
-        if (dstW == srcW && dstH == srcH) {
-            return src;
-        }
-        Bitmap.Config config = src.hasAlpha() ? Bitmap.Config.ARGB_8888 : Bitmap.Config.RGB_565;
-        Bitmap dst;
-        try {
-            dst = Bitmap.createBitmap(dstW, dstH, config);
-        } catch (OutOfMemoryError e) {
-            Log.w("PonyPaper", "Background scale skipped (OOM)", e);
-            return src;
-        }
-        Canvas c = new Canvas(dst);
-        tmpSrc.set(0, 0, srcW, srcH);
-        tmpDst.set(0, 0, dstW, dstH);
-        c.drawBitmap(src, tmpSrc, tmpDst, scalePaint);
-        return dst;
-    }
 }

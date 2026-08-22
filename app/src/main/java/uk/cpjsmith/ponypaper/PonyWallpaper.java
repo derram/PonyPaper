@@ -1,6 +1,7 @@
 package uk.cpjsmith.ponypaper;
 
 import android.content.Context;
+import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -35,6 +36,9 @@ public class PonyWallpaper extends WallpaperService {
         @Override
         public void onCreate(SurfaceHolder surfaceHolder) {
             super.onCreate(surfaceHolder);
+            // Software lockCanvas on wallpaper BLAST: RGB_565 halves the per-frame
+            // fill vs RGBA_8888 when the compositor honours the format (older tablets).
+            surfaceHolder.setFormat(PixelFormat.RGB_565);
             // isPreview() NPEs in the Engine constructor (wrapper not attached yet).
             controller.setPreviewEngine(isPreview());
         }
