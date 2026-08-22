@@ -66,5 +66,30 @@
             android:theme="@style/Theme.PonyPaper.UnlockRequest"
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
+
+        <!-- Dream idle-sleep trampoline: some OEMs ignore lockNow from TYPE_DREAM. -->
+        <activity
+            android:name=".SleepRequestActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.PonyPaper.UnlockRequest"
+            android:showWhenLocked="true"
+            android:turnScreenOn="false" />
+
+        <receiver
+            android:name=".SleepAdminReceiver"
+            android:label="@string/pref_dream_device_admin_title"
+            android:description="@string/pref_dream_device_admin_explanation"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:exported="true">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

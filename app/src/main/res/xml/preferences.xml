@@ -97,7 +97,10 @@
                             android:dialogTitle="@string/pref_dream_idle_timeout_dialog"
                             android:entries="@array/pref_dream_idle_timeout_entries"
                             android:entryValues="@array/pref_dream_idle_timeout_values"
-                            android:defaultValue="10" />
+                            android:defaultValue="0" />
+            <Preference android:key="pref_dream_device_admin"
+                        android:title="@string/pref_dream_device_admin_title"
+                        android:summary="@string/pref_dream_device_admin_summary_off" />
         </PreferenceCategory>
     </PreferenceScreen>
 

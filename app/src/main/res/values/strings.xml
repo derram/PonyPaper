@@ -75,6 +75,20 @@
     <string name="pref_dream_idle_timeout_30">30 minutes</string>
     <string name="pref_dream_idle_timeout_60">1 hour</string>
     <string name="pref_dream_idle_timeout_never">Never</string>
+    <string name="pref_dream_idle_timeout_summary_blocked">Never. Choose a duration to allow lock, so inactivity can turn the panel off.</string>
+    <string name="pref_dream_idle_timeout_rationale_title">Allow lock to turn the screen off?</string>
+    <string name="pref_dream_idle_timeout_rationale_message">On this phone, ending the screen saver returns to the lock screen instead of powering off. Pony Paper only uses lock after the inactivity timeout, so the panel can actually turn off.</string>
+    <string name="pref_dream_device_admin_title">Lock to turn the screen off</string>
+    <string name="pref_dream_device_admin_summary_off">Off. Choose a duration under Turn off after inactivity to allow lock, or tap here. Without it, inactivity cannot power the panel off.</string>
+    <string name="pref_dream_device_admin_summary_on">On. After the inactivity timeout the screen saver locks the device and turns the panel off. Tap to remove.</string>
+    <string name="pref_dream_device_admin_summary_pixel">Not needed on this device. Ending the screen saver already turns the display off.</string>
+    <string name="pref_dream_device_admin_explanation">Pony Paper uses this to lock the device after the screen saver idle timeout, so the panel can turn off instead of returning to the lock screen.</string>
+    <string name="pref_dream_device_admin_disable_title">Remove lock permission?</string>
+    <string name="pref_dream_device_admin_disable_message">Without this, inactivity cannot turn the panel off on this device. Turn off after inactivity will be set to Never.</string>
+    <string name="pref_dream_device_admin_revoke_unused_message">The screen saver is set to stay on. It no longer needs lock to turn the panel off.</string>
+    <string name="dialog_remove">Remove</string>
+    <string name="dialog_keep">Keep</string>
+    <string name="dialog_continue">Continue</string>
 
     <string name="dream_session_settings">Session settings</string>
     <string name="dream_keep_screen_on">Keep screen on</string>

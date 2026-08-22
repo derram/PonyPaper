@@ -47,6 +47,7 @@ public class Settings extends PreferenceActivity {
     static final int EXPORT_LIBRARY = 2;
     static final int IMPORT_LIBRARY = 3;
     static final int PICK_LIBRARY_FOLDER = 4;
+    static final int REQUEST_DREAM_LOCK_ADMIN = 5;
 
     private static final String URL_THIS_FORK = "https://github.com/derram/PonyPaper";
     private static final String URL_RELEASES = "https://github.com/derram/PonyPaper/releases";
@@ -62,6 +63,8 @@ public class Settings extends PreferenceActivity {
 
     private final Handler settingsHandler = new Handler(Looper.getMainLooper());
     private DisplayManager.DisplayListener fpsDisplayListener;
+    /** Timeout value to write after a successful device-admin grant; null if none. */
+    private String pendingDreamIdleTimeout;
 
     private final SharedPreferences.OnSharedPreferenceChangeListener enableAllListener =
             new SharedPreferences.OnSharedPreferenceChangeListener() {
@@ -80,6 +83,7 @@ public class Settings extends PreferenceActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(null);
         PonySize.ensureDefault(this);
+        PonySceneController.ensureIdleTimeoutDefault(this);
         addPreferencesFromResource(R.xml.preferences);
         
         File[] customFiles = CustomStorage.listCustomXml(this);
@@ -179,7 +183,27 @@ public class Settings extends PreferenceActivity {
             });
         }
 
+        Preference dreamAdmin = findPreference("pref_dream_device_admin");
+        if (dreamAdmin != null) {
+            dreamAdmin.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    onDreamLockAdminClicked();
+                    return true;
+                }
+            });
+        }
+
+        Preference dreamTimeout = findPreference(PonySceneController.PREF_DREAM_IDLE_TIMEOUT);
+        if (dreamTimeout != null) {
+            dreamTimeout.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
+                public boolean onPreferenceChange(Preference preference, Object newValue) {
+                    return onDreamIdleTimeoutChanging(newValue);
+                }
+            });
+        }
+
         setupAboutAndLicenses();
+        refreshDreamIdleSettings();
     }
 
     @Override
@@ -195,6 +219,7 @@ public class Settings extends PreferenceActivity {
         super.onResume();
         startLibrarySync(false);
         refreshTargetFpsList();
+        refreshDreamIdleSettings();
         registerFpsDisplayListener();
     }
 
@@ -893,6 +918,139 @@ public class Settings extends PreferenceActivity {
                 "Open system Settings → Wallpaper (or Display → Wallpaper; wording varies by device) and choose Pony Paper as a live wallpaper.");
     }
 
+    private boolean onDreamIdleTimeoutChanging(Object newValue) {
+        int minutes = PonySceneController.parseDreamIdleMinutes(
+                newValue != null ? newValue.toString() : null);
+        if (minutes > 0 && DreamSleepAdmin.needsLockToSleep()
+                && !DreamSleepAdmin.isActive(this)) {
+            showDreamLockRationale(newValue.toString());
+            return false;
+        }
+        if (minutes == 0 && DreamSleepAdmin.needsLockToSleep()
+                && DreamSleepAdmin.isActive(this)) {
+            showOptionalRevokeAdminDialog();
+        }
+        return true;
+    }
+
+    private void onDreamLockAdminClicked() {
+        if (!DreamSleepAdmin.needsLockToSleep()) {
+            return;
+        }
+        if (DreamSleepAdmin.isActive(this)) {
+            showRevokeAdminDialog();
+            return;
+        }
+        showDreamLockRationale(null);
+    }
+
+    private void showDreamLockRationale(final String pendingTimeout) {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.pref_dream_idle_timeout_rationale_title)
+                .setMessage(R.string.pref_dream_idle_timeout_rationale_message)
+                .setPositiveButton(R.string.dialog_continue, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface dialog, int which) {
+                        requestDreamLockAdmin(pendingTimeout);
+                    }
+                })
+                .setNegativeButton(R.string.dialog_cancel, null)
+                .show();
+    }
+
+    private void requestDreamLockAdmin(String pendingTimeout) {
+        pendingDreamIdleTimeout = pendingTimeout;
+        try {
+            startActivityForResult(DreamSleepAdmin.addAdminIntent(this), REQUEST_DREAM_LOCK_ADMIN);
+        } catch (Exception e) {
+            pendingDreamIdleTimeout = null;
+            showAlertDialog(getString(R.string.pref_dream_device_admin_title),
+                    getString(R.string.pref_dream_device_admin_summary_off));
+        }
+    }
+
+    private void showRevokeAdminDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.pref_dream_device_admin_disable_title)
+                .setMessage(R.string.pref_dream_device_admin_disable_message)
+                .setPositiveButton(R.string.dialog_remove, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface dialog, int which) {
+                        revokeDreamLockAdmin();
+                    }
+                })
+                .setNegativeButton(R.string.dialog_cancel, null)
+                .show();
+    }
+
+    private void showOptionalRevokeAdminDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.pref_dream_device_admin_disable_title)
+                .setMessage(R.string.pref_dream_device_admin_revoke_unused_message)
+                .setPositiveButton(R.string.dialog_remove, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface dialog, int which) {
+                        revokeDreamLockAdmin();
+                    }
+                })
+                .setNegativeButton(R.string.dialog_keep, null)
+                .show();
+    }
+
+    private void revokeDreamLockAdmin() {
+        DreamSleepAdmin.removeAdmin(this);
+        PonySceneController.syncIdleTimeoutWithCapability(this);
+        refreshDreamIdleSettings();
+    }
+
+    private void applyPendingDreamIdleTimeout() {
+        if (pendingDreamIdleTimeout == null) return;
+        if (!DreamSleepAdmin.isActive(this)) {
+            pendingDreamIdleTimeout = null;
+            return;
+        }
+        ListPreference timeout = (ListPreference) findPreference(
+                PonySceneController.PREF_DREAM_IDLE_TIMEOUT);
+        if (timeout != null) {
+            timeout.setValue(pendingDreamIdleTimeout);
+        } else {
+            PreferenceManager.getDefaultSharedPreferences(this).edit()
+                    .putString(PonySceneController.PREF_DREAM_IDLE_TIMEOUT,
+                            pendingDreamIdleTimeout)
+                    .commit();
+        }
+        pendingDreamIdleTimeout = null;
+    }
+
+    private void refreshDreamIdleSettings() {
+        if (pendingDreamIdleTimeout == null) {
+            PonySceneController.syncIdleTimeoutWithCapability(this);
+        }
+        ListPreference timeout = (ListPreference) findPreference(
+                PonySceneController.PREF_DREAM_IDLE_TIMEOUT);
+        if (timeout != null) {
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+            String stored = prefs.getString(PonySceneController.PREF_DREAM_IDLE_TIMEOUT,
+                    PonySceneController.DREAM_IDLE_TIMEOUT_NEVER);
+            if (!stored.equals(timeout.getValue())) {
+                timeout.setValue(stored);
+            }
+            if (DreamSleepAdmin.needsLockToSleep() && !DreamSleepAdmin.isActive(this)) {
+                timeout.setSummary(R.string.pref_dream_idle_timeout_summary_blocked);
+            } else {
+                timeout.setSummary("%s");
+            }
+        }
+        Preference pref = findPreference("pref_dream_device_admin");
+        if (pref == null) return;
+        if (!DreamSleepAdmin.needsLockToSleep()) {
+            pref.setSummary(R.string.pref_dream_device_admin_summary_pixel);
+            pref.setEnabled(false);
+            return;
+        }
+        pref.setEnabled(true);
+        pref.setSummary(DreamSleepAdmin.isActive(this)
+                ? R.string.pref_dream_device_admin_summary_on
+                : R.string.pref_dream_device_admin_summary_off);
+    }
+
     /**
      * Opens the system screen saver / Daydream picker when available.
      * Path and availability vary by OEM; fall back to a short notice if the
@@ -1075,6 +1233,11 @@ public class Settings extends PreferenceActivity {
                 if (resultCode == RESULT_OK && data != null && data.getData() != null) {
                     connectLibraryFolder(data.getData(), data.getFlags());
                 }
+                break;
+
+            case REQUEST_DREAM_LOCK_ADMIN:
+                applyPendingDreamIdleTimeout();
+                refreshDreamIdleSettings();
                 break;
         }
     }

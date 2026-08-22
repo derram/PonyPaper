@@ -3,7 +3,6 @@ package uk.cpjsmith.ponypaper;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -18,8 +17,6 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window;
-import android.view.WindowManager;
 import android.widget.CompoundButton;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -44,7 +41,7 @@ import android.widget.Switch;
  *
  * <p>Session chrome (keep-screen-on and disable-auto-dim) lives only for this
  * dream and is not written to preferences. Keep-screen-on skips the idle
- * sleep/park; disable-auto-dim skips the 30s re-dim after wake.
+ * sleep; disable-auto-dim skips the 30s re-dim after wake.
  * Brightness stays with the host device. Thermal hard-stop still ends the dream.
  *
  * <p>Enter and exit use a black content overlay (fade-in / fade-out) so the herd
@@ -59,11 +56,10 @@ import android.widget.Switch;
  *
  * <p>AOSP/Pixel treats {@link #finish()} after a timeout-started dream as
  * screen-off (AOD may run). Several OEMs, notably Samsung, return to keyguard
- * instead while a hardware-canvas / {@code setFrameRate} vote is still held.
- * On those devices the idle path parks first (freeze, fade to black, hide the
- * surface, brightness 0) so the vote can drop, then {@link #finish()} after a
- * short delay. If the saver restarts immediately, later idle timeouts park
- * without finishing so the lock-screen loop cannot repeat.
+ * instead, which restarts the saver while idle and charging. Those devices
+ * tear down the hardware-canvas surface, then {@code lockNow()} (device admin)
+ * and {@link #finish()}. Without admin, idle timeout leaves the saver running
+ * rather than dimming the panel and pretending it is off.
  */
 public class PonyDreamService extends DreamService implements PonySceneController.FrameSurface {
 
@@ -93,26 +89,16 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      * overlay before it dissolves.
      */
     private static final long FADE_IN_DELAY_MS = 50;
-    /** Black overlay fade before {@link #wakeUp()} / {@link #finish()} / park. */
+    /** Black overlay fade before {@link #wakeUp()} / {@link #finish()}. */
     private static final long FADE_OUT_MS = 250;
     /** Treat overlay as already solid black above this alpha. */
     private static final float FADE_OPAQUE_EPSILON = 0.99f;
-    /**
-     * After OEM park, wait for SurfaceFlinger to drop the hardware-canvas vote
-     * before {@link #finish()}.
-     */
-    private static final long FINISH_AFTER_PARK_MS = 500;
-    /**
-     * If the dream restarts this soon after a delayed idle {@link #finish()},
-     * the OEM bounced to keyguard instead of sleeping.
-     */
-    private static final long IDLE_FINISH_BOUNCE_MS = 2_000;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable reDimRunnable = new Runnable() {
         @Override
         public void run() {
-            if (dreaming && !exiting && !displayParked && !disableAutoDim && isScreenBright()) {
+            if (dreaming && !exiting && !disableAutoDim && isScreenBright()) {
                 sessionAwake = false;
                 hideChrome(false);
                 applyDisplayPolicy();
@@ -122,7 +108,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private final Runnable maxIdleRunnable = new Runnable() {
         @Override
         public void run() {
-            if (dreaming && !exiting && !keepScreenOn && !displayParked) {
+            if (dreaming && !exiting && !keepScreenOn
+                    && DreamSleepAdmin.canTurnScreenOff(PonyDreamService.this)) {
                 beginGracefulExit(new Runnable() {
                     @Override
                     public void run() {
@@ -135,15 +122,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private final Runnable chromeAutoHideRunnable = new Runnable() {
         @Override
         public void run() {
-            if (dreaming && !exiting && !displayParked && chromeVisible) {
+            if (dreaming && !exiting && chromeVisible) {
                 hideChrome(true);
             }
-        }
-    };
-    private final Runnable delayedIdleFinishRunnable = new Runnable() {
-        @Override
-        public void run() {
-            finishParkedDreamForSleep();
         }
     };
     private PonySceneController controller;
@@ -161,18 +142,6 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private boolean surfaceReady = false;
     /** True while a content fade-out is in progress (or completed) for this exit. */
     private boolean exiting = false;
-    /**
-     * True when idle/thermal timeout parked this dream (black, no surface)
-     * instead of {@link #finish()}, so OEM keyguard cannot restart the saver.
-     */
-    private boolean displayParked = false;
-    /**
-     * True after a delayed idle {@link #finish()} bounced back into this dream.
-     * Process-wide so a rebound service still parks without finishing again.
-     */
-    private static boolean idleFinishBounces = false;
-    /** {@link SystemClock#elapsedRealtime()} of the last delayed idle finish; 0 if none. */
-    private static long lastIdleFinishRealtimeMs = 0;
     /** True after the enter fade for this dream session has been started. */
     private boolean fadeInStarted = false;
     /** Uptime millis when {@link #onDreamingStarted} last ran; 0 if not dreaming. */
@@ -189,7 +158,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     /** User woke the display this session (or keep-on is holding it). */
     private boolean sessionAwake = false;
-    /** Session opt-in: skip the idle sleep/park. */
+    /** Session opt-in: skip the idle sleep. */
     private boolean keepScreenOn = false;
     /** Session opt-in: skip the 30s re-dim after wake. The idle timeout still applies. */
     private boolean disableAutoDim = false;
@@ -204,7 +173,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
                     if (key == null
                             || PonySceneController.PREF_DREAM_IDLE_TIMEOUT.equals(key)) {
-                        if (dreaming && !exiting && !keepScreenOn && !displayParked) {
+                        if (dreaming && !exiting && !keepScreenOn) {
                             scheduleMaxIdle();
                         }
                     }
@@ -215,7 +184,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     public void onAttachedToWindow() {
         super.onAttachedToWindow();
         PonySize.ensureDefault(this);
+        PonySceneController.ensureIdleTimeoutDefault(this);
         PreferenceManager.setDefaultValues(this, R.xml.preferences, true);
+        PonySceneController.syncIdleTimeoutWithCapability(this);
 
         setInteractive(true);
         setFullscreen(true);
@@ -295,12 +266,6 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         fadeOverlay.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
-                if (displayParked) {
-                    if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                        wakeFromParkedDisplay();
-                    }
-                    return true;
-                }
                 if (exiting) {
                     // Swallow input during fade-out so a second tap cannot re-enter unlock.
                     return true;
@@ -366,14 +331,6 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         dreamingStartedAtMs = SystemClock.uptimeMillis();
         gestureDown = false;
         lastCompletedGestureWasDrag = false;
-        cancelDelayedIdleFinish();
-        if (isIdleFinishBounce()) {
-            idleFinishBounces = true;
-            parkImmediatelyAfterBounce();
-            return;
-        }
-        displayParked = false;
-        applyParkedBrightness(false);
         if (surfaceView != null) {
             surfaceView.setVisibility(View.VISIBLE);
         }
@@ -401,8 +358,6 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     @Override
     public void onDreamingStopped() {
         dreaming = false;
-        displayParked = false;
-        applyParkedBrightness(false);
         dreamingStartedAtMs = 0;
         gestureDown = false;
         lastCompletedGestureWasDrag = false;
@@ -410,7 +365,6 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         resetSessionDisplayState();
         cancelReDim();
         cancelMaxIdle();
-        cancelDelayedIdleFinish();
         cancelOverlayAnimations();
         if (fadeOverlay != null) {
             fadeOverlay.setAlpha(1f);
@@ -428,8 +382,6 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     public void onDetachedFromWindow() {
         dreaming = false;
         exiting = false;
-        displayParked = false;
-        applyParkedBrightness(false);
         fadeInStarted = false;
         dreamingStartedAtMs = 0;
         gestureDown = false;
@@ -439,7 +391,6 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         resetSessionDisplayState();
         cancelReDim();
         cancelMaxIdle();
-        cancelDelayedIdleFinish();
         cancelOverlayAnimations();
         getDreamPreferences().unregisterOnSharedPreferenceChangeListener(dreamPrefListener);
         if (controller != null) {
@@ -459,12 +410,6 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (displayParked) {
-            if (event.getAction() == KeyEvent.ACTION_UP) {
-                wakeFromParkedDisplay();
-            }
-            return true;
-        }
         if (exiting) {
             return true;
         }
@@ -501,12 +446,12 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     /**
      * Content-side exit: freeze the herd, fade the black overlay to opaque, then
-     * run {@code afterFade} ({@link #wakeUp()}, {@link #finish()}, or park).
+     * run {@code afterFade} ({@link #wakeUp()} or {@link #finish()}).
      * Idempotent for the lifetime of one exit so double-taps cannot stack
      * unlock requests.
      */
     private void beginGracefulExit(final Runnable afterFade) {
-        if (exiting || displayParked) {
+        if (exiting) {
             return;
         }
         exiting = true;
@@ -545,7 +490,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      * not restart the enter animation.
      */
     private void maybeStartFadeIn() {
-        if (!dreaming || !surfaceReady || exiting || displayParked
+        if (!dreaming || !surfaceReady || exiting
                 || fadeInStarted || fadeOverlay == null) {
             return;
         }
@@ -572,7 +517,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      * {@link #requestUserUnlock()} / flip brightness.
      */
     private boolean canDismissFromTouch() {
-        if (!dreaming || exiting || displayParked || dreamingStartedAtMs == 0) return false;
+        if (!dreaming || exiting || dreamingStartedAtMs == 0) return false;
         return SystemClock.uptimeMillis() - dreamingStartedAtMs >= DISMISS_GRACE_MS;
     }
 
@@ -616,7 +561,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     private void maybeScheduleReDim() {
-        if (!dreaming || exiting || displayParked || disableAutoDim || !isScreenBright()) return;
+        if (!dreaming || exiting || disableAutoDim || !isScreenBright()) return;
         scheduleReDim();
     }
 
@@ -625,7 +570,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      * keeps the screensaver running.
      */
     private void noteUserActivity() {
-        if (!dreaming || exiting || displayParked) return;
+        if (!dreaming || exiting) return;
         if (!keepScreenOn) {
             scheduleMaxIdle();
         }
@@ -640,8 +585,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void scheduleMaxIdle() {
         handler.removeCallbacks(maxIdleRunnable);
-        if (!dreaming || exiting || displayParked || keepScreenOn) return;
-        long idleMs = PonySceneController.dreamIdleTimeoutMs(getDreamPreferences());
+        if (!dreaming || exiting || keepScreenOn) return;
+        long idleMs = PonySceneController.dreamIdleTimeoutMs(this, getDreamPreferences());
         if (idleMs <= 0L) return;
         handler.postDelayed(maxIdleRunnable, idleMs);
     }
@@ -655,7 +600,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      * Does not itself restart the idle countdown.
      */
     private void applyDisplayPolicy() {
-        boolean wantBright = dreaming && !exiting && !displayParked && sessionAwake;
+        boolean wantBright = dreaming && !exiting && sessionAwake;
         setScreenBright(wantBright);
         if (keepScreenOn) {
             cancelMaxIdle();
@@ -745,7 +690,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     private void onGearClicked() {
-        if (exiting || displayParked || !dreaming) return;
+        if (exiting || !dreaming) return;
         noteChromeActivity();
         if (!chromeVisible) {
             sessionAwake = true;
@@ -761,7 +706,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     private void showChrome(boolean expandSheet) {
-        if (!dreaming || exiting || displayParked || chromeRoot == null || gearButton == null) return;
+        if (!dreaming || exiting || chromeRoot == null || gearButton == null) return;
         chromeVisible = true;
         noteChromeActivity();
         gearButton.animate().cancel();
@@ -789,7 +734,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             sessionSheet.setVisibility(View.GONE);
             sessionSheet.setAlpha(1f);
         }
-        if (dreaming && !exiting && !displayParked) {
+        if (dreaming && !exiting) {
             maybeScheduleReDim();
         }
         if (gearButton == null) return;
@@ -855,7 +800,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void scheduleChromeAutoHide() {
         handler.removeCallbacks(chromeAutoHideRunnable);
-        if (!dreaming || exiting || displayParked || !chromeVisible) return;
+        if (!dreaming || exiting || !chromeVisible) return;
         long delay = sheetExpanded ? SHEET_AUTO_HIDE_MS : CHROME_AUTO_HIDE_MS;
         handler.postDelayed(chromeAutoHideRunnable, delay);
     }
@@ -878,7 +823,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         if (controller == null) return;
         // Keep the controller "active" only while living and not mid-exit freeze
         // beyond what setFrozen already handles; surface still needed for first paint.
-        boolean wantActive = dreaming && surfaceReady && !exiting && !displayParked;
+        boolean wantActive = dreaming && surfaceReady && !exiting;
         if (wantActive) {
             controller.setActive(true);
         } else if (!dreaming || !surfaceReady) {
@@ -898,7 +843,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     @Override
     public boolean isDrawingEnabled() {
         // Allow the last pre-exit frames; freeze stops the loop separately.
-        return dreaming && surfaceReady && !exiting && !displayParked;
+        return dreaming && surfaceReady && !exiting;
     }
 
     @Override
@@ -939,125 +884,59 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     /**
-     * Thermal emergency (CRITICAL+): fade out then sleep/park the display
+     * Thermal emergency (CRITICAL+): fade out then sleep the display
      * instead of holding a frozen screensaver on a hot device.
      * Runs even when the user asked this session to keep the screen on.
+     * On OEMs without device admin, {@link #finish()} is still used so the
+     * dream stops rendering; that may bounce to keyguard.
      */
     @Override
     public void onThermalHardStop() {
-        if (!dreaming || displayParked) return;
+        if (!dreaming) return;
         beginGracefulExit(new Runnable() {
             @Override
             public void run() {
                 endDreamForSleep();
+                if (dreaming) {
+                    hideDreamSurface();
+                    finish();
+                }
             }
         });
     }
 
     /**
      * Idle / thermal: let the panel sleep without prompting for unlock.
-     * {@link #finish()} on AOSP/Pixel; park then delayed {@link #finish()} on
-     * OEMs, unless a previous delayed finish bounced back to the saver.
+     * {@link #finish()} on AOSP/Pixel; hide the hardware-canvas surface, then
+     * {@code lockNow()} and {@link #finish()} when device admin is active.
+     * Without a way to actually power off, this is a no-op so the saver is
+     * not replaced by a black powered panel.
      */
     private void endDreamForSleep() {
-        if (!dreaming || displayParked) return;
-        if (shouldFinishIdleDream()) {
-            finish();
-        } else {
-            parkDisplayForSleep();
+        if (!dreaming) return;
+        boolean canLock = DreamSleepAdmin.isActive(this);
+        if (!canLock && !DreamSleepAdmin.systemSleepsAfterDreamFinish()) {
+            return;
         }
-    }
-
-    /**
-     * Pixel/AOSP PowerManager sleeps after a timeout-started {@link #finish()}.
-     * Samsung (and similar) returns to keyguard while still idle/charging.
-     */
-    private static boolean shouldFinishIdleDream() {
-        return matchesOem(Build.MANUFACTURER, "google")
-                || matchesOem(Build.BRAND, "google");
-    }
-
-    private static boolean matchesOem(String value, String oem) {
-        return value != null && value.equalsIgnoreCase(oem);
-    }
-
-    /**
-     * Stay in the dream with the panel visually off. Hardware canvas is dropped
-     * by hiding the surface after freeze already cleared {@code setFrameRate}.
-     * Unless a prior delayed {@link #finish()} bounced, finish after a short
-     * delay so the display vote can drop first.
-     */
-    private void parkDisplayForSleep() {
-        if (!dreaming || displayParked) return;
-        displayParked = true;
-        sessionAwake = false;
-        applyParkedBrightness(true);
-        applyDisplayPolicy();
-        if (surfaceView != null) {
-            surfaceView.setVisibility(View.INVISIBLE);
+        hideDreamSurface();
+        if (canLock) {
+            SleepRequestActivity.launch(this);
+            DreamSleepAdmin.lockNow(this);
         }
-        if (controller != null) {
-            controller.setFrozen(true);
-        }
-        if (!idleFinishBounces) {
-            handler.removeCallbacks(delayedIdleFinishRunnable);
-            handler.postDelayed(delayedIdleFinishRunnable, FINISH_AFTER_PARK_MS);
-        }
-    }
-
-    /**
-     * Delayed OEM {@link #finish()} after park. Records the attempt so a
-     * restart within {@link #IDLE_FINISH_BOUNCE_MS} parks without finishing.
-     */
-    private void finishParkedDreamForSleep() {
-        if (!dreaming || !displayParked || idleFinishBounces) return;
-        lastIdleFinishRealtimeMs = SystemClock.elapsedRealtime();
         finish();
     }
 
-    private void cancelDelayedIdleFinish() {
-        handler.removeCallbacks(delayedIdleFinishRunnable);
-    }
-
-    private static boolean isIdleFinishBounce() {
-        if (lastIdleFinishRealtimeMs <= 0L) return false;
-        return SystemClock.elapsedRealtime() - lastIdleFinishRealtimeMs
-                <= IDLE_FINISH_BOUNCE_MS;
-    }
-
     /**
-     * Saver restarted right after delayed {@link #finish()}. Stay black and
-     * parked; do not paint the herd or try {@link #finish()} again.
+     * Drop the BLAST / hardware-canvas layer before sleep so SurfaceFlinger
+     * is not holding a display vote across {@code lockNow}/{@code finish}.
      */
-    private void parkImmediatelyAfterBounce() {
-        fadeInStarted = true;
-        resetSessionDisplayState();
-        cancelReDim();
-        cancelMaxIdle();
-        if (fadeOverlay != null) {
-            fadeOverlay.animate().cancel();
-            fadeOverlay.setAlpha(1f);
-        }
+    private void hideDreamSurface() {
         if (controller != null) {
             controller.setFrozen(true);
         }
-        parkDisplayForSleep();
-    }
-
-    private void wakeFromParkedDisplay() {
-        if (!displayParked || !dreaming) return;
-        cancelDelayedIdleFinish();
-        displayParked = false;
-        applyParkedBrightness(false);
-        wakeUp();
-    }
-
-    private void applyParkedBrightness(boolean parked) {
-        Window window = getWindow();
-        if (window == null) return;
-        WindowManager.LayoutParams lp = window.getAttributes();
-        lp.screenBrightness = parked ? 0f : WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
-        window.setAttributes(lp);
+        if (surfaceView != null) {
+            surfaceView.setVisibility(View.GONE);
+        }
     }
 
     private SharedPreferences getDreamPreferences() {

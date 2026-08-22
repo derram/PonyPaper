@@ -53,11 +53,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     static final String PREF_DREAM_SHOW_DATE = "pref_dream_show_date";
     /**
      * Dream idle timeout in minutes as a string ({@code "0"} = never).
-     * Missing or invalid values use {@link #DEFAULT_DREAM_IDLE_MINUTES}.
+     * Missing keys use {@link #defaultIdleTimeoutMinutes()}; invalid values
+     * fall back the same way.
      */
     static final String PREF_DREAM_IDLE_TIMEOUT = "pref_dream_idle_timeout";
-    /** Historical hardcoded idle timeout; also the preference default. */
+    /**
+     * First-run idle timeout on devices that already sleep after dream
+     * {@code finish()}. Other OEMs stay at never until lock is granted.
+     */
     static final int DEFAULT_DREAM_IDLE_MINUTES = 10;
+    /** Preference value for {@link #PREF_DREAM_IDLE_TIMEOUT} meaning never. */
+    static final String DREAM_IDLE_TIMEOUT_NEVER = "0";
     /** Battery-friendly default; motion uses delta time so speed stays consistent. */
     static final int DEFAULT_TARGET_FPS = 30;
     /** Default pony count when the preference is missing. */
@@ -135,7 +141,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
         /**
          * Called once when thermal emergency begins (effective status CRITICAL+).
-         * Wallpaper may ignore; the dream should sleep or park the display
+         * Wallpaper may ignore; the dream should sleep the display
          * instead of holding a frozen screensaver.
          */
         default void onThermalHardStop() {}
@@ -311,6 +317,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         started = true;
         Log.d("PonyPaper", "Controller starting...");
         PonySize.ensureDefault(appContext);
+        ensureIdleTimeoutDefault(appContext);
         getPreferences().registerOnSharedPreferenceChangeListener(this);
         powerSaveMode = isSystemPowerSaveMode();
         onBattery = isOnBattery(null);
@@ -578,7 +585,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * Freezes or unfreezes the scene. While frozen, no further frames are
      * scheduled and the last posted surface buffer is left as-is (no bitmap
      * recycle, no herd reset). Dream hosts use this during content fade-out
-     * before {@code wakeUp()}/{@code finish()}/park. Also drops any
+     * before {@code wakeUp()}/{@code finish()}. Also drops any
      * {@code setFrameRate} vote so the display can idle.
      */
     public void setFrozen(boolean frozen) {
@@ -587,7 +594,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         handler.removeCallbacks(drawFrameCallback);
         if (frozen) {
             // Hardware canvas + setFrameRate holds a display vote; drop it so
-            // idle-timeout sleep/park is not fighting an active surface.
+            // idle-timeout sleep is not fighting an active surface.
             clearSurfaceFrameRate(surface.getSurfaceHolder());
             return;
         }
@@ -705,26 +712,62 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Idle milliseconds before the dream should sleep the display with no touch.
-     * {@code 0} means never (session keep-on / thermal hard-stop still apply).
+     * Writes the first-run idle timeout if the user has never chosen one.
+     * Uses {@code commit()} so a following {@code setDefaultValues} sees the key.
+     * Pixel/AOSP get {@link #DEFAULT_DREAM_IDLE_MINUTES}; other OEMs get never
+     * until lock is granted.
      */
-    static long dreamIdleTimeoutMs(SharedPreferences prefs) {
-        int minutes = DEFAULT_DREAM_IDLE_MINUTES;
-        String raw = prefs != null
-                ? prefs.getString(PREF_DREAM_IDLE_TIMEOUT,
-                Integer.toString(DEFAULT_DREAM_IDLE_MINUTES))
-                : null;
-        if (raw != null) {
-            try {
-                minutes = Integer.parseInt(raw.trim());
-            } catch (NumberFormatException ignored) {
-                minutes = DEFAULT_DREAM_IDLE_MINUTES;
-            }
+    static void ensureIdleTimeoutDefault(Context context) {
+        if (context == null) return;
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        if (prefs.contains(PREF_DREAM_IDLE_TIMEOUT)) return;
+        prefs.edit().putString(PREF_DREAM_IDLE_TIMEOUT,
+                Integer.toString(defaultIdleTimeoutMinutes())).commit();
+    }
+
+    /**
+     * If idle timeout cannot power the panel off, store never so the setting
+     * matches what the dream will actually do.
+     */
+    static void syncIdleTimeoutWithCapability(Context context) {
+        if (context == null) return;
+        if (DreamSleepAdmin.canTurnScreenOff(context)) return;
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        if (parseDreamIdleMinutes(prefs.getString(PREF_DREAM_IDLE_TIMEOUT, null)) == 0) {
+            return;
         }
-        if (minutes < 0) {
-            minutes = DEFAULT_DREAM_IDLE_MINUTES;
+        prefs.edit().putString(PREF_DREAM_IDLE_TIMEOUT, DREAM_IDLE_TIMEOUT_NEVER).commit();
+    }
+
+    /** {@link #DEFAULT_DREAM_IDLE_MINUTES} where {@code finish()} sleeps; else never. */
+    static int defaultIdleTimeoutMinutes() {
+        return DreamSleepAdmin.systemSleepsAfterDreamFinish()
+                ? DEFAULT_DREAM_IDLE_MINUTES : 0;
+    }
+
+    static int parseDreamIdleMinutes(String raw) {
+        if (raw == null) return defaultIdleTimeoutMinutes();
+        try {
+            int minutes = Integer.parseInt(raw.trim());
+            if (minutes < 0) return defaultIdleTimeoutMinutes();
+            return minutes;
+        } catch (NumberFormatException ignored) {
+            return defaultIdleTimeoutMinutes();
         }
-        if (minutes == 0) {
+    }
+
+    /**
+     * Idle milliseconds before the dream should sleep the display with no touch.
+     * {@code 0} means never (session keep-on / thermal hard-stop still apply),
+     * including when this OEM cannot turn the panel off yet.
+     */
+    static long dreamIdleTimeoutMs(Context context, SharedPreferences prefs) {
+        if (context != null && !DreamSleepAdmin.canTurnScreenOff(context)) {
+            return 0L;
+        }
+        String raw = prefs != null ? prefs.getString(PREF_DREAM_IDLE_TIMEOUT, null) : null;
+        int minutes = parseDreamIdleMinutes(raw);
+        if (minutes <= 0) {
             return 0L;
         }
         return minutes * 60_000L;
