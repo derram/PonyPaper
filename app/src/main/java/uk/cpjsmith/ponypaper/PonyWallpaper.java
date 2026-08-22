@@ -78,7 +78,7 @@ public class PonyWallpaper extends WallpaperService {
 
         @Override
         public boolean shouldHintSurfaceFrameRate() {
-            return false;
+            return true;
         }
 
         @Override
