@@ -1308,7 +1308,7 @@
             T4ocAAAAAElFTkSuQmCC
         </image>
         <timings direction="right">10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10</timings>
-        <nextactions type="waiting">none</nextactions>
+        <nextactions type="waiting">chicken,tonguedance,jumpy,haters_start,parade_start,stand</nextactions>
         <nextactions type="moving">trot,trot,hop,hop,gallop,backtrack,roll_start</nextactions>
         <nextactions type="drag">drag</nextactions>
     </action>
