@@ -1,6 +1,8 @@
 package uk.cpjsmith.ponypaper;
 
+import android.content.Context;
 import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -235,6 +237,11 @@ final class PonyMixes {
      * <p>Remembers the live herd as previous when this is the first load
      * after a home state, then marks the checkboxes as a loaded mix.
      */
+    static void applyUserMix(Context context, Mix mix) {
+        if (context == null || mix == null) return;
+        applyUserMix(prefsOf(context), mix, AllPonies.allHerdKeys(context));
+    }
+
     static void applyUserMix(SharedPreferences prefs, Mix mix, List<String> herdKeys) {
         if (prefs == null || mix == null || herdKeys == null || herdKeys.isEmpty()) return;
         beginProgrammaticHerdChange();
@@ -257,6 +264,12 @@ final class PonyMixes {
      * <p>{@code herdKeys} is the full built-in plus custom list, used only
      * for the previous-herd snapshot.
      */
+    static void applyStockMix(Context context, Set<String> enabledBuiltIn) {
+        if (context == null) return;
+        applyStockMix(prefsOf(context), enabledBuiltIn, AllPonies.builtInPrefKeys(),
+                AllPonies.allHerdKeys(context));
+    }
+
     static void applyStockMix(SharedPreferences prefs, Set<String> enabledBuiltIn,
             List<String> builtInKeys, List<String> herdKeys) {
         if (prefs == null || builtInKeys == null || builtInKeys.isEmpty()) return;
@@ -276,6 +289,11 @@ final class PonyMixes {
      * Restore the unnamed previous herd and mark the checkboxes as home.
      * Returns the stored mix, or {@code null} when there is nothing to apply.
      */
+    static Mix applyPreviousHerd(Context context) {
+        if (context == null) return null;
+        return applyPreviousHerd(prefsOf(context), AllPonies.allHerdKeys(context));
+    }
+
     static Mix applyPreviousHerd(SharedPreferences prefs, List<String> herdKeys) {
         Mix prev = loadPreviousHerd(prefs);
         if (prefs == null || prev == null || herdKeys == null || herdKeys.isEmpty()) return null;
@@ -290,6 +308,39 @@ final class PonyMixes {
             endProgrammaticHerdChange();
         }
         return prev;
+    }
+
+    /**
+     * First saved mix whose live checkboxes and favorite match {@code mix}.
+     * Missing custom files are treated as off, same as apply.
+     */
+    static Mix matchingUserMix(SharedPreferences prefs, List<String> herdKeys) {
+        List<Mix> mixes = loadUserMixes(prefs);
+        for (int i = 0; i < mixes.size(); i++) {
+            Mix mix = mixes.get(i);
+            if (sameLiveHerd(prefs, mix, herdKeys)) return mix;
+        }
+        return null;
+    }
+
+    /**
+     * Built-in group whose enabled set matches the live built-in checkboxes.
+     * Custom ponies and favorite are ignored (stock shortcuts leave those).
+     */
+    static AllPonies.StockGroup matchingStockGroup(SharedPreferences prefs) {
+        if (prefs == null) return null;
+        List<String> builtIn = AllPonies.builtInPrefKeys();
+        HashSet<String> live = captureKeys(prefs, builtIn);
+        AllPonies.StockGroup[] groups = AllPonies.stockGroups();
+        for (int i = 0; i < groups.length; i++) {
+            AllPonies.StockGroup group = groups[i];
+            HashSet<String> want = new HashSet<String>();
+            for (int k = 0; k < group.keys.length; k++) {
+                want.add(group.keys[k]);
+            }
+            if (live.equals(want)) return group;
+        }
+        return null;
     }
 
     static Mix loadPreviousHerd(SharedPreferences prefs) {
@@ -544,6 +595,10 @@ final class PonyMixes {
             if (name.equalsIgnoreCase(mixes.get(i).name)) return i;
         }
         return -1;
+    }
+
+    private static SharedPreferences prefsOf(Context context) {
+        return PreferenceManager.getDefaultSharedPreferences(context);
     }
 
     private static String newId() {

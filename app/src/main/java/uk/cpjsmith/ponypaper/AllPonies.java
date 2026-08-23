@@ -134,6 +134,69 @@ public class AllPonies {
         
         return result;
     }
+
+    /**
+     * Built-in group used by Load mix and the dream mix picker. Keys must
+     * stay aligned with the checkbox categories in {@code preferences.xml}.
+     */
+    static final class StockGroup {
+        final int titleRes;
+        final String[] keys;
+
+        StockGroup(int titleRes, String... keys) {
+            this.titleRes = titleRes;
+            this.keys = keys;
+        }
+    }
+
+    static StockGroup[] stockGroups() {
+        return new StockGroup[] {
+            new StockGroup(R.string.pony_group_mane6,
+                    "pref_aj", "pref_fs", "pref_pp", "pref_rd", "pref_rarity",
+                    "pref_spike", "pref_ts"),
+            new StockGroup(R.string.pony_group_cmc,
+                    "pref_ab", "pref_babs", "pref_scootaloo", "pref_sb"),
+            new StockGroup(R.string.pony_group_royalty,
+                    "pref_ember", "pref_cadance", "pref_celestia", "pref_luna",
+                    "pref_sa", "pref_thorax"),
+            new StockGroup(R.string.pony_group_young6,
+                    "pref_gallus", "pref_ocellus", "pref_sandbar",
+                    "pref_silverstream", "pref_smolder", "pref_yona"),
+            new StockGroup(R.string.pony_group_other,
+                    "pref_bp", "pref_bigmac", "pref_derpy", "pref_doctor",
+                    "pref_gilda", "pref_lyra", "pref_minuette", "pref_octavia",
+                    "pref_rainbowshine", "pref_roseluck", "pref_soarin",
+                    "pref_spitfire", "pref_sg", "pref_ss", "pref_sunburst",
+                    "pref_sd", "pref_trixie", "pref_vinyl", "pref_zecora")
+        };
+    }
+
+    static ArrayList<String> builtInPrefKeys() {
+        StockGroup[] groups = stockGroups();
+        ArrayList<String> keys = new ArrayList<String>();
+        for (int g = 0; g < groups.length; g++) {
+            String[] groupKeys = groups[g].keys;
+            for (int i = 0; i < groupKeys.length; i++) {
+                keys.add(groupKeys[i]);
+            }
+        }
+        return keys;
+    }
+
+    static ArrayList<String> customPrefKeys(Context context) {
+        ArrayList<String> keys = new ArrayList<String>();
+        File[] files = CustomStorage.listCustomXml(context);
+        for (int i = 0; i < files.length; i++) {
+            keys.add(PonyMixes.CUSTOM_PREFIX + files[i].getName());
+        }
+        return keys;
+    }
+
+    static ArrayList<String> allHerdKeys(Context context) {
+        ArrayList<String> keys = builtInPrefKeys();
+        keys.addAll(customPrefKeys(context));
+        return keys;
+    }
     
     private static Pony makeDefaultPony(Resources res, int standId, int trotId) {
         PonyAction stand = new PonyAction(res, standId);

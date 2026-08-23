@@ -258,6 +258,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private int sceneLoadGeneration = 0;
     /** True after a failed scene load until the next {@link #dropHerd}. */
     private boolean sceneLoadFailed = false;
+    /**
+     * Collapses a burst of preference notifications (one per checkbox when a
+     * mix is applied) into a single unload. Runs on {@link #handler}.
+     */
+    private final Runnable coalescedDropHerd = new Runnable() {
+        @Override
+        public void run() {
+            if (!started || frozen) return;
+            dropHerdNow();
+        }
+    };
     /** Token from {@link ThermalStatusSupport#register}; typed as Object for pre-Q safety. */
     private Object thermalListenerToken = null;
     /** Peak-refresh listener; null when unregistered. */
@@ -385,6 +396,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         getPreferences().unregisterOnSharedPreferenceChangeListener(this);
         handler.removeCallbacks(drawFrameCallback);
+        handler.removeCallbacks(coalescedDropHerd);
         dropHerd();
         recycleDisplayedBackground();
         thermalEmergency = false;
@@ -398,6 +410,21 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * {@link #replaceBackground} or {@link #recycleDisplayedBackground}.
      */
     private void dropHerd() {
+        handler.removeCallbacks(coalescedDropHerd);
+        dropHerdNow();
+    }
+
+    /**
+     * Preference commits notify once per key. Mix load writes every checkbox
+     * in one commit; posting coalesces that burst onto the next looper pass.
+     */
+    private void scheduleDropHerd() {
+        if (!started || frozen) return;
+        handler.removeCallbacks(coalescedDropHerd);
+        handler.post(coalescedDropHerd);
+    }
+
+    private void dropHerdNow() {
         sceneLoadGeneration++;
         sceneLoadInFlight = false;
         sceneLoadFailed = false;
@@ -406,6 +433,14 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             ponies = null;
         }
         forceSceneRedraw = true;
+    }
+
+    boolean isSceneLoadInFlight() {
+        return sceneLoadInFlight;
+    }
+
+    boolean isThermalLimiting() {
+        return thermalEmergency || thermalThrottle;
     }
 
     /** Recycle and null {@link #background}. Handler thread only. */
@@ -717,6 +752,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         this.frozen = frozen;
         handler.removeCallbacks(drawFrameCallback);
         if (frozen) {
+            handler.removeCallbacks(coalescedDropHerd);
             // Hardware canvas + setFrameRate holds a display vote; drop it so
             // idle-timeout sleep is not fighting an active surface.
             clearSurfaceFrameRate(surface.getSurfaceHolder());
@@ -1316,9 +1352,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 && (PREF_NUM_PONIES.equals(key) || PREF_BACKGROUND.equals(key))) {
             return;
         }
-        if (!frozen) {
-            dropHerd();
-        }
+        if (isHerdMetadataKey(key)) return;
+        scheduleDropHerd();
     }
 
     /**
@@ -1341,12 +1376,27 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         if (PREF_DREAM_NUM_PONIES.equals(key) || PREF_DREAM_BACKGROUND.equals(key)) {
             if (!useDreamDisplayOverrides(prefs)) return;
-            if (!frozen) dropHerd();
+            scheduleDropHerd();
             return;
         }
-        if (!frozen) {
-            dropHerd();
-        }
+        if (isHerdMetadataKey(key)) return;
+        scheduleDropHerd();
+    }
+
+    /**
+     * Mix sidecar / undo snapshots do not change who is on. Rebuilding the
+     * herd for those keys is wasted decode work.
+     */
+    private static boolean isHerdMetadataKey(String key) {
+        if (key == null) return false;
+        return PonyMixes.PREF_MIXES_JSON.equals(key)
+                || PonyMixes.PREF_PREVIOUS_HERD_JSON.equals(key)
+                || PonyMixes.PREF_VIEWING_LOADED_MIX.equals(key)
+                || PonyEnableAll.PREF_PONIES_SNAPSHOT.equals(key)
+                || PonyEnableAll.PREF_CUSTOM_SNAPSHOT.equals(key)
+                || CustomStorage.PREF_LIBRARY_TREE_URI.equals(key)
+                || CustomStorage.PREF_LIBRARY_SEEN_TREE.equals(key)
+                || CustomStorage.PREF_LIBRARY_SEEN_NAMES.equals(key);
     }
 
     private void applyTargetFpsAndRedraw(SharedPreferences prefs) {

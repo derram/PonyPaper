@@ -149,7 +149,7 @@
                     android:summary="@string/pref_ponies_disable_all_summary" />
 
         <PreferenceCategory android:key="pref_mane6"
-                            android:title="Mane 6">
+                            android:title="@string/pony_group_mane6">
             <CheckBoxPreference android:key="pref_aj"
                                 android:title="Applejack"
                                 android:defaultValue="true" />
@@ -173,7 +173,7 @@
                                 android:defaultValue="true" />
         </PreferenceCategory>
         <PreferenceCategory android:key="pref_cmc"
-                            android:title="Cutie Mark Crusaders">
+                            android:title="@string/pony_group_cmc">
             <CheckBoxPreference android:key="pref_ab"
                                 android:title="Apple Bloom"
                                 android:defaultValue="true" />
@@ -188,7 +188,7 @@
                                 android:defaultValue="true" />
         </PreferenceCategory>
         <PreferenceCategory android:key="pref_royalty"
-                            android:title="Royalty">
+                            android:title="@string/pony_group_royalty">
             <CheckBoxPreference android:key="pref_ember"
                                 android:title="Ember"
                                 android:defaultValue="true" />
@@ -209,7 +209,7 @@
                                 android:defaultValue="true" />
         </PreferenceCategory>
         <PreferenceCategory android:key="pref_young6"
-                            android:title="Young 6">
+                            android:title="@string/pony_group_young6">
             <CheckBoxPreference android:key="pref_gallus"
                                 android:title="Gallus"
                                 android:defaultValue="true" />
@@ -230,7 +230,7 @@
                                 android:defaultValue="true" />
         </PreferenceCategory>
         <PreferenceCategory android:key="pref_other"
-                            android:title="Other ponies">
+                            android:title="@string/pony_group_other">
             <CheckBoxPreference android:key="pref_bp"
                                 android:title="Berry Punch"
                                 android:defaultValue="true" />

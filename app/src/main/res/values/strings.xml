@@ -105,6 +105,21 @@
     <string name="dream_disable_auto_dim_summary">Stay bright after you wake the screen. Use the device brightness settings for level.</string>
     <string name="dream_unlock">Unlock</string>
     <string name="dream_unlock_summary">Double-tap the scene, or press Back.</string>
+    <string name="dream_mix_title">Mix</string>
+    <string name="dream_mix_current_herd">Current herd</string>
+    <string name="dream_mix_back">Back</string>
+    <string name="dream_mix_back_summary">Session settings</string>
+    <string name="dream_mix_shuffle_now">Shuffle now</string>
+    <string name="dream_mix_shuffle_now_summary">Pick a random saved mix</string>
+    <string name="dream_shuffle_title">Shuffle mixes</string>
+    <string name="dream_shuffle_summary">A random saved mix every 5 minutes. Changes the home-screen herd too.</string>
+    <string name="dream_shuffle_need_two">Save at least two mixes in settings</string>
+
+    <string name="pony_group_mane6">Mane 6</string>
+    <string name="pony_group_cmc">Cutie Mark Crusaders</string>
+    <string name="pony_group_royalty">Royalty</string>
+    <string name="pony_group_young6">Young 6</string>
+    <string name="pony_group_other">Other ponies</string>
 
     <!-- About / licenses -->
     <string name="pref_about_category">About</string>

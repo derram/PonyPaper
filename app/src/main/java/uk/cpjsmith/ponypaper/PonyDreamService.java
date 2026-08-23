@@ -3,6 +3,8 @@ package uk.cpjsmith.ponypaper;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Rect;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -17,10 +19,18 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.widget.CompoundButton;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.widget.LinearLayout;
 import android.widget.Switch;
+import android.widget.TextView;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Random;
 
 /**
  * Optional screensaver (Daydream) host. Uses the same {@link PonySceneController}
@@ -39,10 +49,12 @@ import android.widget.Switch;
  * method (PIN / pattern / biometrics) without an extra lock-screen swipe.
  * Chrome and the sheet do not unlock on tap — that would fight settings use.
  *
- * <p>Session chrome (keep-screen-on and disable-auto-dim) lives only for this
- * dream and is not written to preferences. Keep-screen-on skips the idle
- * sleep; disable-auto-dim skips the 30s re-dim after wake.
+ * <p>Session chrome (keep-screen-on, disable-auto-dim, and mix shuffle) lives
+ * only for this dream and is not written to preferences. Keep-screen-on skips
+ * the idle sleep; disable-auto-dim skips the 30s re-dim after wake.
  * Brightness stays with the host device. Thermal hard-stop still ends the dream.
+ * Loading a mix (or a shuffle hop) writes the live herd the same way Settings
+ * does, so the home-screen wallpaper follows.
  *
  * <p>Enter and exit use a black content overlay (fade-in / fade-out) so the herd
  * does not hard-cut against the lock screen, and so any OEM window wipe only
@@ -81,6 +93,12 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     /** Hide everything when the session sheet IS open. */
     private static final long SHEET_AUTO_HIDE_MS = 15_000;
     private static final long CHROME_FADE_MS = 180;
+    /** Session shuffle hops among saved user mixes. */
+    private static final long SHUFFLE_INTERVAL_MS = 5 * 60 * 1000L;
+    /** Retry a hop that hit an in-flight herd load or thermal throttle. */
+    private static final long SHUFFLE_RETRY_MS = 2_000L;
+    /** Ignore repeat mix taps while a herd rebuild is starting. */
+    private static final long MIX_APPLY_DEBOUNCE_MS = 400L;
 
     /** Black overlay fade when the dream becomes visible. */
     private static final long FADE_IN_MS = 350;
@@ -127,6 +145,19 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             }
         }
     };
+    private final Runnable shuffleMixRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!dreaming || exiting || !shuffleMixes) return;
+            if (!applyShuffleHop()) {
+                if (shuffleMixes) scheduleShuffle(SHUFFLE_RETRY_MS);
+                return;
+            }
+            if (shuffleMixes) scheduleShuffle(SHUFFLE_INTERVAL_MS);
+        }
+    };
+    private final Random shuffleRandom = new Random();
+    private final ArrayList<String> shuffleBag = new ArrayList<String>();
     private PonySceneController controller;
     private FrameLayout rootLayout;
     private SurfaceView surfaceView;
@@ -136,8 +167,15 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private View chromeRoot;
     private ImageButton gearButton;
     private View sessionSheet;
+    private View sheetMain;
+    private View sheetMixPage;
+    private TextView mixSummary;
+    private TextView shuffleSummary;
     private Switch keepScreenOnSwitch;
     private Switch disableAutoDimSwitch;
+    private Switch shuffleMixesSwitch;
+    private LinearLayout mixItems;
+    private MaxHeightScrollView mixScroll;
     private boolean dreaming = false;
     private boolean surfaceReady = false;
     /** True while a content fade-out is in progress (or completed) for this exit. */
@@ -164,6 +202,12 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private boolean disableAutoDim = false;
     private boolean chromeVisible = false;
     private boolean sheetExpanded = false;
+    private boolean mixListVisible = false;
+    /** Session opt-in: hop among saved user mixes on a timer. */
+    private boolean shuffleMixes = false;
+    /** Last applied user mix id, used to skip immediate repeats while shuffling. */
+    private String lastUserMixId = "";
+    private long mixApplyBusyUntilMs = 0;
     /** Do not run switch listeners while syncing widgets from session state. */
     private boolean updatingChromeUi = false;
 
@@ -175,6 +219,15 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                             || PonySceneController.PREF_DREAM_IDLE_TIMEOUT.equals(key)) {
                         if (dreaming && !exiting && !keepScreenOn) {
                             scheduleMaxIdle();
+                        }
+                    }
+                    if (PonyMixes.PREF_MIXES_JSON.equals(key)) {
+                        if (!canShuffleUserMixes()) {
+                            stopShuffle();
+                        }
+                        if (sheetExpanded) {
+                            syncChromeWidgets();
+                            if (mixListVisible) populateMixItems();
                         }
                     }
                 }
@@ -391,6 +444,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         resetSessionDisplayState();
         cancelReDim();
         cancelMaxIdle();
+        cancelShuffle();
         cancelOverlayAnimations();
         getDreamPreferences().unregisterOnSharedPreferenceChangeListener(dreamPrefListener);
         if (controller != null) {
@@ -403,8 +457,24 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         chromeRoot = null;
         gearButton = null;
         sessionSheet = null;
+        sheetMain = null;
+        sheetMixPage = null;
+        mixSummary = null;
+        shuffleSummary = null;
         keepScreenOnSwitch = null;
         disableAutoDimSwitch = null;
+        shuffleMixesSwitch = null;
+        mixItems = null;
+        if (mixScroll != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            mixScroll.setSystemGestureExclusionRects(Collections.<Rect>emptyList());
+        }
+        mixScroll = null;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            Window window = getWindow();
+            if (window != null) {
+                window.setSystemGestureExclusionRects(Collections.<Rect>emptyList());
+            }
+        }
         super.onDetachedFromWindow();
     }
 
@@ -418,6 +488,11 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             // HOME is often not delivered to apps; BACK/ESCAPE still help on docks.
             // Back exits regardless of dim/bright — a single tap does not unlock.
             if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_ESCAPE) {
+                if (mixListVisible) {
+                    hideMixList();
+                    noteChromeActivity();
+                    return true;
+                }
                 if (canDismissFromTouch()) {
                     requestUserUnlock();
                     return true;
@@ -458,6 +533,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         hideChrome(false);
         cancelReDim();
         cancelMaxIdle();
+        cancelShuffle();
         cancelOverlayAnimations();
         if (controller != null) {
             controller.setFrozen(true);
@@ -614,6 +690,11 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         sessionAwake = false;
         keepScreenOn = false;
         disableAutoDim = false;
+        shuffleMixes = false;
+        lastUserMixId = "";
+        shuffleBag.clear();
+        mixApplyBusyUntilMs = 0;
+        cancelShuffle();
         hideChrome(false);
     }
 
@@ -622,8 +703,17 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         rootLayout.addView(chromeRoot, matchParent);
         gearButton = chromeRoot.findViewById(R.id.dream_gear);
         sessionSheet = chromeRoot.findViewById(R.id.dream_session_sheet);
+        sheetMain = chromeRoot.findViewById(R.id.dream_sheet_main);
+        sheetMixPage = chromeRoot.findViewById(R.id.dream_sheet_mix_page);
+        mixSummary = chromeRoot.findViewById(R.id.dream_mix_summary);
+        shuffleSummary = chromeRoot.findViewById(R.id.dream_shuffle_summary);
         keepScreenOnSwitch = chromeRoot.findViewById(R.id.dream_keep_screen_on);
         disableAutoDimSwitch = chromeRoot.findViewById(R.id.dream_disable_auto_dim);
+        shuffleMixesSwitch = chromeRoot.findViewById(R.id.dream_shuffle_mixes);
+        mixItems = chromeRoot.findViewById(R.id.dream_mix_items);
+        mixScroll = chromeRoot.findViewById(R.id.dream_mix_scroll);
+        View mixRow = chromeRoot.findViewById(R.id.dream_mix);
+        View mixBack = chromeRoot.findViewById(R.id.dream_mix_back);
         View unlockRow = chromeRoot.findViewById(R.id.dream_unlock);
         if (gearButton != null) {
             gearButton.setAlpha(0f);
@@ -687,6 +777,71 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 }
             });
         }
+        if (mixRow != null) {
+            mixRow.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    noteChromeActivity();
+                    showMixList();
+                }
+            });
+        }
+        if (mixBack != null) {
+            mixBack.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    hideMixList();
+                    noteChromeActivity();
+                }
+            });
+        }
+        if (mixScroll != null) {
+            mixScroll.setOnTouchListener(new View.OnTouchListener() {
+                @Override
+                public boolean onTouch(View v, MotionEvent event) {
+                    int action = event.getActionMasked();
+                    if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+                        noteChromeActivity();
+                    }
+                    return false;
+                }
+            });
+            mixScroll.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                @Override
+                public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                        int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                    if (mixListVisible) {
+                        updateMixGestureExclusion();
+                    }
+                }
+            });
+        }
+        if (chromeRoot != null) {
+            chromeRoot.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                @Override
+                public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                        int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                    if (mixListVisible) {
+                        updateMixScrollViewport();
+                    }
+                }
+            });
+        }
+        if (shuffleMixesSwitch != null) {
+            shuffleMixesSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+                @Override
+                public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                    if (updatingChromeUi) return;
+                    noteChromeActivity();
+                    if (isChecked) {
+                        startShuffle();
+                    } else {
+                        stopShuffle();
+                    }
+                    syncChromeWidgets();
+                }
+            });
+        }
     }
 
     private void onGearClicked() {
@@ -726,6 +881,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         cancelChromeAutoHide();
         chromeVisible = false;
         sheetExpanded = false;
+        hideMixList();
         if (chromeRoot != null) {
             chromeRoot.setClickable(false);
         }
@@ -761,6 +917,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private void expandSheet() {
         if (sessionSheet == null || chromeRoot == null) return;
         sheetExpanded = true;
+        hideMixList();
         chromeRoot.setClickable(true);
         scheduleChromeAutoHide();
         syncChromeWidgets();
@@ -775,6 +932,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void collapseSheet() {
         sheetExpanded = false;
+        hideMixList();
         if (chromeRoot != null) {
             chromeRoot.setClickable(false);
         }
@@ -793,9 +951,355 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             if (disableAutoDimSwitch != null) {
                 disableAutoDimSwitch.setChecked(disableAutoDim);
             }
+            boolean canShuffle = canShuffleUserMixes();
+            if (!canShuffle && shuffleMixes) {
+                shuffleMixes = false;
+                shuffleBag.clear();
+                cancelShuffle();
+            }
+            if (shuffleMixesSwitch != null) {
+                shuffleMixesSwitch.setEnabled(canShuffle);
+                shuffleMixesSwitch.setChecked(shuffleMixes);
+            }
+            if (shuffleSummary != null) {
+                shuffleSummary.setText(canShuffle
+                        ? R.string.dream_shuffle_summary
+                        : R.string.dream_shuffle_need_two);
+            }
+            if (mixSummary != null) {
+                mixSummary.setText(currentMixLabel());
+            }
         } finally {
             updatingChromeUi = false;
         }
+    }
+
+    private void showMixList() {
+        if (sheetMain == null || sheetMixPage == null) return;
+        populateMixItems();
+        sheetMain.setVisibility(View.GONE);
+        sheetMixPage.setVisibility(View.VISIBLE);
+        mixListVisible = true;
+        scheduleChromeAutoHide();
+        sheetMixPage.post(new Runnable() {
+            @Override
+            public void run() {
+                updateMixScrollViewport();
+            }
+        });
+    }
+
+    private void hideMixList() {
+        mixListVisible = false;
+        if (sheetMixPage != null) {
+            sheetMixPage.setVisibility(View.GONE);
+        }
+        if (sheetMain != null) {
+            sheetMain.setVisibility(View.VISIBLE);
+        }
+        if (mixScroll != null) {
+            mixScroll.setMaxHeight(mixScroll.getXmlMaxHeight());
+        }
+        updateMixGestureExclusion();
+    }
+
+    /**
+     * Cap the mix list to the remaining window below the back row. A wrap_content
+     * {@link android.widget.ScrollView} that measures as tall as its children
+     * cannot scroll; the parent then clips it on a short phone. Also publish
+     * system-gesture exclusion so Pixel dream overlay (shade / bouncer / back)
+     * does not pilfer the drag — the sheet sits in the top-end gesture zone.
+     */
+    private void updateMixScrollViewport() {
+        if (!mixListVisible || mixScroll == null || chromeRoot == null) return;
+        int rootH = chromeRoot.getHeight();
+        if (rootH <= 0) return;
+        int[] rootLoc = new int[2];
+        int[] scrollLoc = new int[2];
+        chromeRoot.getLocationOnScreen(rootLoc);
+        mixScroll.getLocationOnScreen(scrollLoc);
+        int topInRoot = scrollLoc[1] - rootLoc[1];
+        int bottomPad = 0;
+        if (sessionSheet != null) {
+            bottomPad = sessionSheet.getPaddingBottom();
+        }
+        int available = rootH - topInRoot - bottomPad;
+        if (available < 0) available = 0;
+        int xmlMax = mixScroll.getXmlMaxHeight();
+        int cap = xmlMax < available ? xmlMax : available;
+        int minPx = (int) (48f * getResources().getDisplayMetrics().density + 0.5f);
+        if (cap < minPx && available > 0) {
+            cap = available < minPx ? available : minPx;
+        }
+        mixScroll.setMaxHeight(cap);
+        updateMixGestureExclusion();
+    }
+
+    private void updateMixGestureExclusion() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return;
+        List<Rect> rects = Collections.emptyList();
+        if (mixListVisible && sessionSheet != null && sessionSheet.getVisibility() == View.VISIBLE) {
+            Rect sheet = new Rect();
+            if (sessionSheet.getGlobalVisibleRect(sheet) && !sheet.isEmpty()) {
+                ArrayList<Rect> list = new ArrayList<Rect>(1);
+                list.add(sheet);
+                rects = list;
+            }
+        }
+        if (mixScroll != null) {
+            mixScroll.setSystemGestureExclusionRects(rects);
+        }
+        Window window = getWindow();
+        if (window != null) {
+            window.setSystemGestureExclusionRects(rects);
+        }
+    }
+
+    private String currentMixLabel() {
+        SharedPreferences prefs = getDreamPreferences();
+        ArrayList<String> herdKeys = AllPonies.allHerdKeys(this);
+        PonyMixes.Mix user = PonyMixes.matchingUserMix(prefs, herdKeys);
+        if (user != null) {
+            lastUserMixId = user.id;
+            return user.name;
+        }
+        if (prefs.getBoolean(PonyMixes.PREF_VIEWING_LOADED_MIX, false)) {
+            AllPonies.StockGroup group = PonyMixes.matchingStockGroup(prefs);
+            if (group != null) {
+                return getString(R.string.pref_load_mix_stock_item, getString(group.titleRes));
+            }
+        }
+        return getString(R.string.dream_mix_current_herd);
+    }
+
+    private void populateMixItems() {
+        if (mixItems == null) return;
+        mixItems.removeAllViews();
+        SharedPreferences prefs = getDreamPreferences();
+        ArrayList<String> herdKeys = AllPonies.allHerdKeys(this);
+        final List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(prefs);
+
+        if (mixes.size() >= 2) {
+            addMixRow(getString(R.string.dream_mix_shuffle_now),
+                    getString(R.string.dream_mix_shuffle_now_summary),
+                    new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            onShuffleNowClicked();
+                        }
+                    });
+        }
+        if (PonyMixes.hasPreviousHerdDistinct(prefs, herdKeys)) {
+            PonyMixes.Mix prev = PonyMixes.loadPreviousHerd(prefs);
+            HashSet<String> live = new HashSet<String>();
+            if (prev != null) {
+                for (int i = 0; i < herdKeys.size(); i++) {
+                    String key = herdKeys.get(i);
+                    if (prev.keys.contains(key)) live.add(key);
+                }
+            }
+            String label = getString(R.string.pref_load_mix_previous_item,
+                    PonyMixes.countBuiltIn(live), PonyMixes.countCustom(live));
+            addMixRow(label, null, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    onPreviousHerdPicked();
+                }
+            });
+        }
+        AllPonies.StockGroup[] groups = AllPonies.stockGroups();
+        for (int i = 0; i < groups.length; i++) {
+            final AllPonies.StockGroup group = groups[i];
+            String label = getString(R.string.pref_load_mix_stock_item, getString(group.titleRes));
+            addMixRow(label, null, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    onStockMixPicked(group);
+                }
+            });
+        }
+        for (int i = 0; i < mixes.size(); i++) {
+            final PonyMixes.Mix mix = mixes.get(i);
+            String label = getString(R.string.pref_load_mix_user_item, mix.name,
+                    PonyMixes.countBuiltIn(mix.keys), PonyMixes.countCustom(mix.keys));
+            addMixRow(label, null, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    onUserMixPicked(mix);
+                }
+            });
+        }
+    }
+
+    private void addMixRow(String title, String summary, View.OnClickListener click) {
+        View row = LayoutInflater.from(this).inflate(R.layout.dream_mix_row, mixItems, false);
+        TextView titleView = row.findViewById(R.id.dream_mix_row_title);
+        TextView summaryView = row.findViewById(R.id.dream_mix_row_summary);
+        if (titleView != null) titleView.setText(title);
+        if (summaryView != null) {
+            if (summary == null || summary.length() == 0) {
+                summaryView.setVisibility(View.GONE);
+            } else {
+                summaryView.setVisibility(View.VISIBLE);
+                summaryView.setText(summary);
+            }
+        }
+        row.setOnClickListener(click);
+        mixItems.addView(row);
+    }
+
+    private boolean mixApplyBusy() {
+        return SystemClock.uptimeMillis() < mixApplyBusyUntilMs;
+    }
+
+    private void markMixApplied() {
+        mixApplyBusyUntilMs = SystemClock.uptimeMillis() + MIX_APPLY_DEBOUNCE_MS;
+        hideMixList();
+        syncChromeWidgets();
+        noteChromeActivity();
+    }
+
+    private void onUserMixPicked(PonyMixes.Mix mix) {
+        if (exiting || !dreaming || mixApplyBusy() || mix == null) return;
+        stopShuffle();
+        PonyMixes.applyUserMix(this, mix);
+        lastUserMixId = mix.id;
+        markMixApplied();
+    }
+
+    private void onStockMixPicked(AllPonies.StockGroup group) {
+        if (exiting || !dreaming || mixApplyBusy() || group == null) return;
+        stopShuffle();
+        HashSet<String> keys = new HashSet<String>();
+        for (int i = 0; i < group.keys.length; i++) {
+            keys.add(group.keys[i]);
+        }
+        PonyMixes.applyStockMix(this, keys);
+        lastUserMixId = "";
+        markMixApplied();
+    }
+
+    private void onPreviousHerdPicked() {
+        if (exiting || !dreaming || mixApplyBusy()) return;
+        stopShuffle();
+        if (PonyMixes.applyPreviousHerd(this) == null) return;
+        lastUserMixId = "";
+        markMixApplied();
+    }
+
+    private void onShuffleNowClicked() {
+        if (exiting || !dreaming || mixApplyBusy()) return;
+        if (!applyShuffleHop()) return;
+        if (shuffleMixes) scheduleShuffle(SHUFFLE_INTERVAL_MS);
+        markMixApplied();
+    }
+
+    private boolean canShuffleUserMixes() {
+        return PonyMixes.loadUserMixes(getDreamPreferences()).size() >= 2;
+    }
+
+    private void startShuffle() {
+        if (!canShuffleUserMixes()) {
+            shuffleMixes = false;
+            cancelShuffle();
+            return;
+        }
+        shuffleMixes = true;
+        refillShuffleBag(PonyMixes.loadUserMixes(getDreamPreferences()));
+        scheduleShuffle(SHUFFLE_INTERVAL_MS);
+    }
+
+    private void stopShuffle() {
+        shuffleMixes = false;
+        shuffleBag.clear();
+        cancelShuffle();
+    }
+
+    private void scheduleShuffle(long delayMs) {
+        handler.removeCallbacks(shuffleMixRunnable);
+        if (!dreaming || exiting || !shuffleMixes) return;
+        handler.postDelayed(shuffleMixRunnable, delayMs);
+    }
+
+    private void cancelShuffle() {
+        handler.removeCallbacks(shuffleMixRunnable);
+    }
+
+    /**
+     * Apply the next saved mix in the shuffle bag. Returns false when the hop
+     * should be retried (herd still loading or thermal throttle). Returns true
+     * when a mix was applied, or when shuffle was turned off for lack of mixes.
+     */
+    private boolean applyShuffleHop() {
+        List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(getDreamPreferences());
+        if (mixes.size() < 2) {
+            stopShuffle();
+            if (sheetExpanded) syncChromeWidgets();
+            return true;
+        }
+        if (controller != null
+                && (controller.isSceneLoadInFlight() || controller.isThermalLimiting())) {
+            return false;
+        }
+        rememberCurrentUserMix();
+        PonyMixes.Mix next = takeNextShuffleMix(mixes);
+        if (next == null) return false;
+        PonyMixes.applyUserMix(this, next);
+        lastUserMixId = next.id;
+        mixApplyBusyUntilMs = SystemClock.uptimeMillis() + MIX_APPLY_DEBOUNCE_MS;
+        if (sheetExpanded) {
+            syncChromeWidgets();
+            if (mixListVisible) populateMixItems();
+        }
+        return true;
+    }
+
+    private void rememberCurrentUserMix() {
+        if (lastUserMixId.length() > 0) return;
+        PonyMixes.Mix match = PonyMixes.matchingUserMix(
+                getDreamPreferences(), AllPonies.allHerdKeys(this));
+        if (match != null) lastUserMixId = match.id;
+    }
+
+    private void refillShuffleBag(List<PonyMixes.Mix> mixes) {
+        shuffleBag.clear();
+        if (mixes == null) return;
+        for (int i = 0; i < mixes.size(); i++) {
+            String id = mixes.get(i).id;
+            if (id.length() > 0 && !id.equals(lastUserMixId)) {
+                shuffleBag.add(id);
+            }
+        }
+        if (shuffleBag.isEmpty()) {
+            for (int i = 0; i < mixes.size(); i++) {
+                String id = mixes.get(i).id;
+                if (id.length() > 0) shuffleBag.add(id);
+            }
+        }
+        Collections.shuffle(shuffleBag, shuffleRandom);
+    }
+
+    private PonyMixes.Mix takeNextShuffleMix(List<PonyMixes.Mix> mixes) {
+        if (mixes == null || mixes.isEmpty()) return null;
+        for (int pass = 0; pass < 2; pass++) {
+            if (shuffleBag.isEmpty()) refillShuffleBag(mixes);
+            while (!shuffleBag.isEmpty()) {
+                String id = shuffleBag.remove(shuffleBag.size() - 1);
+                PonyMixes.Mix mix = mixById(mixes, id);
+                if (mix == null) continue;
+                if (lastUserMixId.length() > 0 && id.equals(lastUserMixId)) continue;
+                return mix;
+            }
+        }
+        return mixById(mixes, lastUserMixId);
+    }
+
+    private static PonyMixes.Mix mixById(List<PonyMixes.Mix> mixes, String id) {
+        if (mixes == null || id == null) return null;
+        for (int i = 0; i < mixes.size(); i++) {
+            if (id.equals(mixes.get(i).id)) return mixes.get(i);
+        }
+        return null;
     }
 
     private void scheduleChromeAutoHide() {

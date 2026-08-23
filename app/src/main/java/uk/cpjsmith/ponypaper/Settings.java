@@ -366,27 +366,11 @@ public class Settings extends PreferenceActivity {
     }
 
     private ArrayList<String> builtInPonyKeys() {
-        return checkboxKeysIn(builtInPonyCategories());
+        return AllPonies.builtInPrefKeys();
     }
 
     private ArrayList<String> customPonyKeys() {
-        return checkboxKeysIn(customPonyCategories());
-    }
-
-    private static ArrayList<String> checkboxKeysIn(PreferenceCategory[] cats) {
-        ArrayList<String> keys = new ArrayList<String>();
-        if (cats == null) return keys;
-        for (int c = 0; c < cats.length; c++) {
-            PreferenceCategory cat = cats[c];
-            if (cat == null) continue;
-            for (int i = 0; i < cat.getPreferenceCount(); i++) {
-                Preference pref = cat.getPreference(i);
-                if (pref instanceof CheckBoxPreference && pref.getKey() != null) {
-                    keys.add(pref.getKey());
-                }
-            }
-        }
-        return keys;
+        return AllPonies.customPrefKeys(this);
     }
 
     private void syncCheckboxWidgets(PreferenceCategory[] cats) {
@@ -415,9 +399,7 @@ public class Settings extends PreferenceActivity {
     }
 
     private ArrayList<String> allHerdKeys() {
-        ArrayList<String> keys = builtInPonyKeys();
-        keys.addAll(customPonyKeys());
-        return keys;
+        return AllPonies.allHerdKeys(this);
     }
 
     private void setupMixActions() {
@@ -619,21 +601,15 @@ public class Settings extends PreferenceActivity {
             items.add(LoadMixItem.previous(getString(R.string.pref_load_mix_previous_item,
                     PonyMixes.countBuiltIn(live), PonyMixes.countCustom(live))));
         }
-        PreferenceCategory[] cats = builtInPonyCategories();
-        for (int i = 0; i < cats.length; i++) {
-            PreferenceCategory cat = cats[i];
-            if (cat == null) continue;
+        AllPonies.StockGroup[] groups = AllPonies.stockGroups();
+        for (int i = 0; i < groups.length; i++) {
+            AllPonies.StockGroup group = groups[i];
             HashSet<String> keys = new HashSet<String>();
-            for (int p = 0; p < cat.getPreferenceCount(); p++) {
-                Preference pref = cat.getPreference(p);
-                if (pref instanceof CheckBoxPreference && pref.getKey() != null) {
-                    keys.add(pref.getKey());
-                }
+            for (int k = 0; k < group.keys.length; k++) {
+                keys.add(group.keys[k]);
             }
-            if (keys.isEmpty()) continue;
-            CharSequence title = cat.getTitle();
             String label = getString(R.string.pref_load_mix_stock_item,
-                    title != null ? title.toString() : "");
+                    getString(group.titleRes));
             items.add(LoadMixItem.stock(label, keys));
         }
         List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(prefs);
@@ -650,8 +626,7 @@ public class Settings extends PreferenceActivity {
     }
 
     private void applyStockMix(Set<String> enabledBuiltIn) {
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
-        PonyMixes.applyStockMix(prefs, enabledBuiltIn, builtInPonyKeys(), allHerdKeys());
+        PonyMixes.applyStockMix(this, enabledBuiltIn);
         syncCheckboxWidgets(builtInPonyCategories());
         refreshEnableAllToggles();
     }
@@ -662,7 +637,7 @@ public class Settings extends PreferenceActivity {
         int storedCustom = PonyMixes.countCustom(mix.keys);
         int liveCustom = PonyEnableAll.matchingCount(customKeys, mix.keys);
         int missing = storedCustom - liveCustom;
-        PonyMixes.applyUserMix(prefs, mix, allHerdKeys());
+        PonyMixes.applyUserMix(this, mix);
         syncCheckboxWidgets(builtInPonyCategories());
         syncCheckboxWidgets(customPonyCategories());
         refreshWaifuValue();
@@ -680,7 +655,7 @@ public class Settings extends PreferenceActivity {
         int storedCustom = PonyMixes.countCustom(prev.keys);
         int liveCustom = PonyEnableAll.matchingCount(customKeys, prev.keys);
         int missing = storedCustom - liveCustom;
-        if (PonyMixes.applyPreviousHerd(prefs, allHerdKeys()) == null) return;
+        if (PonyMixes.applyPreviousHerd(this) == null) return;
         syncCheckboxWidgets(builtInPonyCategories());
         syncCheckboxWidgets(customPonyCategories());
         refreshWaifuValue();
