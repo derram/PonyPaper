@@ -43,6 +43,7 @@
     <string name="pref_screen_library_summary">Custom ponies, zip backup, and library folder</string>
     <string name="pref_screen_about_summary">Version, licenses, and credits</string>
     <string name="pref_appearance_category">Appearance</string>
+    <string name="pref_select_background_summary">Same image for the live wallpaper and screen saver</string>
     <string name="pref_background_colour_title">Base colour</string>
     <string name="pref_background_colour_summary">Colour shown behind ponies, and while the wallpaper is reloading</string>
     <string name="pref_background_colour_dialog">Base colour</string>
@@ -62,8 +63,15 @@
     <string name="pref_open_live_wallpaper_title">Live wallpaper settings</string>
     <string name="pref_open_live_wallpaper_summary">Open the system picker to set Pony Paper as your live wallpaper</string>
     <string name="pref_open_screensaver_title">Screen saver settings</string>
-    <string name="pref_open_screensaver_summary">Choose Pony Paper as the system screen saver (same ponies and options as the wallpaper)</string>
+    <string name="pref_open_screensaver_summary">Choose Pony Paper as the system screen saver</string>
     <string name="pref_screensaver_category">Screen saver</string>
+    <string name="pref_dream_custom_display_title">Custom screen saver display</string>
+    <string name="pref_dream_custom_display_summary">Different pony count, frame rate, and background on/off. Off uses the live wallpaper settings</string>
+    <string name="pref_dream_num_ponies_title">Number of ponies</string>
+    <string name="pref_dream_target_fps_title">Target frame rate</string>
+    <string name="pref_dream_target_fps_dialog">Target frame rate</string>
+    <string name="pref_dream_background_title">Use background</string>
+    <string name="pref_dream_background_summary">Same image as the live wallpaper</string>
     <string name="pref_dream_show_clock_title">Show clock</string>
     <string name="pref_dream_show_clock_summary">Large digital clock over the herd (12/24-hour follows system setting)</string>
     <string name="pref_dream_show_date_title">Show date</string>

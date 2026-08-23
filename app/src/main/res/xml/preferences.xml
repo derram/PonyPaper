@@ -44,11 +44,10 @@
                                 android:defaultValue="false" />
             <Preference android:key="pref_select_background"
                         android:title="Select background"
-                        android:dependency="pref_background" />
+                        android:summary="@string/pref_select_background_summary" />
             <uk.cpjsmith.ponypaper.NumberPickerPreference
                     android:key="pref_pixelation"
                     android:title="Background pixelation level"
-                    android:dependency="pref_background"
                     custom:minValue="1"
                     custom:maxValue="24"
                     custom:wrap="false"
@@ -82,6 +81,28 @@
             <Preference android:key="pref_open_screensaver"
                         android:title="@string/pref_open_screensaver_title"
                         android:summary="@string/pref_open_screensaver_summary" />
+            <CheckBoxPreference android:key="pref_dream_custom_display"
+                                android:title="@string/pref_dream_custom_display_title"
+                                android:summary="@string/pref_dream_custom_display_summary"
+                                android:defaultValue="false" />
+            <uk.cpjsmith.ponypaper.NumberPickerPreference
+                    android:key="pref_dream_num_ponies"
+                    android:title="@string/pref_dream_num_ponies_title"
+                    android:dependency="pref_dream_custom_display"
+                    custom:minValue="1"
+                    custom:maxValue="20"
+                    custom:wrap="false" />
+            <ListPreference android:key="pref_dream_target_fps"
+                            android:title="@string/pref_dream_target_fps_title"
+                            android:summary="%s"
+                            android:dialogTitle="@string/pref_dream_target_fps_dialog"
+                            android:dependency="pref_dream_custom_display"
+                            android:entries="@array/pref_target_fps_entries"
+                            android:entryValues="@array/pref_target_fps_values" />
+            <CheckBoxPreference android:key="pref_dream_background"
+                                android:title="@string/pref_dream_background_title"
+                                android:summary="@string/pref_dream_background_summary"
+                                android:dependency="pref_dream_custom_display" />
             <CheckBoxPreference android:key="pref_dream_show_clock"
                                 android:title="@string/pref_dream_show_clock_title"
                                 android:summary="@string/pref_dream_show_clock_summary"

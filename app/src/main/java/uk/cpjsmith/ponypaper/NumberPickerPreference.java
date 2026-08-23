@@ -73,6 +73,11 @@ public class NumberPickerPreference extends DialogPreference {
         persistInt(value);
         setSummary(Integer.toString(value));
     }
+
+    /** Reload after an external {@link android.content.SharedPreferences} write. */
+    void reloadFromPersisted() {
+        setValue(getPersistedInt(minValue));
+    }
     
     private int getValue() {
         return value;

@@ -73,8 +73,16 @@ public class Settings extends PreferenceActivity {
                         PonyMixes.noteManualHerdEdit(sharedPreferences);
                     }
                     refreshEnableAllToggles();
-                    if (key == null || PonySceneController.PREF_TARGET_FPS.equals(key)) {
+                    if (key == null
+                            || PonySceneController.PREF_TARGET_FPS.equals(key)
+                            || PonySceneController.PREF_DREAM_TARGET_FPS.equals(key)) {
                         refreshTargetFpsList();
+                    }
+                    if (key == null
+                            || PonySceneController.PREF_BACKGROUND.equals(key)
+                            || PonySceneController.PREF_DREAM_BACKGROUND.equals(key)
+                            || PonySceneController.PREF_DREAM_CUSTOM_DISPLAY.equals(key)) {
+                        refreshSharedBackgroundControls();
                     }
                 }
             };
@@ -90,6 +98,7 @@ public class Settings extends PreferenceActivity {
         ensureCustomCheckboxes(customFiles);
         refreshWaifuList(customFiles);
         refreshTargetFpsList();
+        refreshSharedBackgroundControls();
         updateLibraryFolderSummary();
         setupEnableAllToggles();
         setupMixActions();
@@ -141,20 +150,30 @@ public class Settings extends PreferenceActivity {
         
         findPreference("pref_background").setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
             public boolean onPreferenceChange(Preference preference, Object newValue) {
-                if ((Boolean)newValue) {
-                    File filesDir = CustomStorage.localDir(Settings.this);
-                    if (filesDir == null) {
-                        showAlertDialog("Background unavailable",
-                                "App storage is not available on this device right now.");
-                        return false;
-                    }
-                    if (!new File(filesDir, CustomStorage.BACKGROUND_NAME).exists()) {
-                        selectBackground();
-                    }
-                }
-                return true;
+                return onBackgroundEnableChanging((Boolean) newValue);
             }
         });
+
+        Preference dreamBackground = findPreference(PonySceneController.PREF_DREAM_BACKGROUND);
+        if (dreamBackground != null) {
+            dreamBackground.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
+                public boolean onPreferenceChange(Preference preference, Object newValue) {
+                    return onBackgroundEnableChanging((Boolean) newValue);
+                }
+            });
+        }
+
+        Preference dreamCustomDisplay = findPreference(PonySceneController.PREF_DREAM_CUSTOM_DISPLAY);
+        if (dreamCustomDisplay != null) {
+            dreamCustomDisplay.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
+                public boolean onPreferenceChange(Preference preference, Object newValue) {
+                    if (Boolean.TRUE.equals(newValue)) {
+                        seedDreamDisplayOverridesIfNeeded();
+                    }
+                    return true;
+                }
+            });
+        }
         
         findPreference("pref_select_background").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
             public boolean onPreferenceClick(Preference preference) {
@@ -204,6 +223,10 @@ public class Settings extends PreferenceActivity {
 
         setupAboutAndLicenses();
         refreshDreamIdleSettings();
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        if (prefs.getBoolean(PonySceneController.PREF_DREAM_CUSTOM_DISPLAY, false)) {
+            seedDreamDisplayOverridesIfNeeded();
+        }
     }
 
     @Override
@@ -219,6 +242,7 @@ public class Settings extends PreferenceActivity {
         super.onResume();
         startLibrarySync(false);
         refreshTargetFpsList();
+        refreshSharedBackgroundControls();
         refreshDreamIdleSettings();
         registerFpsDisplayListener();
     }
@@ -1067,11 +1091,104 @@ public class Settings extends PreferenceActivity {
     }
     
     /**
+     * Select background and pixelation apply to the shared image. Enable them
+     * when the live wallpaper uses it, or when a custom screen saver does.
+     */
+    private void refreshSharedBackgroundControls() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        boolean wallpaper = prefs.getBoolean(PonySceneController.PREF_BACKGROUND, false);
+        boolean dream = prefs.getBoolean(PonySceneController.PREF_DREAM_CUSTOM_DISPLAY, false)
+                && prefs.getBoolean(PonySceneController.PREF_DREAM_BACKGROUND, false);
+        boolean enabled = wallpaper || dream;
+        Preference select = findPreference("pref_select_background");
+        if (select != null) {
+            select.setEnabled(enabled);
+        }
+        Preference pixelation = findPreference("pref_pixelation");
+        if (pixelation != null) {
+            pixelation.setEnabled(enabled);
+        }
+    }
+
+    /**
+     * When turning a background-image checkbox on, refuse if app storage is
+     * missing, and open the picker if the shared image file is not there yet.
+     */
+    private boolean onBackgroundEnableChanging(boolean enabling) {
+        if (!enabling) return true;
+        File filesDir = CustomStorage.localDir(this);
+        if (filesDir == null) {
+            showAlertDialog("Background unavailable",
+                    "App storage is not available on this device right now.");
+            return false;
+        }
+        if (!new File(filesDir, CustomStorage.BACKGROUND_NAME).exists()) {
+            selectBackground();
+        }
+        return true;
+    }
+
+    /**
+     * First time custom screen-saver display is enabled, copy the live-wallpaper
+     * pony count, FPS, and background toggle so the pickers match. Later
+     * re-enables keep the previous screen-saver values.
+     */
+    private void seedDreamDisplayOverridesIfNeeded() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        SharedPreferences.Editor editor = prefs.edit();
+        if (!prefs.contains(PonySceneController.PREF_DREAM_NUM_PONIES)) {
+            editor.putInt(PonySceneController.PREF_DREAM_NUM_PONIES,
+                    prefs.getInt(PonySceneController.PREF_NUM_PONIES,
+                            PonySceneController.DEFAULT_NUM_PONIES));
+        }
+        if (!prefs.contains(PonySceneController.PREF_DREAM_TARGET_FPS)) {
+            editor.putString(PonySceneController.PREF_DREAM_TARGET_FPS,
+                    prefs.getString(PonySceneController.PREF_TARGET_FPS,
+                            Integer.toString(PonySceneController.DEFAULT_TARGET_FPS)));
+        }
+        if (!prefs.contains(PonySceneController.PREF_DREAM_BACKGROUND)) {
+            editor.putBoolean(PonySceneController.PREF_DREAM_BACKGROUND,
+                    prefs.getBoolean(PonySceneController.PREF_BACKGROUND, false));
+        }
+        editor.commit();
+        syncDreamDisplayWidgets();
+    }
+
+    private void syncDreamDisplayWidgets() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        NumberPickerPreference ponies =
+                (NumberPickerPreference) findPreference(PonySceneController.PREF_DREAM_NUM_PONIES);
+        if (ponies != null && prefs.contains(PonySceneController.PREF_DREAM_NUM_PONIES)) {
+            ponies.reloadFromPersisted();
+        }
+        CheckBoxPreference background =
+                (CheckBoxPreference) findPreference(PonySceneController.PREF_DREAM_BACKGROUND);
+        if (background != null && prefs.contains(PonySceneController.PREF_DREAM_BACKGROUND)) {
+            background.setChecked(prefs.getBoolean(PonySceneController.PREF_DREAM_BACKGROUND, false));
+        }
+        refreshTargetFpsList();
+        ListPreference fps =
+                (ListPreference) findPreference(PonySceneController.PREF_DREAM_TARGET_FPS);
+        if (fps != null && prefs.contains(PonySceneController.PREF_DREAM_TARGET_FPS)) {
+            String raw = prefs.getString(PonySceneController.PREF_DREAM_TARGET_FPS,
+                    Integer.toString(PonySceneController.DEFAULT_TARGET_FPS));
+            if (raw != null) {
+                fps.setValue(raw);
+            }
+        }
+        refreshTargetFpsList();
+    }
+
+    /**
      * Hides listed frame rates above this display's peak refresh. Does not
      * rewrite the stored preference; the engine clamps the effective rate.
      */
     private void refreshTargetFpsList() {
-        ListPreference pref = (ListPreference) findPreference(PonySceneController.PREF_TARGET_FPS);
+        refreshTargetFpsList((ListPreference) findPreference(PonySceneController.PREF_TARGET_FPS));
+        refreshTargetFpsList((ListPreference) findPreference(PonySceneController.PREF_DREAM_TARGET_FPS));
+    }
+
+    private void refreshTargetFpsList(ListPreference pref) {
         if (pref == null) return;
 
         CharSequence[] entries = getResources().getTextArray(R.array.pref_target_fps_entries);

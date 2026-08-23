@@ -871,6 +871,11 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     @Override
+    public boolean isDream() {
+        return true;
+    }
+
+    @Override
     public boolean shouldShowClock() {
         return getDreamPreferences().getBoolean(
                 PonySceneController.PREF_DREAM_SHOW_CLOCK, false);

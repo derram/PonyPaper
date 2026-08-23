@@ -43,10 +43,24 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     static final String PREF_BATTERY_DISABLE_BACKGROUND = "pref_battery_disable_background";
     /** Packed ARGB for the solid fill behind ponies when there is no image background. */
     static final String PREF_BACKGROUND_COLOUR = "pref_background_colour";
+    /** When true, decode and draw the shared background image (subject to power policy). */
+    static final String PREF_BACKGROUND = "pref_background";
     /** Historical hardcoded fill; also the preference default. */
     static final int DEFAULT_BACKGROUND_COLOUR = 0xff333333;
     /** Preference key for the user's preferred number of on-screen ponies. */
     static final String PREF_NUM_PONIES = "pref_num_ponies";
+    /**
+     * When true, the dream uses {@link #PREF_DREAM_NUM_PONIES},
+     * {@link #PREF_DREAM_TARGET_FPS}, and {@link #PREF_DREAM_BACKGROUND}
+     * instead of the live-wallpaper display prefs. Off (default) inherits.
+     */
+    static final String PREF_DREAM_CUSTOM_DISPLAY = "pref_dream_custom_display";
+    /** Dream pony count while {@link #PREF_DREAM_CUSTOM_DISPLAY} is on. */
+    static final String PREF_DREAM_NUM_PONIES = "pref_dream_num_ponies";
+    /** Dream target FPS while {@link #PREF_DREAM_CUSTOM_DISPLAY} is on. */
+    static final String PREF_DREAM_TARGET_FPS = "pref_dream_target_fps";
+    /** Dream background-image enable while {@link #PREF_DREAM_CUSTOM_DISPLAY} is on. */
+    static final String PREF_DREAM_BACKGROUND = "pref_dream_background";
     /** When true, the dream draws a large digital clock over the scene. */
     static final String PREF_DREAM_SHOW_CLOCK = "pref_dream_show_clock";
     /** When true (and the clock is shown), draw the date under the time. */
@@ -175,6 +189,15 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
          */
         default boolean shouldLockHardwareCanvas() {
             return true;
+        }
+
+        /**
+         * Whether this host is the screen saver. Dream-only display overrides
+         * ({@link PonySceneController#PREF_DREAM_CUSTOM_DISPLAY}) apply only
+         * when this is true.
+         */
+        default boolean isDream() {
+            return false;
         }
     }
 
@@ -424,7 +447,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         applyBackgroundColour(prefs, true);
 
         final int ponyCount = getEffectivePonyCount(prefs);
-        final boolean wantBg = prefs.getBoolean("pref_background", false)
+        final boolean wantBg = preferredBackgroundEnabled(prefs)
                 && !shouldDisableBackgroundImage(prefs);
         final int pixelation = pixelationFromPrefs(prefs);
         File filesDir = appContext.getExternalFilesDir(null);
@@ -896,8 +919,41 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         return onBattery && prefs.getBoolean(PREF_BATTERY_DISABLE_BACKGROUND, false);
     }
 
+    /** True when this is the dream and the user opted into separate display prefs. */
+    private boolean useDreamDisplayOverrides(SharedPreferences prefs) {
+        return surface.isDream() && prefs.getBoolean(PREF_DREAM_CUSTOM_DISPLAY, false);
+    }
+
+    private int preferredPonyCount(SharedPreferences prefs) {
+        if (useDreamDisplayOverrides(prefs) && prefs.contains(PREF_DREAM_NUM_PONIES)) {
+            return prefs.getInt(PREF_DREAM_NUM_PONIES, DEFAULT_NUM_PONIES);
+        }
+        return prefs.getInt(PREF_NUM_PONIES, DEFAULT_NUM_PONIES);
+    }
+
+    private boolean preferredBackgroundEnabled(SharedPreferences prefs) {
+        if (useDreamDisplayOverrides(prefs) && prefs.contains(PREF_DREAM_BACKGROUND)) {
+            return prefs.getBoolean(PREF_DREAM_BACKGROUND, false);
+        }
+        return prefs.getBoolean(PREF_BACKGROUND, false);
+    }
+
+    private String preferredTargetFpsRaw(SharedPreferences prefs) {
+        String raw = null;
+        if (useDreamDisplayOverrides(prefs) && prefs.contains(PREF_DREAM_TARGET_FPS)) {
+            raw = prefs.getString(PREF_DREAM_TARGET_FPS, null);
+        }
+        if (raw == null) {
+            raw = prefs.getString(PREF_TARGET_FPS, Integer.toString(DEFAULT_TARGET_FPS));
+        }
+        if (raw == null) {
+            raw = Integer.toString(DEFAULT_TARGET_FPS);
+        }
+        return raw;
+    }
+
     private int getEffectivePonyCount(SharedPreferences prefs) {
-        int count = prefs.getInt(PREF_NUM_PONIES, DEFAULT_NUM_PONIES);
+        int count = preferredPonyCount(prefs);
         if (count < 1) count = DEFAULT_NUM_PONIES;
         if (shouldApplyBatterySaverLimits(prefs)) {
             count = Math.min(count, BATTERY_SAVER_MAX_PONIES);
@@ -1092,8 +1148,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private void applyTargetFps(SharedPreferences prefs) {
         int fps = DEFAULT_TARGET_FPS;
         try {
-            fps = Integer.parseInt(prefs.getString(PREF_TARGET_FPS,
-                    Integer.toString(DEFAULT_TARGET_FPS)));
+            fps = Integer.parseInt(preferredTargetFpsRaw(prefs).trim());
         } catch (NumberFormatException e) {
             fps = DEFAULT_TARGET_FPS;
         }
@@ -1229,33 +1284,25 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     @Override
     public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
+        if (key != null && key.startsWith("pref_dream_")) {
+            onDreamPreferenceChanged(prefs, key);
+            return;
+        }
         if (PREF_TARGET_FPS.equals(key)) {
-            applyTargetFps(prefs);
-            handler.removeCallbacks(drawFrameCallback);
-            if (active && !frozen) {
-                lastFrameUptimeMs = 0;
-                drawFrame();
-            }
+            if (useDreamDisplayOverrides(prefs)) return;
+            applyTargetFpsAndRedraw(prefs);
             return;
         }
         if (PREF_BACKGROUND_COLOUR.equals(key)) {
             applyBackgroundColour(prefs, false);
-            handler.removeCallbacks(drawFrameCallback);
-            if (active && !frozen) {
-                lastFrameUptimeMs = 0;
-                drawFrame();
-            }
+            redrawIfActive();
             return;
         }
         if (PonySize.PREF_KEY.equals(key)) {
             if (ponies != null) {
                 ponies.setSizeFactor(PonySize.factor(prefs));
             }
-            handler.removeCallbacks(drawFrameCallback);
-            if (active && !frozen) {
-                lastFrameUptimeMs = 0;
-                drawFrame();
-            }
+            redrawIfActive();
             return;
         }
         if (PREF_RESPECT_BATTERY_SAVER.equals(key)
@@ -1265,8 +1312,53 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             reapplyPowerProfilePrefs(prefs);
             return;
         }
+        if (useDreamDisplayOverrides(prefs)
+                && (PREF_NUM_PONIES.equals(key) || PREF_BACKGROUND.equals(key))) {
+            return;
+        }
         if (!frozen) {
             dropHerd();
+        }
+    }
+
+    /**
+     * Dream-only keys. Wallpaper hosts ignore them so a screen-saver edit does
+     * not rebuild the live wallpaper. Display overrides are ignored while
+     * {@link #PREF_DREAM_CUSTOM_DISPLAY} is off (except the toggle itself).
+     */
+    private void onDreamPreferenceChanged(SharedPreferences prefs, String key) {
+        if (!surface.isDream()) return;
+        if (PREF_DREAM_CUSTOM_DISPLAY.equals(key)) {
+            applyTargetFps(prefs);
+            if (!frozen) dropHerd();
+            redrawIfActive();
+            return;
+        }
+        if (PREF_DREAM_TARGET_FPS.equals(key)) {
+            if (!useDreamDisplayOverrides(prefs)) return;
+            applyTargetFpsAndRedraw(prefs);
+            return;
+        }
+        if (PREF_DREAM_NUM_PONIES.equals(key) || PREF_DREAM_BACKGROUND.equals(key)) {
+            if (!useDreamDisplayOverrides(prefs)) return;
+            if (!frozen) dropHerd();
+            return;
+        }
+        if (!frozen) {
+            dropHerd();
+        }
+    }
+
+    private void applyTargetFpsAndRedraw(SharedPreferences prefs) {
+        applyTargetFps(prefs);
+        redrawIfActive();
+    }
+
+    private void redrawIfActive() {
+        handler.removeCallbacks(drawFrameCallback);
+        if (active && !frozen) {
+            lastFrameUptimeMs = 0;
+            drawFrame();
         }
     }
 
