@@ -423,17 +423,19 @@ public class Settings extends AppCompatActivity
     private void applyPoniesToggle() {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         ArrayList<String> keys = builtInPonyKeys();
-        PonyEnableAll.apply(prefs, keys, PonyEnableAll.PREF_PONIES_SNAPSHOT);
+        PonyEnableAll.apply(prefs, keys, allHerdKeys());
         syncCheckboxWidgets(builtInPonyCategories());
         refreshEnableAllToggles();
+        refreshHerdScreenSummaries();
     }
 
     private void applyCustomToggle() {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         ArrayList<String> keys = customPonyKeys();
-        PonyEnableAll.apply(prefs, keys, PonyEnableAll.PREF_CUSTOM_SNAPSHOT);
+        PonyEnableAll.apply(prefs, keys, allHerdKeys());
         syncCheckboxWidgets(customPonyCategories());
         refreshEnableAllToggles();
+        refreshHerdScreenSummaries();
     }
 
     private void refreshEnableAllToggles() {
@@ -446,16 +448,11 @@ public class Settings extends AppCompatActivity
         if (toggle == null) return;
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         ArrayList<String> keys = builtInPonyKeys();
-        PonyEnableAll.Action action = PonyEnableAll.nextAction(prefs, keys, PonyEnableAll.PREF_PONIES_SNAPSHOT);
+        PonyEnableAll.Action action = PonyEnableAll.nextAction(prefs, keys);
         switch (action) {
             case DISABLE_ALL:
                 toggle.setTitle(R.string.pref_disable_all_title);
                 toggle.setSummary(R.string.pref_ponies_disable_all_summary);
-                break;
-            case RESTORE_PREVIOUS:
-                toggle.setTitle(R.string.pref_restore_previous_title);
-                int n = PonyEnableAll.restoreCount(prefs, keys, PonyEnableAll.PREF_PONIES_SNAPSHOT);
-                toggle.setSummary(getString(R.string.pref_ponies_restore_summary, n));
                 break;
             case ENABLE_ALL:
                 toggle.setTitle(R.string.pref_enable_all_title);
@@ -476,16 +473,11 @@ public class Settings extends AppCompatActivity
             return;
         }
         toggle.setEnabled(true);
-        PonyEnableAll.Action action = PonyEnableAll.nextAction(prefs, keys, PonyEnableAll.PREF_CUSTOM_SNAPSHOT);
+        PonyEnableAll.Action action = PonyEnableAll.nextAction(prefs, keys);
         switch (action) {
             case DISABLE_ALL:
                 toggle.setTitle(R.string.pref_disable_all_title);
                 toggle.setSummary(R.string.pref_custom_disable_all_summary);
-                break;
-            case RESTORE_PREVIOUS:
-                toggle.setTitle(R.string.pref_restore_previous_title);
-                int n = PonyEnableAll.restoreCount(prefs, keys, PonyEnableAll.PREF_CUSTOM_SNAPSHOT);
-                toggle.setSummary(getString(R.string.pref_custom_restore_summary, n));
                 break;
             case ENABLE_ALL:
                 toggle.setTitle(R.string.pref_enable_all_title);

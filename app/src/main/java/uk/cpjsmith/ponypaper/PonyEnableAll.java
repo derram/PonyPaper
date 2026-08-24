@@ -7,33 +7,24 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Bulk enable/disable for a group of pony checkboxes, with a snapshot so
- * Disable all can be undone without forcing every pony on.
+ * Bulk enable/disable for a group of pony checkboxes.
  *
  * <p>Live {@code pref_*} booleans stay the source of truth for
- * {@link AllPonies#getPonies}. The snapshot is only consulted by the
- * settings toggle.
+ * {@link AllPonies#getPonies}. Remembering a selection for later is Mix's
+ * job ({@link PonyMixes} named mixes and previous herd).
  */
 final class PonyEnableAll {
 
-    static final String PREF_PONIES_SNAPSHOT = "pref_ponies_snapshot";
-    static final String PREF_CUSTOM_SNAPSHOT = "pref_custom_snapshot";
-
     enum Action {
         DISABLE_ALL,
-        RESTORE_PREVIOUS,
         ENABLE_ALL
     }
 
     private PonyEnableAll() {}
 
-    /**
-     * Next tap: disable when anything is on; otherwise restore a still-valid
-     * snapshot, or enable every current key.
-     */
-    static Action nextAction(SharedPreferences prefs, List<String> keys, String snapshotKey) {
+    /** Next tap: disable when anything is on; otherwise enable every key. */
+    static Action nextAction(SharedPreferences prefs, List<String> keys) {
         if (anyEnabled(prefs, keys)) return Action.DISABLE_ALL;
-        if (restoreCount(prefs, keys, snapshotKey) > 0) return Action.RESTORE_PREVIOUS;
         return Action.ENABLE_ALL;
     }
 
@@ -43,14 +34,6 @@ final class PonyEnableAll {
             if (prefs.getBoolean(keys.get(i), true)) return true;
         }
         return false;
-    }
-
-    /**
-     * How many current keys would turn on if the snapshot were restored.
-     * Stale names (deleted custom files) are ignored.
-     */
-    static int restoreCount(SharedPreferences prefs, List<String> keys, String snapshotKey) {
-        return matchingCount(keys, snapshotOf(prefs, snapshotKey));
     }
 
     /**
@@ -87,37 +70,12 @@ final class PonyEnableAll {
         }
     }
 
-    /**
-     * Turn snapshot keys on; leave other current keys unchanged. One commit.
-     */
-    static void applyUnion(SharedPreferences prefs, List<String> keys, Set<String> enabled) {
-        if (prefs == null || keys == null || keys.isEmpty()) return;
-        PonyMixes.beginProgrammaticHerdChange();
-        try {
-            SharedPreferences.Editor editor = prefs.edit();
-            writeUnion(editor, keys, enabled);
-            editor.commit();
-        } finally {
-            PonyMixes.endProgrammaticHerdChange();
-        }
-    }
-
     static void writeReplace(SharedPreferences.Editor editor, List<String> keys, Set<String> enabled) {
         if (editor == null || keys == null) return;
         Set<String> on = enabled != null ? enabled : Collections.<String>emptySet();
         for (int i = 0; i < keys.size(); i++) {
             String key = keys.get(i);
             editor.putBoolean(key, on.contains(key));
-        }
-    }
-
-    static void writeUnion(SharedPreferences.Editor editor, List<String> keys, Set<String> enabled) {
-        if (editor == null || keys == null || enabled == null || enabled.isEmpty()) return;
-        for (int i = 0; i < keys.size(); i++) {
-            String key = keys.get(i);
-            if (enabled.contains(key)) {
-                editor.putBoolean(key, true);
-            }
         }
     }
 
@@ -131,28 +89,22 @@ final class PonyEnableAll {
     }
 
     /**
-     * Apply {@link #nextAction} in one commit. Disable all overwrites the
-     * snapshot only when at least one key is currently on. Restore turns
-     * snapshot keys on and leaves other current keys unchanged.
+     * Apply {@link #nextAction} in one commit. Disable all stashes the live
+     * home herd into Mix's previous-herd (when {@code herdKeys} is provided)
+     * before clearing the group.
      */
-    static void apply(SharedPreferences prefs, List<String> keys, String snapshotKey) {
-        if (prefs == null || keys == null || keys.isEmpty() || snapshotKey == null) return;
-        Action action = nextAction(prefs, keys, snapshotKey);
+    static void apply(SharedPreferences prefs, List<String> keys, List<String> herdKeys) {
+        if (prefs == null || keys == null || keys.isEmpty()) return;
+        Action action = nextAction(prefs, keys);
         PonyMixes.beginProgrammaticHerdChange();
         try {
             SharedPreferences.Editor editor = prefs.edit();
             switch (action) {
                 case DISABLE_ALL:
-                    HashSet<String> enabled = capture(prefs, keys);
-                    if (!enabled.isEmpty()) {
-                        editor.putStringSet(snapshotKey, enabled);
-                    }
+                    PonyMixes.writePreviousHerdIfHome(prefs, editor, herdKeys);
                     for (int i = 0; i < keys.size(); i++) {
                         editor.putBoolean(keys.get(i), false);
                     }
-                    break;
-                case RESTORE_PREVIOUS:
-                    writeUnion(editor, keys, snapshotOf(prefs, snapshotKey));
                     break;
                 case ENABLE_ALL:
                     for (int i = 0; i < keys.size(); i++) {
@@ -166,24 +118,6 @@ final class PonyEnableAll {
         }
     }
 
-    /**
-     * Drop one pony key from a snapshot in {@code editor}. No-op when the key
-     * is not in the set. Callers must {@code commit} the editor.
-     */
-    static void removeKeyFromSnapshot(SharedPreferences prefs, SharedPreferences.Editor editor,
-            String snapshotKey, String prefKey) {
-        if (prefs == null || editor == null || snapshotKey == null || prefKey == null) return;
-        Set<String> snap = prefs.getStringSet(snapshotKey, null);
-        if (snap == null || !snap.contains(prefKey)) return;
-        HashSet<String> next = new HashSet<String>(snap);
-        next.remove(prefKey);
-        if (next.isEmpty()) {
-            editor.remove(snapshotKey);
-        } else {
-            editor.putStringSet(snapshotKey, next);
-        }
-    }
-
     private static HashSet<String> enabledKeys(SharedPreferences prefs, List<String> keys) {
         HashSet<String> on = new HashSet<String>();
         if (prefs == null || keys == null) return on;
@@ -192,11 +126,5 @@ final class PonyEnableAll {
             if (prefs.getBoolean(key, true)) on.add(key);
         }
         return on;
-    }
-
-    private static Set<String> snapshotOf(SharedPreferences prefs, String snapshotKey) {
-        Set<String> snap = prefs.getStringSet(snapshotKey, null);
-        if (snap == null || snap.isEmpty()) return Collections.emptySet();
-        return snap;
     }
 }

@@ -1384,16 +1384,14 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Mix sidecar / undo snapshots do not change who is on. Rebuilding the
-     * herd for those keys is wasted decode work.
+     * Mix sidecar / undo prefs do not change who is on. Rebuilding the herd
+     * for those keys is wasted decode work.
      */
     private static boolean isHerdMetadataKey(String key) {
         if (key == null) return false;
         return PonyMixes.PREF_MIXES_JSON.equals(key)
                 || PonyMixes.PREF_PREVIOUS_HERD_JSON.equals(key)
                 || PonyMixes.PREF_VIEWING_LOADED_MIX.equals(key)
-                || PonyEnableAll.PREF_PONIES_SNAPSHOT.equals(key)
-                || PonyEnableAll.PREF_CUSTOM_SNAPSHOT.equals(key)
                 || CustomStorage.PREF_LIBRARY_TREE_URI.equals(key)
                 || CustomStorage.PREF_LIBRARY_SEEN_TREE.equals(key)
                 || CustomStorage.PREF_LIBRARY_SEEN_NAMES.equals(key);

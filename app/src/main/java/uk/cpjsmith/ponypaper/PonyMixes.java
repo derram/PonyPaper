@@ -15,14 +15,13 @@ import org.json.JSONObject;
 /**
  * Named herd snapshots: which ponies are on, plus the favorite (waifu).
  *
- * <p>Disable-all undo stays in {@link PonyEnableAll}'s one-slot snapshots.
- * User mixes are a separate JSON list. Live checkbox booleans remain the
- * source of truth for the wallpaper.
+ * <p>User mixes are a JSON list. Live checkbox booleans remain the source of
+ * truth for the wallpaper.
  *
- * <p>Load also keeps one unnamed previous-herd snapshot so the usual
- * checkboxes can be restored. That snapshot is written only when leaving a
- * non-loaded (home) state; hopping from mix to mix leaves it alone. A
- * checkbox or favorite change marks the herd as home again.
+ * <p>Load (and home Disable-all) keep one unnamed previous-herd snapshot so
+ * the usual checkboxes can be restored. That snapshot is written only when
+ * leaving a non-loaded (home) state; hopping from mix to mix leaves it alone.
+ * A checkbox or favorite change marks the herd as home again.
  *
  * <p>Custom ponies are stored by preference key ({@code pref_custom_} +
  * filename). Missing files are skipped on load; they are not copied into
@@ -378,18 +377,15 @@ final class PonyMixes {
 
     /**
      * Write previous-herd when the live checkboxes are still a home state.
-     * An all-off home falls back to Disable-all snapshots so mute-then-load
-     * does not lose the usual herd. Empty captures do not overwrite.
+     * Empty captures do not overwrite. Call before clearing a home herd
+     * (Load Mix or Disable all) so mute-then-load can still restore.
      */
     static void writePreviousHerdIfHome(SharedPreferences prefs, SharedPreferences.Editor editor,
             List<String> herdKeys) {
         if (prefs == null || editor == null || herdKeys == null) return;
         if (prefs.getBoolean(PREF_VIEWING_LOADED_MIX, false)) return;
         HashSet<String> on = captureKeys(prefs, herdKeys);
-        if (on.isEmpty()) {
-            on = snapshotFallback(prefs, herdKeys);
-            if (on.isEmpty()) return;
-        }
+        if (on.isEmpty()) return;
         editor.putString(PREF_PREVIOUS_HERD_JSON, encodePrevious(on, currentWaifu(prefs)));
     }
 
@@ -570,14 +566,6 @@ final class PonyMixes {
 
     private static int retainedCount(Set<String> keys, List<String> herdKeys) {
         return retainedKeys(keys, herdKeys).size();
-    }
-
-    private static HashSet<String> snapshotFallback(SharedPreferences prefs, List<String> herdKeys) {
-        HashSet<String> on = new HashSet<String>();
-        if (prefs == null) return on;
-        on.addAll(retainedKeys(prefs.getStringSet(PonyEnableAll.PREF_PONIES_SNAPSHOT, null), herdKeys));
-        on.addAll(retainedKeys(prefs.getStringSet(PonyEnableAll.PREF_CUSTOM_SNAPSHOT, null), herdKeys));
-        return on;
     }
 
     private static String resolvedWaifu(String waifu, List<String> herdKeys) {

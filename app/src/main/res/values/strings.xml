@@ -50,9 +50,7 @@
     <string name="dialog_save">Save</string>
     <string name="dialog_replace">Replace</string>
     <string name="pref_disable_all_title">Disable all</string>
-    <string name="pref_restore_previous_title">Restore previous</string>
-    <string name="pref_ponies_disable_all_summary">Remembers who is on, then turns every built-in off</string>
-    <string name="pref_ponies_restore_summary">Turns %1$d ponies back on</string>
+    <string name="pref_ponies_disable_all_summary">Turn every built-in pony off</string>
     <string name="pref_ponies_enable_all_summary">Turn on every built-in pony</string>
     <string name="pref_screen_library_title">Library</string>
     <string name="pref_screen_library_summary">Add, remove, zip backup, and library folder</string>
@@ -189,8 +187,7 @@
 
     <string name="pref_library_actions_category">Library</string>
     <string name="pref_custom_category">Custom ponies</string>
-    <string name="pref_custom_disable_all_summary">Remembers who is on, then turns every custom pony off</string>
-    <string name="pref_custom_restore_summary">Turns %1$d custom ponies back on</string>
+    <string name="pref_custom_disable_all_summary">Turn every custom pony off</string>
     <string name="pref_custom_enable_all_summary">Turn on every custom pony</string>
     <string name="pref_custom_toggle_empty_summary">Add a custom pony first</string>
     <string name="pref_add_custom_title">Add custom pony</string>

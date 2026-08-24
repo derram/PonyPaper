@@ -862,7 +862,6 @@ final class CustomStorage {
         if (prefKey.equals(waifu)) {
             editor.putString("pref_waifu", "");
         }
-        PonyEnableAll.removeKeyFromSnapshot(prefs, editor, PonyEnableAll.PREF_CUSTOM_SNAPSHOT, prefKey);
         PonyMixes.removeKeyFromAllMixes(prefs, editor, prefKey);
         PonyMixes.removeKeyFromPreviousHerd(prefs, editor, prefKey);
         PonyMixes.beginProgrammaticHerdChange();
