@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <Preference
+        android:key="pref_edit_custom_herd"
+        android:title="@string/pref_edit_custom_herd_title"
+        android:summary="@string/pref_edit_custom_herd_summary"
+        app:fragment="uk.cpjsmith.ponypaper.CustomPoniesPreferencesFragment" />
 
     <PreferenceCategory
         android:key="pref_library_actions"
@@ -24,14 +31,6 @@
             android:key="pref_library_folder"
             android:title="@string/pref_library_folder_title"
             android:summary="@string/pref_library_folder_summary_unset" />
-    </PreferenceCategory>
-    <PreferenceCategory
-        android:key="pref_custom"
-        android:title="@string/pref_custom_category">
-        <Preference
-            android:key="pref_library_toggle_all"
-            android:title="@string/pref_disable_all_title"
-            android:summary="@string/pref_custom_toggle_empty_summary" />
     </PreferenceCategory>
 
 </PreferenceScreen>

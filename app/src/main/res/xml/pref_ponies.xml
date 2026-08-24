@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <Preference
+        android:key="pref_herd_summary"
+        android:title="@string/pref_herd_summary_title"
+        android:summary="@string/pref_herd_summary_live_placeholder"
+        android:selectable="false"
+        android:persistent="false" />
 
     <ListPreference
         android:key="pref_waifu"
@@ -20,71 +28,15 @@
         android:summary="@string/pref_load_mix_summary" />
 
     <Preference
-        android:key="pref_ponies_toggle_all"
-        android:title="@string/pref_disable_all_title"
-        android:summary="@string/pref_ponies_disable_all_summary" />
+        android:key="pref_screen_builtin"
+        android:title="@string/pref_screen_builtin_title"
+        android:summary="@string/pref_screen_builtin_summary_placeholder"
+        app:fragment="uk.cpjsmith.ponypaper.BuiltInPoniesPreferencesFragment" />
 
-    <PreferenceCategory
-        android:key="pref_mane6"
-        android:title="@string/pony_group_mane6">
-        <CheckBoxPreference android:key="pref_aj" android:title="Applejack" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_fs" android:title="Fluttershy" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_pp" android:title="Pinkie Pie" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_rd" android:title="Rainbow Dash" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_rarity" android:title="Rarity" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_spike" android:title="Spike" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_ts" android:title="Twilight Sparkle" android:defaultValue="true" />
-    </PreferenceCategory>
-    <PreferenceCategory
-        android:key="pref_cmc"
-        android:title="@string/pony_group_cmc">
-        <CheckBoxPreference android:key="pref_ab" android:title="Apple Bloom" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_babs" android:title="Babs Seed" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_scootaloo" android:title="Scootaloo" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_sb" android:title="Sweetie Belle" android:defaultValue="true" />
-    </PreferenceCategory>
-    <PreferenceCategory
-        android:key="pref_royalty"
-        android:title="@string/pony_group_royalty">
-        <CheckBoxPreference android:key="pref_ember" android:title="Ember" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_cadance" android:title="Princess Cadance" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_celestia" android:title="Princess Celestia" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_luna" android:title="Princess Luna" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_sa" android:title="Shining Armor" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_thorax" android:title="Thorax" android:defaultValue="true" />
-    </PreferenceCategory>
-    <PreferenceCategory
-        android:key="pref_young6"
-        android:title="@string/pony_group_young6">
-        <CheckBoxPreference android:key="pref_gallus" android:title="Gallus" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_ocellus" android:title="Ocellus" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_sandbar" android:title="Sandbar" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_silverstream" android:title="Silverstream" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_smolder" android:title="Smolder" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_yona" android:title="Yona" android:defaultValue="true" />
-    </PreferenceCategory>
-    <PreferenceCategory
-        android:key="pref_other"
-        android:title="@string/pony_group_other">
-        <CheckBoxPreference android:key="pref_bp" android:title="Berry Punch" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_bigmac" android:title="Big McIntosh" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_derpy" android:title="Derpy" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_doctor" android:title="Dr. Hooves" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_gilda" android:title="Gilda" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_lyra" android:title="Lyra Heartstrings" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_minuette" android:title="Minuette" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_octavia" android:title="Octavia" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_rainbowshine" android:title="Rainbowshine" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_roseluck" android:title="Roseluck" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_soarin" android:title="Soarin" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_spitfire" android:title="Spitfire" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_sg" android:title="Starlight Glimmer" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_ss" android:title="Sunset Shimmer" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_sunburst" android:title="Sunburst" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_sd" android:title="Sweetie Drops" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_trixie" android:title="Trixie" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_vinyl" android:title="Vinyl Scratch" android:defaultValue="true" />
-        <CheckBoxPreference android:key="pref_zecora" android:title="Zecora" android:defaultValue="true" />
-    </PreferenceCategory>
+    <Preference
+        android:key="pref_screen_custom"
+        android:title="@string/pref_screen_custom_title"
+        android:summary="@string/pref_screen_custom_summary_empty"
+        app:fragment="uk.cpjsmith.ponypaper.CustomPoniesPreferencesFragment" />
 
 </PreferenceScreen>

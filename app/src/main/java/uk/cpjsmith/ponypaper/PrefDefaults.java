@@ -14,6 +14,7 @@ final class PrefDefaults {
     static void apply(Context context) {
         PreferenceManager.setDefaultValues(context, R.xml.pref_display, true);
         PreferenceManager.setDefaultValues(context, R.xml.pref_ponies, true);
+        PreferenceManager.setDefaultValues(context, R.xml.pref_ponies_builtin, true);
         PreferenceManager.setDefaultValues(context, R.xml.pref_library, true);
     }
 }

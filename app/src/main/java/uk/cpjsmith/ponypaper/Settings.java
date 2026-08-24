@@ -78,6 +78,7 @@ public class Settings extends AppCompatActivity
                 public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
                     if (isLiveHerdPreferenceKey(key)) {
                         PonyMixes.noteManualHerdEdit(sharedPreferences);
+                        refreshHerdScreenSummaries();
                     }
                     refreshEnableAllToggles();
                     if (key == null
@@ -260,23 +261,44 @@ public class Settings extends AppCompatActivity
     void bindPoniesPreferences(PreferenceFragmentCompat fragment) {
         activePrefs = fragment;
         File[] customFiles = CustomStorage.listCustomXml(this);
+        ensureCustomPrefDefaults(customFiles);
         refreshWaifuList(customFiles);
-        setupEnableAllToggles();
         setupMixActions();
+        refreshHerdScreenSummaries();
     }
 
     void refreshPoniesScreen() {
         File[] customFiles = CustomStorage.listCustomXml(this);
+        ensureCustomPrefDefaults(customFiles);
         refreshWaifuList(customFiles);
+        refreshHerdScreenSummaries();
+    }
+
+    void bindBuiltInPoniesPreferences(PreferenceFragmentCompat fragment) {
+        activePrefs = fragment;
+        setupEnableAllToggles();
+    }
+
+    void refreshBuiltInPoniesScreen() {
         refreshEnableAllToggles();
+    }
+
+    void bindCustomPoniesPreferences(PreferenceFragmentCompat fragment) {
+        activePrefs = fragment;
+        File[] customFiles = CustomStorage.listCustomXml(this);
+        ensureCustomPrefDefaults(customFiles);
+        ensureCustomCheckboxes(customFiles);
+        setupEnableAllToggles();
+    }
+
+    void refreshCustomPoniesScreen() {
+        refreshCustomPoniesUi();
     }
 
     void bindLibraryPreferences(PreferenceFragmentCompat fragment) {
         activePrefs = fragment;
-        File[] customFiles = CustomStorage.listCustomXml(this);
-        ensureCustomCheckboxes(customFiles);
+        ensureCustomPrefDefaults(CustomStorage.listCustomXml(this));
         updateLibraryFolderSummary();
-        setupEnableAllToggles();
 
         Preference addCustom = findPreference("pref_add_custom");
         if (addCustom != null) {
@@ -338,7 +360,7 @@ public class Settings extends AppCompatActivity
     }
 
     void refreshLibraryScreen() {
-        refreshCustomPoniesUi();
+        ensureCustomPrefDefaults(CustomStorage.listCustomXml(this));
         updateLibraryFolderSummary();
     }
 
@@ -386,7 +408,7 @@ public class Settings extends AppCompatActivity
                 }
             });
         }
-        Preference customToggle = findPreference("pref_library_toggle_all");
+        Preference customToggle = findPreference("pref_custom_toggle_all");
         if (customToggle != null) {
             customToggle.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
                 public boolean onPreferenceClick(Preference preference) {
@@ -443,7 +465,7 @@ public class Settings extends AppCompatActivity
     }
 
     private void updateCustomToggle() {
-        Preference toggle = findPreference("pref_library_toggle_all");
+        Preference toggle = findPreference("pref_custom_toggle_all");
         if (toggle == null) return;
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         ArrayList<String> keys = customPonyKeys();
@@ -752,6 +774,7 @@ public class Settings extends AppCompatActivity
         PonyMixes.applyStockMix(this, enabledBuiltIn);
         syncCheckboxWidgets(builtInPonyCategories());
         refreshEnableAllToggles();
+        refreshHerdScreenSummaries();
     }
 
     private void applyUserMix(PonyMixes.Mix mix) {
@@ -765,6 +788,7 @@ public class Settings extends AppCompatActivity
         syncCheckboxWidgets(customPonyCategories());
         refreshWaifuValue();
         refreshEnableAllToggles();
+        refreshHerdScreenSummaries();
         if (missing > 0) {
             showMissingCustomDialog(mix.name, missing);
         }
@@ -783,6 +807,7 @@ public class Settings extends AppCompatActivity
         syncCheckboxWidgets(customPonyCategories());
         refreshWaifuValue();
         refreshEnableAllToggles();
+        refreshHerdScreenSummaries();
         if (missing > 0) {
             showMissingCustomDialog(getString(R.string.pref_load_mix_previous_name), missing);
         }
@@ -1464,10 +1489,13 @@ public class Settings extends AppCompatActivity
     private boolean pendingLibrarySync;
     private boolean pendingLibrarySyncShow;
 
-    private void ensureCustomCheckboxes(File[] customFiles) {
+    /**
+     * Writes missing {@code pref_custom_*} keys before any checkbox widgets
+     * attach. Safe on every settings screen.
+     */
+    private void ensureCustomPrefDefaults(File[] customFiles) {
+        if (customFiles == null) return;
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
-        PreferenceCategory customCat = (PreferenceCategory) findPreference("pref_custom");
-        if (customCat == null || customFiles == null) return;
         ArrayList<String> existing = new ArrayList<String>();
         for (int i = 0; i < customFiles.length; i++) {
             String prefKey = "pref_custom_" + customFiles[i].getName();
@@ -1482,9 +1510,6 @@ public class Settings extends AppCompatActivity
                 editor.putBoolean(prefKey, defaultOn);
             }
         }
-        // Commit before attaching widgets. A CheckBoxPreference with no XML
-        // defaultValue starts unchecked and persists that false on attach,
-        // which would overwrite defaultOn (and can win a later apply() race).
         if (editor != null) {
             PonyMixes.beginProgrammaticHerdChange();
             try {
@@ -1493,6 +1518,15 @@ public class Settings extends AppCompatActivity
                 PonyMixes.endProgrammaticHerdChange();
             }
         }
+    }
+
+    private void ensureCustomCheckboxes(File[] customFiles) {
+        PreferenceCategory customCat = (PreferenceCategory) findPreference("pref_custom");
+        if (customCat == null || customFiles == null || activePrefs == null) return;
+        // Commit before attaching widgets. A CheckBoxPreference with no XML
+        // defaultValue starts unchecked and persists that false on attach,
+        // which would overwrite defaultOn (and can win a later apply() race).
+        ensureCustomPrefDefaults(customFiles);
         for (int i = 0; i < customFiles.length; i++) {
             String fileName = customFiles[i].getName();
             String prefKey = "pref_custom_" + fileName;
@@ -1507,10 +1541,67 @@ public class Settings extends AppCompatActivity
 
     private void refreshCustomPoniesUi() {
         File[] files = CustomStorage.listCustomXml(this);
+        ensureCustomPrefDefaults(files);
         pruneCustomCheckboxes(files);
         ensureCustomCheckboxes(files);
         refreshWaifuList(files);
         refreshEnableAllToggles();
+        refreshHerdScreenSummaries();
+    }
+
+    private void refreshHerdScreenSummaries() {
+        Preference herd = findPreference("pref_herd_summary");
+        Preference builtin = findPreference("pref_screen_builtin");
+        Preference custom = findPreference("pref_screen_custom");
+        if (herd == null && builtin == null && custom == null) return;
+
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        ArrayList<String> builtInKeys = builtInPonyKeys();
+        ArrayList<String> customKeys = customPonyKeys();
+        int builtInOn = countEnabled(prefs, builtInKeys);
+        int customOn = countEnabled(prefs, customKeys);
+
+        if (builtin != null) {
+            builtin.setSummary(getString(R.string.pref_screen_builtin_summary,
+                    builtInOn, builtInKeys.size()));
+        }
+        if (custom != null) {
+            if (customKeys.isEmpty()) {
+                custom.setSummary(R.string.pref_screen_custom_summary_empty);
+            } else {
+                custom.setSummary(getString(R.string.pref_screen_custom_summary,
+                        customOn, customKeys.size()));
+            }
+        }
+        if (herd != null) {
+            ArrayList<String> herdKeys = allHerdKeys();
+            PonyMixes.Mix match = PonyMixes.matchingUserMix(prefs, herdKeys);
+            if (match != null) {
+                herd.setSummary(getString(R.string.pref_herd_summary_named,
+                        match.name, builtInOn, customOn));
+            } else if (prefs.getBoolean(PonyMixes.PREF_VIEWING_LOADED_MIX, false)) {
+                AllPonies.StockGroup group = PonyMixes.matchingStockGroup(prefs);
+                if (group != null) {
+                    herd.setSummary(getString(R.string.pref_herd_summary_stock,
+                            getString(group.titleRes), builtInOn, customOn));
+                } else {
+                    herd.setSummary(getString(R.string.pref_herd_summary_live,
+                            builtInOn, customOn));
+                }
+            } else {
+                herd.setSummary(getString(R.string.pref_herd_summary_live,
+                        builtInOn, customOn));
+            }
+        }
+    }
+
+    private static int countEnabled(SharedPreferences prefs, ArrayList<String> keys) {
+        if (prefs == null || keys == null) return 0;
+        int n = 0;
+        for (int i = 0; i < keys.size(); i++) {
+            if (prefs.getBoolean(keys.get(i), true)) n++;
+        }
+        return n;
     }
 
     private void pruneCustomCheckboxes(File[] customFiles) {
