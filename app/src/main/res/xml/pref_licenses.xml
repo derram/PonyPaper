@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <PreferenceCategory
+        android:key="pref_credits_projects"
+        android:title="@string/pref_credits_projects_category">
+        <Preference
+            android:key="pref_link_this_fork"
+            android:title="@string/pref_link_this_fork_title"
+            android:summary="@string/pref_link_this_fork_summary" />
+        <Preference
+            android:key="pref_link_releases"
+            android:title="@string/pref_link_releases_title"
+            android:summary="@string/pref_link_releases_summary" />
+        <Preference
+            android:key="pref_link_upstream"
+            android:title="@string/pref_link_upstream_title"
+            android:summary="@string/pref_link_upstream_summary" />
+        <Preference
+            android:key="pref_link_author"
+            android:title="@string/pref_link_author_title"
+            android:summary="@string/pref_link_author_summary" />
+        <Preference
+            android:key="pref_link_desktop_ponies"
+            android:title="@string/pref_link_desktop_ponies_title"
+            android:summary="@string/pref_link_desktop_ponies_summary" />
+        <Preference
+            android:key="pref_link_dp_team"
+            android:title="@string/pref_link_dp_team_title"
+            android:summary="@string/pref_link_dp_team_summary" />
+        <Preference
+            android:key="pref_link_grok_build"
+            android:title="@string/pref_link_grok_build_title"
+            android:summary="@string/pref_link_grok_build_summary" />
+        <Preference
+            android:key="pref_link_lexend"
+            android:title="@string/pref_link_lexend_title"
+            android:summary="@string/pref_link_lexend_summary" />
+        <Preference
+            android:key="pref_link_ofl_site"
+            android:title="@string/pref_link_ofl_site_title"
+            android:summary="@string/pref_link_ofl_site_summary" />
+        <Preference
+            android:key="pref_link_cc"
+            android:title="@string/pref_link_cc_title"
+            android:summary="@string/pref_link_cc_summary" />
+    </PreferenceCategory>
+    <PreferenceCategory
+        android:key="pref_credits_licenses"
+        android:title="@string/pref_credits_licenses_category">
+        <Preference
+            android:key="pref_license_art"
+            android:title="@string/pref_license_art_title"
+            android:summary="@string/pref_license_art_summary" />
+        <Preference
+            android:key="pref_license_lexend"
+            android:title="@string/pref_license_lexend_title"
+            android:summary="@string/pref_license_lexend_summary" />
+    </PreferenceCategory>
+
+</PreferenceScreen>

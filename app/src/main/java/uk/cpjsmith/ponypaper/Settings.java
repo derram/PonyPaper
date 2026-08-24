@@ -17,12 +17,15 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.preference.CheckBoxPreference;
-import android.preference.ListPreference;
-import android.preference.Preference;
-import android.preference.PreferenceActivity;
-import android.preference.PreferenceCategory;
-import android.preference.PreferenceManager;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
+import androidx.preference.CheckBoxPreference;
+import androidx.preference.ListPreference;
+import androidx.preference.Preference;
+import androidx.preference.PreferenceCategory;
+import androidx.preference.PreferenceFragmentCompat;
+import androidx.preference.PreferenceManager;
 import android.provider.OpenableColumns;
 import android.util.TypedValue;
 import android.view.inputmethod.EditorInfo;
@@ -40,7 +43,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class Settings extends PreferenceActivity {
+public class Settings extends AppCompatActivity
+        implements PreferenceFragmentCompat.OnPreferenceStartFragmentCallback {
     
     static final int SELECT_BACKGROUND = 0;
     static final int SELECT_CUSTOM = 1;
@@ -66,6 +70,9 @@ public class Settings extends PreferenceActivity {
     /** Timeout value to write after a successful device-admin grant; null if none. */
     private String pendingDreamIdleTimeout;
 
+    /** Preference hierarchy of the currently visible settings fragment. */
+    private PreferenceFragmentCompat activePrefs;
+
     private final SharedPreferences.OnSharedPreferenceChangeListener enableAllListener =
             new SharedPreferences.OnSharedPreferenceChangeListener() {
                 public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
@@ -89,70 +96,84 @@ public class Settings extends PreferenceActivity {
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(null);
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.settings_container);
+        PrefDefaults.apply(this);
         PonySize.ensureDefault(this);
         PonySceneController.ensureIdleTimeoutDefault(this);
-        addPreferencesFromResource(R.xml.preferences);
-        
-        File[] customFiles = CustomStorage.listCustomXml(this);
-        ensureCustomCheckboxes(customFiles);
-        refreshWaifuList(customFiles);
-        refreshTargetFpsList();
-        refreshSharedBackgroundControls();
-        updateLibraryFolderSummary();
-        setupEnableAllToggles();
-        setupMixActions();
+
         PreferenceManager.getDefaultSharedPreferences(this)
                 .registerOnSharedPreferenceChangeListener(enableAllListener);
-        
-        findPreference("pref_add_custom").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
-            public boolean onPreferenceClick(Preference preference) {
-                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-                intent.setType("*/*");
-                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-                intent.addCategory(Intent.CATEGORY_OPENABLE);
-                startActivityForResult(Intent.createChooser(intent, "Select Custom Pony"), SELECT_CUSTOM);
-                return true;
-            }
-        });
 
-        findPreference("pref_remove_custom").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
-            public boolean onPreferenceClick(Preference preference) {
-                onRemoveCustomClicked();
-                return true;
-            }
-        });
+        if (savedInstanceState == null) {
+            getSupportFragmentManager()
+                    .beginTransaction()
+                    .replace(R.id.settings_container, new RootPreferencesFragment())
+                    .commit();
+        }
 
-        findPreference("pref_export_library").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
-            public boolean onPreferenceClick(Preference preference) {
-                startExportLibrary();
-                return true;
-            }
-        });
+        getSupportFragmentManager().addOnBackStackChangedListener(
+                new FragmentManager.OnBackStackChangedListener() {
+                    @Override
+                    public void onBackStackChanged() {
+                        updateUpNavigation();
+                    }
+                });
+        updateUpNavigation();
+    }
 
-        findPreference("pref_import_library").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
-            public boolean onPreferenceClick(Preference preference) {
-                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-                intent.setType("application/zip");
-                intent.addCategory(Intent.CATEGORY_OPENABLE);
-                startActivityForResult(Intent.createChooser(intent, getString(R.string.pref_import_library_title)),
-                        IMPORT_LIBRARY);
-                return true;
-            }
-        });
+    @Override
+    public boolean onPreferenceStartFragment(PreferenceFragmentCompat caller, Preference pref) {
+        Fragment fragment = getSupportFragmentManager().getFragmentFactory()
+                .instantiate(getClassLoader(), pref.getFragment());
+        fragment.setArguments(pref.getExtras());
+        getSupportFragmentManager()
+                .beginTransaction()
+                .replace(R.id.settings_container, fragment)
+                .addToBackStack(pref.getKey())
+                .commit();
+        setTitle(pref.getTitle());
+        return true;
+    }
 
-        findPreference("pref_library_folder").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
-            public boolean onPreferenceClick(Preference preference) {
-                onLibraryFolderClicked();
-                return true;
-            }
-        });
-        
-        findPreference("pref_background").setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
-            public boolean onPreferenceChange(Preference preference, Object newValue) {
-                return onBackgroundEnableChanging((Boolean) newValue);
-            }
-        });
+    @Override
+    public boolean onSupportNavigateUp() {
+        if (getSupportFragmentManager().popBackStackImmediate()) {
+            return true;
+        }
+        return super.onSupportNavigateUp();
+    }
+
+    private void updateUpNavigation() {
+        boolean canGoUp = getSupportFragmentManager().getBackStackEntryCount() > 0;
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setDisplayHomeAsUpEnabled(canGoUp);
+        }
+        if (!canGoUp) {
+            setTitle(R.string.app_settings_name);
+        }
+    }
+
+    Preference findPreference(CharSequence key) {
+        if (activePrefs == null || !activePrefs.isAdded()) return null;
+        return activePrefs.findPreference(key);
+    }
+
+    void bindRootPreferences(PreferenceFragmentCompat fragment) {
+        activePrefs = fragment;
+    }
+
+    void bindDisplayPreferences(PreferenceFragmentCompat fragment) {
+        activePrefs = fragment;
+
+        Preference background = findPreference("pref_background");
+        if (background != null) {
+            background.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
+                public boolean onPreferenceChange(Preference preference, Object newValue) {
+                    return onBackgroundEnableChanging((Boolean) newValue);
+                }
+            });
+        }
 
         Preference dreamBackground = findPreference(PonySceneController.PREF_DREAM_BACKGROUND);
         if (dreamBackground != null) {
@@ -174,13 +195,16 @@ public class Settings extends PreferenceActivity {
                 }
             });
         }
-        
-        findPreference("pref_select_background").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
-            public boolean onPreferenceClick(Preference preference) {
-                selectBackground();
-                return true;
-            }
-        });
+
+        Preference selectBackground = findPreference("pref_select_background");
+        if (selectBackground != null) {
+            selectBackground.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    selectBackground();
+                    return true;
+                }
+            });
+        }
 
         Preference openLiveWallpaper = findPreference("pref_open_live_wallpaper");
         if (openLiveWallpaper != null) {
@@ -221,12 +245,111 @@ public class Settings extends PreferenceActivity {
             });
         }
 
-        setupAboutAndLicenses();
-        refreshDreamIdleSettings();
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         if (prefs.getBoolean(PonySceneController.PREF_DREAM_CUSTOM_DISPLAY, false)) {
             seedDreamDisplayOverridesIfNeeded();
         }
+    }
+
+    void refreshDisplayScreen() {
+        refreshTargetFpsList();
+        refreshSharedBackgroundControls();
+        refreshDreamIdleSettings();
+    }
+
+    void bindPoniesPreferences(PreferenceFragmentCompat fragment) {
+        activePrefs = fragment;
+        File[] customFiles = CustomStorage.listCustomXml(this);
+        refreshWaifuList(customFiles);
+        setupEnableAllToggles();
+        setupMixActions();
+    }
+
+    void refreshPoniesScreen() {
+        File[] customFiles = CustomStorage.listCustomXml(this);
+        refreshWaifuList(customFiles);
+        refreshEnableAllToggles();
+    }
+
+    void bindLibraryPreferences(PreferenceFragmentCompat fragment) {
+        activePrefs = fragment;
+        File[] customFiles = CustomStorage.listCustomXml(this);
+        ensureCustomCheckboxes(customFiles);
+        updateLibraryFolderSummary();
+        setupEnableAllToggles();
+
+        Preference addCustom = findPreference("pref_add_custom");
+        if (addCustom != null) {
+            addCustom.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                    intent.setType("*/*");
+                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    startActivityForResult(Intent.createChooser(intent, "Select Custom Pony"), SELECT_CUSTOM);
+                    return true;
+                }
+            });
+        }
+
+        Preference removeCustom = findPreference("pref_remove_custom");
+        if (removeCustom != null) {
+            removeCustom.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    onRemoveCustomClicked();
+                    return true;
+                }
+            });
+        }
+
+        Preference exportLibrary = findPreference("pref_export_library");
+        if (exportLibrary != null) {
+            exportLibrary.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    startExportLibrary();
+                    return true;
+                }
+            });
+        }
+
+        Preference importLibrary = findPreference("pref_import_library");
+        if (importLibrary != null) {
+            importLibrary.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                    intent.setType("application/zip");
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    startActivityForResult(Intent.createChooser(intent, getString(R.string.pref_import_library_title)),
+                            IMPORT_LIBRARY);
+                    return true;
+                }
+            });
+        }
+
+        Preference libraryFolder = findPreference("pref_library_folder");
+        if (libraryFolder != null) {
+            libraryFolder.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    onLibraryFolderClicked();
+                    return true;
+                }
+            });
+        }
+    }
+
+    void refreshLibraryScreen() {
+        refreshCustomPoniesUi();
+        updateLibraryFolderSummary();
+    }
+
+    void bindAboutPreferences(PreferenceFragmentCompat fragment) {
+        activePrefs = fragment;
+        setupAboutPreferences();
+    }
+
+    void bindLicensesPreferences(PreferenceFragmentCompat fragment) {
+        activePrefs = fragment;
+        setupLicensesPreferences();
     }
 
     @Override
@@ -741,7 +864,7 @@ public class Settings extends PreferenceActivity {
      * Wires About / Licenses preferences: app blurb, version line, project
      * URLs (browser with clipboard fallback), and scrollable license text.
      */
-    private void setupAboutAndLicenses() {
+    private void setupAboutPreferences() {
         Preference aboutApp = findPreference("pref_about_app");
         if (aboutApp != null) {
             aboutApp.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
@@ -758,7 +881,9 @@ public class Settings extends PreferenceActivity {
         if (versionPref != null) {
             versionPref.setSummary(getAppVersionLabel());
         }
+    }
 
+    private void setupLicensesPreferences() {
         bindUrlPreference("pref_link_this_fork", URL_THIS_FORK);
         bindUrlPreference("pref_link_releases", URL_RELEASES);
         bindUrlPreference("pref_link_upstream", URL_UPSTREAM);
@@ -1296,6 +1421,7 @@ public class Settings extends PreferenceActivity {
     
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
         switch (requestCode) {
             case SELECT_BACKGROUND:
                 if (resultCode == RESULT_OK && data != null && data.getData() != null) {
@@ -1371,7 +1497,7 @@ public class Settings extends PreferenceActivity {
             String fileName = customFiles[i].getName();
             String prefKey = "pref_custom_" + fileName;
             if (findPreference(prefKey) == null) {
-                CheckBoxPreference checkbox = new CheckBoxPreference(this);
+                CheckBoxPreference checkbox = new CheckBoxPreference(activePrefs.getContext());
                 checkbox.setKey(prefKey);
                 checkbox.setTitle(fileName);
                 customCat.addPreference(checkbox);

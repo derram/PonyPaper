@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:custom="http://cpjsmith.uk/ponypaper/custom">
+
+    <Preference
+        android:key="pref_open_live_wallpaper"
+        android:title="@string/pref_open_live_wallpaper_title"
+        android:summary="@string/pref_open_live_wallpaper_summary" />
+
+    <PreferenceCategory
+        android:key="pref_appearance"
+        android:title="@string/pref_appearance_category">
+        <uk.cpjsmith.ponypaper.NumberPickerPreference
+            android:key="pref_num_ponies"
+            android:title="Number of ponies"
+            custom:minValue="1"
+            custom:maxValue="14"
+            custom:wrap="false"
+            android:defaultValue="4" />
+        <ListPreference
+            android:key="pref_pony_size"
+            android:title="@string/pref_pony_size_title"
+            android:summary="%s"
+            android:dialogTitle="@string/pref_pony_size_dialog"
+            android:entries="@array/pref_pony_size_entries"
+            android:entryValues="@array/pref_pony_size_values"
+            android:defaultValue="100" />
+        <ListPreference
+            android:key="pref_target_fps"
+            android:title="Target frame rate"
+            android:summary="%s"
+            android:dialogTitle="Target frame rate"
+            android:entries="@array/pref_target_fps_entries"
+            android:entryValues="@array/pref_target_fps_values"
+            android:defaultValue="30" />
+        <uk.cpjsmith.ponypaper.ColorPreference
+            android:key="pref_background_colour"
+            android:title="@string/pref_background_colour_title"
+            android:dialogTitle="@string/pref_background_colour_dialog"
+            android:dialogMessage="@string/pref_background_colour_summary"
+            android:defaultValue="@integer/pref_background_colour_default" />
+        <CheckBoxPreference
+            android:key="pref_background"
+            android:title="Use background"
+            android:defaultValue="false" />
+        <Preference
+            android:key="pref_select_background"
+            android:title="Select background"
+            android:summary="@string/pref_select_background_summary" />
+        <uk.cpjsmith.ponypaper.NumberPickerPreference
+            android:key="pref_pixelation"
+            android:title="Background pixelation level"
+            custom:minValue="1"
+            custom:maxValue="24"
+            custom:wrap="false"
+            android:defaultValue="4" />
+        <CheckBoxPreference
+            android:key="pref_drunk_mode"
+            android:title="Berry Punch mode" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="pref_on_battery"
+        android:title="@string/pref_power_category">
+        <CheckBoxPreference
+            android:key="pref_respect_battery_saver"
+            android:title="Respect Battery Saver"
+            android:summary="Limit to 25 FPS, at most 3 ponies, and replace image backgrounds with the base colour when system Battery Saver is on"
+            android:defaultValue="true" />
+        <CheckBoxPreference
+            android:key="pref_battery_default_fps"
+            android:title="Default frame rate on battery"
+            android:summary="Use 30 FPS while running on battery power"
+            android:defaultValue="false" />
+        <CheckBoxPreference
+            android:key="pref_battery_default_ponies"
+            android:title="Default pony count on battery"
+            android:summary="Use 4 ponies while running on battery power"
+            android:defaultValue="false" />
+        <CheckBoxPreference
+            android:key="pref_battery_disable_background"
+            android:title="Disable background on battery"
+            android:summary="Replace the background image with the base colour while on battery"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="pref_screensaver"
+        android:title="@string/pref_screensaver_category">
+        <Preference
+            android:key="pref_open_screensaver"
+            android:title="@string/pref_open_screensaver_title"
+            android:summary="@string/pref_open_screensaver_summary" />
+        <CheckBoxPreference
+            android:key="pref_dream_custom_display"
+            android:title="@string/pref_dream_custom_display_title"
+            android:summary="@string/pref_dream_custom_display_summary"
+            android:defaultValue="false" />
+        <uk.cpjsmith.ponypaper.NumberPickerPreference
+            android:key="pref_dream_num_ponies"
+            android:title="@string/pref_dream_num_ponies_title"
+            android:dependency="pref_dream_custom_display"
+            custom:minValue="1"
+            custom:maxValue="20"
+            custom:wrap="false" />
+        <ListPreference
+            android:key="pref_dream_target_fps"
+            android:title="@string/pref_dream_target_fps_title"
+            android:summary="%s"
+            android:dialogTitle="@string/pref_dream_target_fps_dialog"
+            android:dependency="pref_dream_custom_display"
+            android:entries="@array/pref_target_fps_entries"
+            android:entryValues="@array/pref_target_fps_values" />
+        <CheckBoxPreference
+            android:key="pref_dream_background"
+            android:title="@string/pref_dream_background_title"
+            android:summary="@string/pref_dream_background_summary"
+            android:dependency="pref_dream_custom_display" />
+        <CheckBoxPreference
+            android:key="pref_dream_show_clock"
+            android:title="@string/pref_dream_show_clock_title"
+            android:summary="@string/pref_dream_show_clock_summary"
+            android:defaultValue="false" />
+        <CheckBoxPreference
+            android:key="pref_dream_show_date"
+            android:title="@string/pref_dream_show_date_title"
+            android:summary="@string/pref_dream_show_date_summary"
+            android:dependency="pref_dream_show_clock"
+            android:defaultValue="true" />
+        <ListPreference
+            android:key="pref_dream_idle_timeout"
+            android:title="@string/pref_dream_idle_timeout_title"
+            android:summary="%s"
+            android:dialogTitle="@string/pref_dream_idle_timeout_dialog"
+            android:entries="@array/pref_dream_idle_timeout_entries"
+            android:entryValues="@array/pref_dream_idle_timeout_values"
+            android:defaultValue="0" />
+        <Preference
+            android:key="pref_dream_device_admin"
+            android:title="@string/pref_dream_device_admin_title"
+            android:summary="@string/pref_dream_device_admin_summary_off" />
+    </PreferenceCategory>
+
+</PreferenceScreen>

@@ -5,7 +5,7 @@ import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.preference.PreferenceManager;
+import androidx.preference.PreferenceManager;
 import android.service.wallpaper.WallpaperService;
 import android.view.Display;
 import android.view.MotionEvent;
@@ -158,7 +158,7 @@ public class PonyWallpaper extends WallpaperService {
     public Engine onCreateEngine() {
         PonySize.ensureDefault(this);
         PonySceneController.ensureIdleTimeoutDefault(this);
-        PreferenceManager.setDefaultValues(this, R.xml.preferences, true);
+        PrefDefaults.apply(this);
         return new PonyEngine();
     }
 }

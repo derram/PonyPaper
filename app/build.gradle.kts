@@ -77,6 +77,15 @@ android {
     }
 }
 
+configurations.all {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.jetbrains.kotlin") {
+            useVersion("1.8.22")
+        }
+    }
+}
+
 dependencies {
-    // Phase 1: no AndroidX migration yet; framework Preference APIs still compile.
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.preference:preference:1.2.1")
 }

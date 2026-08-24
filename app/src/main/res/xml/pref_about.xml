@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <Preference
+        android:key="pref_about_app"
+        android:title="@string/pref_about_app_title"
+        android:summary="@string/pref_about_app_summary" />
+    <Preference
+        android:key="pref_about_version"
+        android:title="@string/pref_about_version_title"
+        android:selectable="false" />
+    <Preference
+        android:key="pref_licenses"
+        android:title="@string/pref_licenses_title"
+        android:summary="@string/pref_licenses_summary"
+        app:fragment="uk.cpjsmith.ponypaper.LicensesPreferencesFragment" />
+
+</PreferenceScreen>

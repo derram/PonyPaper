@@ -24,14 +24,12 @@
         <item name="android:trackTint">@color/dream_switch_track</item>
     </style>
 
-    <!-- Settings chrome follows the OEM default. Do not force .Light.
-         API 29+ overrides this with Theme.DeviceDefault.DayNight (values-v29).
-         No values-night copy: night outranks version, so it would steal the
-         v29 DayNight parent. Pre-29 has no real system dark theme.
-         PreferenceActivity predates enforced edge-to-edge (targetSdk 35).
-         Opt this screen out so the action bar sits below the status bar and
-         the list sits above the nav bar. Ignored once we target SDK 36. -->
-    <style name="Theme.PonyPaper.Settings" parent="@android:style/Theme.DeviceDefault">
+    <!-- AppCompat DayNight follows system dark theme on all API levels.
+         preferenceTheme is required for androidx.preference widgets.
+         Opt out of enforced edge-to-edge (targetSdk 35) so the action bar
+         sits below the status bar and the list above the nav bar. -->
+    <style name="Theme.PonyPaper.Settings" parent="Theme.AppCompat.DayNight">
+        <item name="preferenceTheme">@style/PreferenceThemeOverlay</item>
         <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
     </style>
 

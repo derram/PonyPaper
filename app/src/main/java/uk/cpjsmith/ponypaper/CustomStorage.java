@@ -7,7 +7,7 @@ import android.content.SharedPreferences;
 import android.content.UriPermission;
 import android.database.Cursor;
 import android.net.Uri;
-import android.preference.PreferenceManager;
+import androidx.preference.PreferenceManager;
 import android.provider.DocumentsContract;
 import java.io.ByteArrayOutputStream;
 import java.io.File;

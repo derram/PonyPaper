@@ -8,7 +8,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
-import android.preference.PreferenceManager;
+import androidx.preference.PreferenceManager;
 import android.service.dreams.DreamService;
 import android.view.GestureDetector;
 import android.view.KeyEvent;
@@ -238,7 +238,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         super.onAttachedToWindow();
         PonySize.ensureDefault(this);
         PonySceneController.ensureIdleTimeoutDefault(this);
-        PreferenceManager.setDefaultValues(this, R.xml.preferences, true);
+        PrefDefaults.apply(this);
         PonySceneController.syncIdleTimeoutWithCapability(this);
 
         setInteractive(true);

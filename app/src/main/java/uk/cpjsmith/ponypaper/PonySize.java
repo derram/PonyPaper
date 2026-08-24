@@ -2,7 +2,7 @@ package uk.cpjsmith.ponypaper;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.preference.PreferenceManager;
+import androidx.preference.PreferenceManager;
 
 /**
  * Runtime character-size preference. Multiplies {@link Pony}'s short-side scale
@@ -11,7 +11,7 @@ import android.preference.PreferenceManager;
  * <p>On first launch (key unset) the default is {@link #TABLET_FIRST_RUN_PERCENT}
  * when {@code smallestScreenWidthDp >=} {@link #TABLET_SMALLEST_WIDTH_DP},
  * otherwise {@link #DEFAULT_PERCENT}. Call {@link #ensureDefault(Context)}
- * before {@code PreferenceManager.setDefaultValues} or inflating preferences so
+ * before {@link PrefDefaults#apply} or inflating preferences so
  * the XML {@code 100} default does not win on tablets.
  */
 final class PonySize {
