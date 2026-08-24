@@ -173,7 +173,7 @@
         </image>
         <timings direction="right">4,4,4,4,10,10,4,4,4,4,4,4,10,10,4,4</timings>
         <gaits>0.5:1,0.7:3,1:1</gaits>
-        <nextactions type="waiting">stand,twitch,chicken,tongue,tonguedance,haters_start,parade_start</nextactions>
+        <nextactions type="waiting">stand:3,twitch,chicken,tongue,tonguedance,haters_start,parade_start</nextactions>
         <nextactions type="moving">hop,hop,trot,partycannon,backtrack,roll_start</nextactions>
         <nextactions type="drag">drag</nextactions>
     </action>
@@ -3811,8 +3811,8 @@
         </image>
         <timings direction="right">100,10,10,10,10,210,4,10,10,10,10,200,10,10,200</timings>
         <gaits>1:1,0.7:1</gaits>
-        <nextactions type="waiting">twitch,chicken,tongue,tonguedance,sleep,haters_start,parade_start,partycannon_start</nextactions>
-        <nextactions type="moving">trot:2,hop:2,gallop,backtrack,roll_start,vanish:3</nextactions>
+        <nextactions type="waiting">twitch,chicken,tongue,tonguedance,sleep,haters_start,parade_start,partycannon_start,vanish:2</nextactions>
+        <nextactions type="moving">trot:2,hop:2,gallop,backtrack,roll_start</nextactions>
         <nextactions type="drag">drag</nextactions>
     </action>
     <action name="roll_start">
