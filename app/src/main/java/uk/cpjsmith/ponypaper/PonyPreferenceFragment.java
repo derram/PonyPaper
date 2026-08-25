@@ -18,11 +18,18 @@ public abstract class PonyPreferenceFragment extends PreferenceFragmentCompat {
             dialog = ColorPreferenceDialogFragment.newInstance(preference.getKey());
         }
         if (dialog != null) {
-            dialog.setTargetFragment(this, 0);
-            dialog.show(getParentFragmentManager(), preference.getKey());
+            // PreferenceDialogFragmentCompat still resolves the host via
+            // getTargetFragment(); Fragment Result API is not wired here yet.
+            showPreferenceDialog(dialog, preference.getKey());
             return;
         }
         super.onDisplayPreferenceDialog(preference);
+    }
+
+    @SuppressWarnings("deprecation")
+    private void showPreferenceDialog(DialogFragment dialog, String tag) {
+        dialog.setTargetFragment(this, 0);
+        dialog.show(getParentFragmentManager(), tag);
     }
 
     protected Settings settings() {

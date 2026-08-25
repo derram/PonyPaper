@@ -618,7 +618,6 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         bfo.inJustDecodeBounds = false;
         bfo.inSampleSize = inSampleSizeForTarget(srcW, srcH, targetW, targetH);
         bfo.inPreferredConfig = Bitmap.Config.RGB_565;
-        bfo.inDither = true;
         Bitmap decoded = BitmapFactory.decodeFile(bgFile.toString(), bfo);
         if (decoded == null) {
             return null;

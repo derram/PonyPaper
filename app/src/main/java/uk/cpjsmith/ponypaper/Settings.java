@@ -17,7 +17,12 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.pm.PackageInfoCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.preference.CheckBoxPreference;
@@ -45,13 +50,6 @@ import java.util.Set;
 
 public class Settings extends AppCompatActivity
         implements PreferenceFragmentCompat.OnPreferenceStartFragmentCallback {
-    
-    static final int SELECT_BACKGROUND = 0;
-    static final int SELECT_CUSTOM = 1;
-    static final int EXPORT_LIBRARY = 2;
-    static final int IMPORT_LIBRARY = 3;
-    static final int PICK_LIBRARY_FOLDER = 4;
-    static final int REQUEST_DREAM_LOCK_ADMIN = 5;
 
     private static final String URL_THIS_FORK = "https://github.com/derram/PonyPaper";
     private static final String URL_RELEASES = "https://github.com/derram/PonyPaper/releases";
@@ -72,6 +70,90 @@ public class Settings extends AppCompatActivity
 
     /** Preference hierarchy of the currently visible settings fragment. */
     private PreferenceFragmentCompat activePrefs;
+
+    private final ActivityResultLauncher<Intent> selectBackgroundLauncher =
+            registerForActivityResult(
+                    new ActivityResultContracts.StartActivityForResult(),
+                    new ActivityResultCallback<ActivityResult>() {
+                        @Override
+                        public void onActivityResult(ActivityResult result) {
+                            Intent data = result.getData();
+                            if (result.getResultCode() == RESULT_OK
+                                    && data != null
+                                    && data.getData() != null) {
+                                importBackground(data.getData());
+                            }
+                        }
+                    });
+
+    private final ActivityResultLauncher<Intent> selectCustomLauncher =
+            registerForActivityResult(
+                    new ActivityResultContracts.StartActivityForResult(),
+                    new ActivityResultCallback<ActivityResult>() {
+                        @Override
+                        public void onActivityResult(ActivityResult result) {
+                            Intent data = result.getData();
+                            if (result.getResultCode() == RESULT_OK && data != null) {
+                                handlePickedContent(collectUris(data));
+                            }
+                        }
+                    });
+
+    private final ActivityResultLauncher<Intent> importLibraryLauncher =
+            registerForActivityResult(
+                    new ActivityResultContracts.StartActivityForResult(),
+                    new ActivityResultCallback<ActivityResult>() {
+                        @Override
+                        public void onActivityResult(ActivityResult result) {
+                            Intent data = result.getData();
+                            if (result.getResultCode() == RESULT_OK
+                                    && data != null
+                                    && data.getData() != null) {
+                                importLibraryZip(data.getData());
+                            }
+                        }
+                    });
+
+    private final ActivityResultLauncher<Intent> exportLibraryLauncher =
+            registerForActivityResult(
+                    new ActivityResultContracts.StartActivityForResult(),
+                    new ActivityResultCallback<ActivityResult>() {
+                        @Override
+                        public void onActivityResult(ActivityResult result) {
+                            Intent data = result.getData();
+                            if (result.getResultCode() == RESULT_OK
+                                    && data != null
+                                    && data.getData() != null) {
+                                exportLibraryZip(data.getData());
+                            }
+                        }
+                    });
+
+    private final ActivityResultLauncher<Intent> pickLibraryFolderLauncher =
+            registerForActivityResult(
+                    new ActivityResultContracts.StartActivityForResult(),
+                    new ActivityResultCallback<ActivityResult>() {
+                        @Override
+                        public void onActivityResult(ActivityResult result) {
+                            Intent data = result.getData();
+                            if (result.getResultCode() == RESULT_OK
+                                    && data != null
+                                    && data.getData() != null) {
+                                connectLibraryFolder(data.getData(), data.getFlags());
+                            }
+                        }
+                    });
+
+    private final ActivityResultLauncher<Intent> dreamLockAdminLauncher =
+            registerForActivityResult(
+                    new ActivityResultContracts.StartActivityForResult(),
+                    new ActivityResultCallback<ActivityResult>() {
+                        @Override
+                        public void onActivityResult(ActivityResult result) {
+                            applyPendingDreamIdleTimeout();
+                            refreshDreamIdleSettings();
+                        }
+                    });
 
     private final SharedPreferences.OnSharedPreferenceChangeListener enableAllListener =
             new SharedPreferences.OnSharedPreferenceChangeListener() {
@@ -308,7 +390,8 @@ public class Settings extends AppCompatActivity
                     intent.setType("*/*");
                     intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                     intent.addCategory(Intent.CATEGORY_OPENABLE);
-                    startActivityForResult(Intent.createChooser(intent, "Select Custom Pony"), SELECT_CUSTOM);
+                    selectCustomLauncher.launch(
+                            Intent.createChooser(intent, "Select Custom Pony"));
                     return true;
                 }
             });
@@ -341,8 +424,8 @@ public class Settings extends AppCompatActivity
                     Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
                     intent.setType("application/zip");
                     intent.addCategory(Intent.CATEGORY_OPENABLE);
-                    startActivityForResult(Intent.createChooser(intent, getString(R.string.pref_import_library_title)),
-                            IMPORT_LIBRARY);
+                    importLibraryLauncher.launch(Intent.createChooser(
+                            intent, getString(R.string.pref_import_library_title)));
                     return true;
                 }
             });
@@ -1003,7 +1086,7 @@ public class Settings extends AppCompatActivity
         try {
             PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
             String name = info.versionName != null ? info.versionName : "?";
-            return name + " (" + info.versionCode + ")";
+            return name + " (" + PackageInfoCompat.getLongVersionCode(info) + ")";
         } catch (PackageManager.NameNotFoundException e) {
             return "?";
         }
@@ -1101,7 +1184,7 @@ public class Settings extends AppCompatActivity
     private void requestDreamLockAdmin(String pendingTimeout) {
         pendingDreamIdleTimeout = pendingTimeout;
         try {
-            startActivityForResult(DreamSleepAdmin.addAdminIntent(this), REQUEST_DREAM_LOCK_ADMIN);
+            dreamLockAdminLauncher.launch(DreamSleepAdmin.addAdminIntent(this));
         } catch (Exception e) {
             pendingDreamIdleTimeout = null;
             showAlertDialog(getString(R.string.pref_dream_device_admin_title),
@@ -1433,50 +1516,10 @@ public class Settings extends AppCompatActivity
     private void selectBackground() {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.setType("image/*");
-        startActivityForResult(Intent.createChooser(intent, "Select Background"), SELECT_BACKGROUND);
+        selectBackgroundLauncher.launch(
+                Intent.createChooser(intent, "Select Background"));
     }
-    
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        switch (requestCode) {
-            case SELECT_BACKGROUND:
-                if (resultCode == RESULT_OK && data != null && data.getData() != null) {
-                    importBackground(data.getData());
-                }
-                break;
 
-            case SELECT_CUSTOM:
-                if (resultCode == RESULT_OK && data != null) {
-                    handlePickedContent(collectUris(data));
-                }
-                break;
-
-            case IMPORT_LIBRARY:
-                if (resultCode == RESULT_OK && data != null && data.getData() != null) {
-                    importLibraryZip(data.getData());
-                }
-                break;
-
-            case EXPORT_LIBRARY:
-                if (resultCode == RESULT_OK && data != null && data.getData() != null) {
-                    exportLibraryZip(data.getData());
-                }
-                break;
-
-            case PICK_LIBRARY_FOLDER:
-                if (resultCode == RESULT_OK && data != null && data.getData() != null) {
-                    connectLibraryFolder(data.getData(), data.getFlags());
-                }
-                break;
-
-            case REQUEST_DREAM_LOCK_ADMIN:
-                applyPendingDreamIdleTimeout();
-                refreshDreamIdleSettings();
-                break;
-        }
-    }
-    
     private boolean storageBusy;
     private boolean pendingLibrarySync;
     private boolean pendingLibrarySyncShow;
@@ -1697,7 +1740,7 @@ public class Settings extends AppCompatActivity
         intent.setType("application/zip");
         intent.putExtra(Intent.EXTRA_TITLE, defaultExportFileName());
         try {
-            startActivityForResult(intent, EXPORT_LIBRARY);
+            exportLibraryLauncher.launch(intent);
         } catch (Exception e) {
             showAlertDialog(getString(R.string.library_export_failed_title),
                     getString(R.string.library_pick_failed_message));
@@ -1919,7 +1962,7 @@ public class Settings extends AppCompatActivity
                 | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
                 | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         try {
-            startActivityForResult(intent, PICK_LIBRARY_FOLDER);
+            pickLibraryFolderLauncher.launch(intent);
         } catch (Exception e) {
             showAlertDialog(getString(R.string.library_pick_failed_title),
                     getString(R.string.library_pick_failed_message));

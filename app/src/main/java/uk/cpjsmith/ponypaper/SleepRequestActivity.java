@@ -77,17 +77,23 @@ public class SleepRequestActivity extends Activity {
             setShowWhenLocked(true);
             setTurnScreenOn(false);
         } else {
-            Window window = getWindow();
-            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
-            window.clearFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+            applyLegacyLockScreenFlags();
         }
+    }
+
+    /** Pre-O_MR1 window flags; Activity setters above replace these. */
+    @SuppressWarnings("deprecation")
+    private void applyLegacyLockScreenFlags() {
+        Window window = getWindow();
+        window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
     }
 
     private void suppressOpenTransition() {
         if (Build.VERSION.SDK_INT >= 34) {
             overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0);
         } else {
-            overridePendingTransition(0, 0);
+            legacyOverridePendingTransition();
         }
     }
 
@@ -103,7 +109,13 @@ public class SleepRequestActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 34) {
             overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0);
         } else {
-            overridePendingTransition(0, 0);
+            legacyOverridePendingTransition();
         }
+    }
+
+    /** Pre-34; {@link #overrideActivityTransition} replaces this. */
+    @SuppressWarnings("deprecation")
+    private void legacyOverridePendingTransition() {
+        overridePendingTransition(0, 0);
     }
 }

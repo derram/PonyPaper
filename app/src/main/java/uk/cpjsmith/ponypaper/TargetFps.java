@@ -1,6 +1,7 @@
 package uk.cpjsmith.ponypaper;
 
 import android.content.Context;
+import android.hardware.display.DisplayManager;
 import android.os.Build;
 import android.view.Display;
 import android.view.WindowManager;
@@ -30,7 +31,8 @@ final class TargetFps {
 
     /**
      * Best-effort display for a context. Application contexts on API 30+ have
-     * no display; those fall back to {@link WindowManager#getDefaultDisplay()}.
+     * no display; those fall back to {@link DisplayManager} then the legacy
+     * default display.
      */
     static Display displayFor(Context context) {
         if (context == null) return null;
@@ -42,6 +44,18 @@ final class TargetFps {
                 // Application context.
             }
         }
+        DisplayManager dm =
+                (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
+        if (dm != null) {
+            Display display = dm.getDisplay(Display.DEFAULT_DISPLAY);
+            if (display != null) return display;
+        }
+        return legacyDefaultDisplay(context);
+    }
+
+    /** API &lt; R / missing DisplayManager fallback. */
+    @SuppressWarnings("deprecation")
+    private static Display legacyDefaultDisplay(Context context) {
         WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
         return wm != null ? wm.getDefaultDisplay() : null;
     }
@@ -56,14 +70,20 @@ final class TargetFps {
             return LISTED[LISTED.length - 1];
         }
         float peak = display.getRefreshRate();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return DisplayModesSupport.peakRefreshHz(display, peak);
+        }
+        return legacyPeakRefreshHz(display, peak);
+    }
+
+    /** Pre-M: {@link Display#getSupportedModes()} is unavailable. */
+    @SuppressWarnings("deprecation")
+    private static float legacyPeakRefreshHz(Display display, float peak) {
         float[] rates = display.getSupportedRefreshRates();
         if (rates != null) {
             for (int i = 0; i < rates.length; i++) {
                 peak = Math.max(peak, rates[i]);
             }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            peak = DisplayModesSupport.peakRefreshHz(display, peak);
         }
         return peak;
     }
