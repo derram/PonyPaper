@@ -15,9 +15,18 @@ import android.view.WindowManager;
 
 /**
  * Thin trampoline launched when the user exits the dream and wants to unlock.
- * {@link KeyguardManager#requestDismissKeyguard} requires a visible (or
- * show-when-locked) {@link Activity}; {@link PonyDreamService} cannot call it
- * directly because the framework's dream activity is not public API.
+ * {@link KeyguardManager#requestDismissKeyguard} requires an {@link Activity}
+ * that is either show-when-locked or would be visible if keyguard were not
+ * hiding it. {@link PonyDreamService} cannot call it directly because the
+ * framework's dream activity is not public API.
+ *
+ * <p>This trampoline deliberately does <em>not</em> use show-when-locked. The
+ * dream calls {@link android.service.dreams.DreamService#wakeUp()} right after launching us, so we sit
+ * behind keyguard as the top activity and still satisfy
+ * {@code requestDismissKeyguard}. Marking a 1×1 floating window show-when-locked
+ * occludes keyguard on Pixel and can leave the keyguard scrim stuck when the
+ * dream starts again after cancel. {@link SleepRequestActivity} still needs
+ * show-when-locked for its lock path.
  *
  * <p>If the keyguard is secure, this brings up the system unlock method (PIN,
  * pattern, password, or biometrics) instead of leaving the user on the lock
@@ -105,24 +114,25 @@ public class UnlockRequestActivity extends Activity {
     }
 
     /**
-     * Ensure we can sit over the lock screen long enough for the bouncer request.
-     * API 27+ prefers Activity setters; window flags cover older targets.
+     * Keep the panel awake for the bouncer, but do not occlude keyguard.
+     * {@link #setShowWhenLocked(boolean)} stays false (see class docs). API 27+
+     * prefers Activity setters; window flags cover older targets.
      */
     private void applyLockScreenFlags() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true);
+            setShowWhenLocked(false);
             setTurnScreenOn(true);
         } else {
             applyLegacyLockScreenFlags();
         }
     }
 
-    /** Pre-O_MR1 window flags; Activity setters above replace these. */
+    /** Pre-O_MR1: turn screen on only — no {@code FLAG_SHOW_WHEN_LOCKED}. */
     @SuppressWarnings("deprecation")
     private void applyLegacyLockScreenFlags() {
-        getWindow().addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-                        | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+        Window window = getWindow();
+        window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+        window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
     }
 
     /**

@@ -56,7 +56,9 @@
             </intent-filter>
         </activity>
 
-        <!-- Dream user-exit trampoline: requestDismissKeyguard needs an Activity. -->
+        <!-- Dream user-exit trampoline: requestDismissKeyguard needs an Activity.
+             showWhenLocked stays false — wakeUp() makes us the top activity behind
+             keyguard; occluding via showWhenLocked left a stuck scrim on Pixel. -->
         <activity
             android:name=".UnlockRequestActivity"
             android:exported="false"
@@ -64,7 +66,7 @@
             android:noHistory="true"
             android:taskAffinity=""
             android:theme="@style/Theme.PonyPaper.UnlockRequest"
-            android:showWhenLocked="true"
+            android:showWhenLocked="false"
             android:turnScreenOn="true" />
 
         <!-- Dream idle-sleep trampoline: some OEMs ignore lockNow from TYPE_DREAM. -->
