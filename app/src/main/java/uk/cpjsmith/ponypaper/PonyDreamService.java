@@ -254,6 +254,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             @Override
             public void surfaceCreated(SurfaceHolder holder) {
                 surfaceReady = true;
+                if (controller != null) {
+                    controller.allowHardwareCanvasRetry();
+                }
                 updateActive();
                 maybeStartFadeIn();
             }
@@ -262,6 +265,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
                 surfaceReady = true;
                 if (controller != null) {
+                    controller.allowHardwareCanvasRetry();
                     controller.onSurfaceSizeChanged();
                 }
                 updateActive();

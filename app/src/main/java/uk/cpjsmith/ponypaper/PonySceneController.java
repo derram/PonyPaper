@@ -175,17 +175,19 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
         /**
          * Whether to call {@link Surface#setFrameRate} on this host's surface.
-         * Live-wallpaper BLAST surfaces should return false; a rate hint there
-         * can stall later {@code lockCanvas} after the surface is hidden.
+         * Use {@link Surface#FRAME_RATE_COMPATIBILITY_DEFAULT} only; clear the
+         * vote when the host hides or freezes so a later lock does not stall.
          */
         default boolean shouldHintSurfaceFrameRate() {
             return true;
         }
 
         /**
-         * Whether to use {@link SurfaceHolder#lockHardwareCanvas()}. Wallpaper
-         * BLAST surfaces should return false; hardware locks can hang after
-         * Dream or a display-rate change. Dream {@code SurfaceView}s can use it.
+         * Whether to prefer {@link SurfaceHolder#lockHardwareCanvas()} (API 26+).
+         * Hosts should return true; {@link PonySceneController} falls back to
+         * {@link SurfaceHolder#lockCanvas()} after a failed hardware lock until
+         * the next surface recreate
+         * ({@link PonySceneController#allowHardwareCanvasRetry()}).
          */
         default boolean shouldLockHardwareCanvas() {
             return true;
@@ -321,10 +323,18 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 : context;
         this.handler = handler;
         this.surface = surface;
-        // Nearest-neighbour: software wallpaper fills the surface every frame, and
-        // bilinear filtering of a large background is a major heat source.
+        // Nearest-neighbour: bilinear filtering of a large cover background is a
+        // major heat source on both software and hardware canvas paths.
         paint.setFilterBitmap(false);
         paint.setDither(false);
+    }
+
+    /**
+     * Re-enable hardware canvas after a surface recreate. A failed
+     * {@link HardwareCanvasSupport#lock} disables it until the next buffer.
+     */
+    public void allowHardwareCanvasRetry() {
+        hardwareCanvasAllowed = true;
     }
 
     /**
@@ -697,6 +707,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             this.active = false;
             this.frozen = false;
             handler.removeCallbacks(drawFrameCallback);
+            // Drop any setFrameRate vote before the surface is hidden/destroyed;
+            // a stale vote was a historical cause of wallpaper lock stalls.
+            clearSurfaceFrameRate(surface.getSurfaceHolder());
             return;
         }
         // Sync in case Battery Saver, plug state, or thermal changed while inactive.
@@ -1548,7 +1561,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         return period;
     }
 
+    /**
+     * Prefer {@link SurfaceHolder#lockHardwareCanvas()} when the host allows it.
+     * On null/exception, permanently fall back to {@link SurfaceHolder#lockCanvas()}
+     * for this surface generation ({@link #allowHardwareCanvasRetry()} resets).
+     * Never mixes dirty-rect software locks with hardware locks.
+     */
     private Canvas lockFrameCanvas(SurfaceHolder holder) {
+        Surface s = holder.getSurface();
+        if (s == null || !s.isValid()) {
+            return null;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 && hardwareCanvasAllowed
                 && surface.shouldLockHardwareCanvas()) {
@@ -1557,12 +1580,18 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 if (hw != null) {
                     return hw;
                 }
+                Log.w("PonyPaper", "Hardware canvas returned null; using software");
             } catch (RuntimeException e) {
                 Log.w("PonyPaper", "Hardware canvas unavailable; using software", e);
             }
             hardwareCanvasAllowed = false;
         }
-        return holder.lockCanvas();
+        try {
+            return holder.lockCanvas();
+        } catch (RuntimeException e) {
+            Log.w("PonyPaper", "Software canvas lock failed", e);
+            return null;
+        }
     }
 
     private void applySurfaceFrameRate(SurfaceHolder holder, float fps) {

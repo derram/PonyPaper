@@ -36,9 +36,9 @@ public class PonyWallpaper extends WallpaperService {
         @Override
         public void onCreate(SurfaceHolder surfaceHolder) {
             super.onCreate(surfaceHolder);
-            // Software lockCanvas on wallpaper BLAST: RGB_565 halves the per-frame
-            // fill vs RGBA_8888 when the compositor honours the format (older tablets).
-            surfaceHolder.setFormat(PixelFormat.RGB_565);
+            // lockHardwareCanvas expects an 8888 buffer. RGB_565 was a software-fill
+            // bandwidth win; keep software lockCanvas as the runtime fallback only.
+            surfaceHolder.setFormat(PixelFormat.RGBA_8888);
             // isPreview() NPEs in the Engine constructor (wrapper not attached yet).
             controller.setPreviewEngine(isPreview());
         }
@@ -82,12 +82,14 @@ public class PonyWallpaper extends WallpaperService {
 
         @Override
         public boolean shouldHintSurfaceFrameRate() {
+            // DEFAULT compatibility only (see SurfaceFrameRateSupport). Cleared on hide.
             return true;
         }
 
         @Override
         public boolean shouldLockHardwareCanvas() {
-            return false;
+            // Prefer GPU composition; PonySceneController falls back to lockCanvas.
+            return true;
         }
 
         @Override
@@ -124,6 +126,8 @@ public class PonyWallpaper extends WallpaperService {
         public void onSurfaceCreated(SurfaceHolder holder) {
             super.onSurfaceCreated(holder);
             surfaceReady = true;
+            // New BLAST buffer: allow another hardware-canvas attempt after a prior fallback.
+            controller.allowHardwareCanvasRetry();
             updateActive();
         }
 
@@ -131,6 +135,7 @@ public class PonyWallpaper extends WallpaperService {
         public void onSurfaceChanged(SurfaceHolder holder, int format, int width, int height) {
             super.onSurfaceChanged(holder, format, width, height);
             surfaceReady = true;
+            controller.allowHardwareCanvasRetry();
             controller.onSurfaceSizeChanged();
             updateActive();
         }
@@ -139,6 +144,7 @@ public class PonyWallpaper extends WallpaperService {
         public void onSurfaceDestroyed(SurfaceHolder holder) {
             super.onSurfaceDestroyed(holder);
             surfaceReady = false;
+            // Drop setFrameRate before the holder dies so the next show does not stall.
             controller.setActive(false);
         }
 
