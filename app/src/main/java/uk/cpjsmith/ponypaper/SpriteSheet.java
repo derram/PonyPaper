@@ -3,15 +3,25 @@ package uk.cpjsmith.ponypaper;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.Rect;
 
 /**
  * Encapsulates a linear sequence of images with associated timings. The images
  * are all stored in a single Bitmap.
+ *
+ * <p>Optional {@link #hardwareBitmap} is a GPU-resident copy for
+ * {@link android.view.SurfaceHolder#lockHardwareCanvas()}; the CPU
+ * {@link #bitmap} is always kept for software {@code lockCanvas} fallback.
  */
 public class SpriteSheet {
     
     public Bitmap bitmap;
+    /**
+     * Optional {@link Bitmap.Config#HARDWARE} copy of {@link #bitmap}. Null when
+     * upload was skipped or failed. Never drawn on a software canvas.
+     */
+    Bitmap hardwareBitmap;
     public int totalTime;
     public int frameWidth;
     public int frameHeight;
@@ -122,6 +132,36 @@ public class SpriteSheet {
     }
     
     /**
+     * Upload {@link #bitmap} to {@link #hardwareBitmap} once (API 26+). Keeps
+     * the CPU bitmap for software-canvas fallback. Safe to call more than once.
+     */
+    void uploadToGpu() {
+        if (hardwareBitmap != null && !hardwareBitmap.isRecycled()) {
+            return;
+        }
+        hardwareBitmap = null;
+        if (bitmap == null || bitmap.isRecycled()) {
+            return;
+        }
+        Bitmap hw = GpuBitmaps.upload(bitmap);
+        if (hw != null && hw != bitmap) {
+            hardwareBitmap = hw;
+        }
+    }
+
+    /**
+     * Bitmap to blit on {@code c}: GPU copy on a hardware canvas when available,
+     * otherwise the CPU {@link #bitmap}.
+     */
+    Bitmap bitmapFor(Canvas c) {
+        if (c != null && c.isHardwareAccelerated()
+                && hardwareBitmap != null && !hardwareBitmap.isRecycled()) {
+            return hardwareBitmap;
+        }
+        return bitmap;
+    }
+
+    /**
      * Release the pixel buffer held by this sheet. Safe to call more than once;
      * after this, the sheet must not be drawn until reloaded.
      *
@@ -129,6 +169,11 @@ public class SpriteSheet {
      * pin is dropped. Direct callers must own the bitmap exclusively.
      */
     void recycle() {
+        if (hardwareBitmap != null && hardwareBitmap != bitmap
+                && !hardwareBitmap.isRecycled()) {
+            hardwareBitmap.recycle();
+        }
+        hardwareBitmap = null;
         if (bitmap != null && !bitmap.isRecycled()) {
             bitmap.recycle();
         }

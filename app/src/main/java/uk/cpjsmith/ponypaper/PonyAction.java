@@ -2,6 +2,7 @@ package uk.cpjsmith.ponypaper;
 
 import android.content.res.Resources;
 import android.content.res.TypedArray;
+import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Rect;
@@ -620,6 +621,10 @@ public class PonyAction {
         if (sprite == null || sprite.bitmap == null || sprite.bitmap.isRecycled()) {
             return;
         }
+        Bitmap draw = sprite.bitmapFor(c);
+        if (draw == null || draw.isRecycled()) {
+            return;
+        }
 
         if (dragged) {
             // Logical position is feet. Lift so the whole sprite hangs above the
@@ -629,7 +634,7 @@ public class PonyAction {
 
         sprite.getRect(time, srcScratch);
         fillDestRect(x, y, scale, dir, dstScratch);
-        c.drawBitmap(sprite.bitmap, srcScratch, dstScratch, null);
+        c.drawBitmap(draw, srcScratch, dstScratch, null);
     }
     
     public void setNextWaiting(PonyAction[] states) {

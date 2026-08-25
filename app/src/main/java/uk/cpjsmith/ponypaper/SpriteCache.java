@@ -204,6 +204,9 @@ final class SpriteCache {
             created = inflight.factory.create();
             if (created == null || created.bitmap == null) {
                 err = new IllegalArgumentException("Failed to decode sprite sheet");
+            } else {
+                // CPU bitmap kept for software lockCanvas; HW copy for lockHardwareCanvas.
+                created.uploadToGpu();
             }
         } catch (RuntimeException e) {
             err = e;

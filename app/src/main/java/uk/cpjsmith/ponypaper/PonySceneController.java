@@ -332,9 +332,15 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /**
      * Re-enable hardware canvas after a surface recreate. A failed
      * {@link HardwareCanvasSupport#lock} disables it until the next buffer.
+     * When recovering from software fallback, schedules an image-background
+     * reload (backgrounds are HARDWARE-only and were dropped on fallback).
      */
     public void allowHardwareCanvasRetry() {
+        boolean wasDenied = !hardwareCanvasAllowed;
         hardwareCanvasAllowed = true;
+        if (wasDenied && started) {
+            requestBackgroundReloadIfNeeded();
+        }
     }
 
     /**
@@ -516,9 +522,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                         herd = null;
                     }
                 }
+                final boolean uploadHardware = surface.shouldLockHardwareCanvas();
                 if (bgFile != null && bgFile.exists()) {
                     try {
-                        bg = decodeBackgroundFile(bgFile, canvasW, canvasH, pixelation);
+                        bg = decodeBackgroundFile(bgFile, canvasW, canvasH, pixelation,
+                                uploadHardware);
                     } catch (RuntimeException e) {
                         Log.e("PonyPaper", "Failed to decode background", e);
                         bg = null;
@@ -566,12 +574,15 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Decode the background at cover-size / {@code pixelation}, in RGB_565.
-     * The frame loop cover-stretches this bitmap; it is not upsampled back to
-     * the surface, so pixelation remains a memory-bandwidth / heat control.
+     * Decode the background at cover-size / {@code pixelation}, in RGB_565 on
+     * the CPU. When {@code uploadHardware} is true (HW-canvas hosts on API 26+),
+     * uploads to {@link Bitmap.Config#HARDWARE} and recycles the CPU copy.
+     * Software-only hosts and pre-O keep RGB_565. The frame loop cover-stretches
+     * this bitmap; it is not upsampled back to the surface, so pixelation
+     * remains a memory-bandwidth / heat control.
      */
     private static Bitmap decodeBackgroundFile(File bgFile, int canvasW, int canvasH,
-            int pixelation) {
+            int pixelation, boolean uploadHardware) {
         if (pixelation < MIN_PIXELATION) pixelation = MIN_PIXELATION;
         BitmapFactory.Options bfo = new BitmapFactory.Options();
         bfo.inScaled = false;
@@ -608,8 +619,80 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         working = asRgb565(working);
         if (working != null && !working.isRecycled()) {
             working.prepareToDraw();
+            if (uploadHardware) {
+                // HARDWARE-only: software canvas fallback drops image backgrounds.
+                working = GpuBitmaps.uploadAndRecycleSource(working);
+            }
         }
         return working;
+    }
+
+    /**
+     * Background-only decode when recovering from software-canvas fallback
+     * (HARDWARE backgrounds were recycled). Does not rebuild the pony herd.
+     */
+    private void requestBackgroundReloadIfNeeded() {
+        if (!started || frozen || thermalEmergency) return;
+        if (background != null && !background.isRecycled()) return;
+        final SharedPreferences prefs = getPreferences();
+        if (!preferredBackgroundEnabled(prefs) || shouldDisableBackgroundImage(prefs)) {
+            return;
+        }
+        final SurfaceHolder holder = surface.getSurfaceHolder();
+        if (holder == null) return;
+        Rect frame = holder.getSurfaceFrame();
+        if (frame == null || frame.width() <= 0 || frame.height() <= 0) return;
+        final int canvasW = frame.width();
+        final int canvasH = frame.height();
+        final int pixelation = pixelationFromPrefs(prefs);
+        File filesDir = appContext.getExternalFilesDir(null);
+        if (filesDir == null) return;
+        final File bgFile = new File(filesDir, CustomStorage.BACKGROUND_NAME);
+        if (!bgFile.exists()) return;
+        final int gen = sceneLoadGeneration;
+        final boolean uploadHardware = surface.shouldLockHardwareCanvas();
+        SpriteCache.execute(new Runnable() {
+            @Override
+            public void run() {
+                Bitmap bg = null;
+                try {
+                    bg = decodeBackgroundFile(bgFile, canvasW, canvasH, pixelation,
+                            uploadHardware);
+                } catch (RuntimeException e) {
+                    Log.e("PonyPaper", "Failed to reload background", e);
+                    bg = null;
+                }
+                final Bitmap readyBg = bg;
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (gen != sceneLoadGeneration || !started) {
+                            if (readyBg != null && !readyBg.isRecycled()) {
+                                readyBg.recycle();
+                            }
+                            return;
+                        }
+                        if (!hardwareCanvasAllowed || shouldDisableBackgroundImage(getPreferences())) {
+                            if (readyBg != null && !readyBg.isRecycled()) {
+                                readyBg.recycle();
+                            }
+                            return;
+                        }
+                        if (background != null && !background.isRecycled()) {
+                            if (readyBg != null && readyBg != background && !readyBg.isRecycled()) {
+                                readyBg.recycle();
+                            }
+                            return;
+                        }
+                        replaceBackground(readyBg);
+                        if (active && !frozen && !thermalEmergency && surface.isDrawingEnabled()) {
+                            lastFrameUptimeMs = 0;
+                            drawFrame();
+                        }
+                    }
+                });
+            }
+        });
     }
 
     /** Largest power-of-two {@link BitmapFactory.Options#inSampleSize} that keeps both sides ≥ target. */
@@ -964,6 +1047,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     private boolean shouldDisableBackgroundImage(SharedPreferences prefs) {
         if (thermalEmergency) return true;
+        // Software lockCanvas fallback: HARDWARE-only backgrounds cannot be drawn.
+        if (!hardwareCanvasAllowed) return true;
         if (shouldApplyBatterySaverLimits(prefs)) return true;
         return onBattery && prefs.getBoolean(PREF_BATTERY_DISABLE_BACKGROUND, false);
     }
@@ -1517,6 +1602,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 if (drawBg != null && drawBg.isRecycled()) {
                     drawBg = null;
                 }
+                // HARDWARE bitmaps cannot be drawn on a software canvas.
+                if (drawBg != null && !c.isHardwareAccelerated() && GpuBitmaps.isHardware(drawBg)) {
+                    drawBg = null;
+                }
                 if (drawBg == null || paint.getAlpha() != 0xff) {
                     c.drawColor(backgroundColour);
                 }
@@ -1563,8 +1652,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     /**
      * Prefer {@link SurfaceHolder#lockHardwareCanvas()} when the host allows it.
-     * On null/exception, permanently fall back to {@link SurfaceHolder#lockCanvas()}
-     * for this surface generation ({@link #allowHardwareCanvasRetry()} resets).
+     * On null/exception, fall back to {@link SurfaceHolder#lockCanvas()} for this
+     * surface generation ({@link #allowHardwareCanvasRetry()} resets) and drop any
+     * HARDWARE-only image background (solid fill until HW recovers).
      * Never mixes dirty-rect software locks with hardware locks.
      */
     private Canvas lockFrameCanvas(SurfaceHolder holder) {
@@ -1584,7 +1674,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             } catch (RuntimeException e) {
                 Log.w("PonyPaper", "Hardware canvas unavailable; using software", e);
             }
-            hardwareCanvasAllowed = false;
+            enterSoftwareCanvasFallback();
         }
         try {
             return holder.lockCanvas();
@@ -1592,6 +1682,18 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             Log.w("PonyPaper", "Software canvas lock failed", e);
             return null;
         }
+    }
+
+    /**
+     * Software composition mode for this surface generation: no more HW locks,
+     * and no image background (HARDWARE-only BG cannot be blitted on software).
+     */
+    private void enterSoftwareCanvasFallback() {
+        if (!hardwareCanvasAllowed) return;
+        hardwareCanvasAllowed = false;
+        recycleDisplayedBackground();
+        forceSceneRedraw = true;
+        Log.w("PonyPaper", "Software canvas fallback: image background disabled");
     }
 
     private void applySurfaceFrameRate(SurfaceHolder holder, float fps) {

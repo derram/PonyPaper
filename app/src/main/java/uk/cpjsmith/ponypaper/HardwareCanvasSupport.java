@@ -10,7 +10,8 @@ import android.view.SurfaceHolder;
  * <p>Only call when {@code Build.VERSION.SDK_INT >= O}. Unlock with the same
  * {@link SurfaceHolder#unlockCanvasAndPost(Canvas)} used for software locks.
  * On failure, callers should fall back to {@link SurfaceHolder#lockCanvas()}
- * until the next surface recreate.
+ * until the next surface recreate. Pair with {@link GpuBitmaps} for
+ * GPU-resident sprite/background uploads.
  */
 final class HardwareCanvasSupport {
 
