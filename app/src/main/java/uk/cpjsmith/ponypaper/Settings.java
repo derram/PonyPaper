@@ -67,9 +67,31 @@ public class Settings extends AppCompatActivity
     private DisplayManager.DisplayListener fpsDisplayListener;
     /** Timeout value to write after a successful device-admin grant; null if none. */
     private String pendingDreamIdleTimeout;
+    /**
+     * True after {@link DreamSleepAdmin#removeAdmin} until
+     * {@link DreamSleepAdmin#isActive} reports false. {@code removeActiveAdmin}
+     * is asynchronous, so an immediate refresh would still show the On summary.
+     */
+    private boolean pendingDreamAdminRevoke;
+    private int dreamAdminRefreshAttempts;
 
     /** Preference hierarchy of the currently visible settings fragment. */
     private PreferenceFragmentCompat activePrefs;
+
+    private final Runnable dreamAdminRefreshRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!pendingDreamAdminRevoke) return;
+            if (!DreamSleepAdmin.isActive(Settings.this)
+                    || ++dreamAdminRefreshAttempts >= 40) {
+                pendingDreamAdminRevoke = false;
+                refreshDreamIdleSettings();
+                return;
+            }
+            refreshDreamIdleSettings();
+            settingsHandler.postDelayed(this, 250);
+        }
+    };
 
     private final ActivityResultLauncher<Intent> selectBackgroundLauncher =
             registerForActivityResult(
@@ -459,6 +481,7 @@ public class Settings extends AppCompatActivity
 
     @Override
     protected void onDestroy() {
+        settingsHandler.removeCallbacks(dreamAdminRefreshRunnable);
         unregisterFpsDisplayListener();
         PreferenceManager.getDefaultSharedPreferences(this)
                 .unregisterOnSharedPreferenceChangeListener(enableAllListener);
@@ -1146,12 +1169,12 @@ public class Settings extends AppCompatActivity
         int minutes = PonySceneController.parseDreamIdleMinutes(
                 newValue != null ? newValue.toString() : null);
         if (minutes > 0 && DreamSleepAdmin.needsLockToSleep()
-                && !DreamSleepAdmin.isActive(this)) {
+                && !isDreamAdminActiveForUi()) {
             showDreamLockRationale(newValue.toString());
             return false;
         }
         if (minutes == 0 && DreamSleepAdmin.needsLockToSleep()
-                && DreamSleepAdmin.isActive(this)) {
+                && isDreamAdminActiveForUi()) {
             showOptionalRevokeAdminDialog();
         }
         return true;
@@ -1161,7 +1184,7 @@ public class Settings extends AppCompatActivity
         if (!DreamSleepAdmin.needsLockToSleep()) {
             return;
         }
-        if (DreamSleepAdmin.isActive(this)) {
+        if (isDreamAdminActiveForUi()) {
             showRevokeAdminDialog();
             return;
         }
@@ -1219,9 +1242,39 @@ public class Settings extends AppCompatActivity
     }
 
     private void revokeDreamLockAdmin() {
+        pendingDreamAdminRevoke = true;
+        dreamAdminRefreshAttempts = 0;
         DreamSleepAdmin.removeAdmin(this);
-        PonySceneController.syncIdleTimeoutWithCapability(this);
+        // removeActiveAdmin is async, so syncIdleTimeoutWithCapability may no-op
+        // while isAdminActive is still true. Mirror the post-disable Never value now.
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        if (PonySceneController.parseDreamIdleMinutes(
+                prefs.getString(PonySceneController.PREF_DREAM_IDLE_TIMEOUT, null)) > 0) {
+            prefs.edit()
+                    .putString(PonySceneController.PREF_DREAM_IDLE_TIMEOUT,
+                            PonySceneController.DREAM_IDLE_TIMEOUT_NEVER)
+                    .commit();
+        }
         refreshDreamIdleSettings();
+        settingsHandler.removeCallbacks(dreamAdminRefreshRunnable);
+        settingsHandler.postDelayed(dreamAdminRefreshRunnable, 250);
+    }
+
+    /**
+     * Admin active state for settings UI. While a revoke is in flight,
+     * {@link DreamSleepAdmin#isActive} can still be true; treat that as inactive
+     * so the summary can flip to Off immediately.
+     */
+    private boolean isDreamAdminActiveForUi() {
+        if (pendingDreamAdminRevoke) {
+            if (!DreamSleepAdmin.isActive(this)) {
+                pendingDreamAdminRevoke = false;
+                settingsHandler.removeCallbacks(dreamAdminRefreshRunnable);
+            } else {
+                return false;
+            }
+        }
+        return DreamSleepAdmin.isActive(this);
     }
 
     private void applyPendingDreamIdleTimeout() {
@@ -1244,7 +1297,8 @@ public class Settings extends AppCompatActivity
     }
 
     private void refreshDreamIdleSettings() {
-        if (pendingDreamIdleTimeout == null) {
+        boolean adminActive = isDreamAdminActiveForUi();
+        if (pendingDreamIdleTimeout == null && !pendingDreamAdminRevoke) {
             PonySceneController.syncIdleTimeoutWithCapability(this);
         }
         ListPreference timeout = (ListPreference) findPreference(
@@ -1256,7 +1310,7 @@ public class Settings extends AppCompatActivity
             if (!stored.equals(timeout.getValue())) {
                 timeout.setValue(stored);
             }
-            if (DreamSleepAdmin.needsLockToSleep() && !DreamSleepAdmin.isActive(this)) {
+            if (DreamSleepAdmin.needsLockToSleep() && !adminActive) {
                 timeout.setSummary(R.string.pref_dream_idle_timeout_summary_blocked);
             } else {
                 timeout.setSummary("%s");
@@ -1270,7 +1324,7 @@ public class Settings extends AppCompatActivity
             return;
         }
         pref.setEnabled(true);
-        pref.setSummary(DreamSleepAdmin.isActive(this)
+        pref.setSummary(adminActive
                 ? R.string.pref_dream_device_admin_summary_on
                 : R.string.pref_dream_device_admin_summary_off);
     }
