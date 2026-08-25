@@ -332,13 +332,25 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /**
      * Re-enable hardware canvas after a surface recreate. A failed
      * {@link HardwareCanvasSupport#lock} disables it until the next buffer.
-     * When recovering from software fallback, schedules an image-background
-     * reload (backgrounds are HARDWARE-only and were dropped on fallback).
+     * When recovering from software fallback, restores FPS/pony caps and
+     * reloads the image background (HARDWARE-only bitmaps were dropped).
      */
     public void allowHardwareCanvasRetry() {
         boolean wasDenied = !hardwareCanvasAllowed;
+        if (!wasDenied) {
+            hardwareCanvasAllowed = true;
+            return;
+        }
+        SharedPreferences prefs = getPreferences();
+        int wasEffectivePonies = getEffectivePonyCount(prefs);
         hardwareCanvasAllowed = true;
-        if (wasDenied && started) {
+        if (!started) return;
+        applyTargetFps(prefs);
+        int nowEffectivePonies = getEffectivePonyCount(prefs);
+        if (!frozen && wasEffectivePonies != nowEffectivePonies) {
+            // Herd rebuild also reloads the background via ensureScenePrepared.
+            dropHerd();
+        } else {
             requestBackgroundReloadIfNeeded();
         }
     }
@@ -1045,6 +1057,16 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         return thermalThrottle && !thermalEmergency;
     }
 
+    /**
+     * Soft quality cut while this surface generation is locked to software
+     * {@link SurfaceHolder#lockCanvas()}: CPU composition cannot sustain high
+     * user FPS/herd settings. Caps to {@link #DEFAULT_TARGET_FPS} /
+     * {@link #DEFAULT_NUM_PONIES} (milder than thermal soft throttle).
+     */
+    private boolean shouldApplySoftwareCanvasLimits() {
+        return !hardwareCanvasAllowed;
+    }
+
     private boolean shouldDisableBackgroundImage(SharedPreferences prefs) {
         if (thermalEmergency) return true;
         // Software lockCanvas fallback: HARDWARE-only backgrounds cannot be drawn.
@@ -1093,6 +1115,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             count = Math.min(count, BATTERY_SAVER_MAX_PONIES);
         }
         if (shouldUseDefaultPoniesOnBattery(prefs)) {
+            count = Math.min(count, DEFAULT_NUM_PONIES);
+        }
+        if (shouldApplySoftwareCanvasLimits()) {
             count = Math.min(count, DEFAULT_NUM_PONIES);
         }
         if (shouldApplyThermalThrottle()) {
@@ -1294,6 +1319,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (shouldUseDefaultFpsOnBattery(prefs)) {
             fps = Math.min(fps, DEFAULT_TARGET_FPS);
         }
+        if (shouldApplySoftwareCanvasLimits()) {
+            fps = Math.min(fps, DEFAULT_TARGET_FPS);
+        }
         if (shouldApplyThermalThrottle()) {
             fps = Math.min(fps, THERMAL_MODERATE_MAX_FPS);
         }
@@ -1374,6 +1402,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (shouldDisableBackgroundImage(prefs)) sig |= 8;
         if (shouldApplyThermalThrottle()) sig |= 16;
         if (thermalEmergency) sig |= 32;
+        if (shouldApplySoftwareCanvasLimits()) sig |= 64;
         return sig;
     }
 
@@ -1653,8 +1682,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /**
      * Prefer {@link SurfaceHolder#lockHardwareCanvas()} when the host allows it.
      * On null/exception, fall back to {@link SurfaceHolder#lockCanvas()} for this
-     * surface generation ({@link #allowHardwareCanvasRetry()} resets) and drop any
-     * HARDWARE-only image background (solid fill until HW recovers).
+     * surface generation ({@link #allowHardwareCanvasRetry()} resets): drop any
+     * HARDWARE-only image background and cap FPS/ponies to defaults until HW recovers.
      * Never mixes dirty-rect software locks with hardware locks.
      */
     private Canvas lockFrameCanvas(SurfaceHolder holder) {
@@ -1686,14 +1715,23 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     /**
      * Software composition mode for this surface generation: no more HW locks,
-     * and no image background (HARDWARE-only BG cannot be blitted on software).
+     * no image background (HARDWARE-only BG cannot be blitted on software), and
+     * FPS/pony count capped to defaults. Called from {@link #lockFrameCanvas}
+     * mid-draw, so herd unload is deferred via {@link #scheduleDropHerd()}.
      */
     private void enterSoftwareCanvasFallback() {
         if (!hardwareCanvasAllowed) return;
+        SharedPreferences prefs = getPreferences();
+        int wasEffectivePonies = getEffectivePonyCount(prefs);
         hardwareCanvasAllowed = false;
         recycleDisplayedBackground();
         forceSceneRedraw = true;
-        Log.w("PonyPaper", "Software canvas fallback: image background disabled");
+        applyTargetFps(prefs);
+        Log.w("PonyPaper", "Software canvas fallback: image background disabled; "
+                + "FPS/ponies capped to defaults");
+        if (!frozen && wasEffectivePonies != getEffectivePonyCount(prefs)) {
+            scheduleDropHerd();
+        }
     }
 
     private void applySurfaceFrameRate(SurfaceHolder holder, float fps) {
