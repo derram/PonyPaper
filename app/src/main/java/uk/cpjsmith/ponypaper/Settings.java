@@ -1464,8 +1464,8 @@ public class Settings extends AppCompatActivity
             }
         }
         if (outValues.isEmpty()) {
-            outEntries.add(Integer.toString(TargetFps.DEFAULT) + " FPS");
-            outValues.add(Integer.toString(TargetFps.DEFAULT));
+            outEntries.add(Integer.toString(TargetFps.LISTED[0]) + " FPS");
+            outValues.add(Integer.toString(TargetFps.LISTED[0]));
         }
         pref.setEntries(outEntries.toArray(new CharSequence[outEntries.size()]));
         pref.setEntryValues(outValues.toArray(new CharSequence[outValues.size()]));

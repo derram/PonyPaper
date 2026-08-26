@@ -78,8 +78,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     static final int DEFAULT_DREAM_IDLE_MINUTES = 10;
     /** Preference value for {@link #PREF_DREAM_IDLE_TIMEOUT} meaning never. */
     static final String DREAM_IDLE_TIMEOUT_NEVER = "0";
-    /** Battery-friendly default; motion uses delta time so speed stays consistent. */
-    static final int DEFAULT_TARGET_FPS = 30;
+    /** Default target; motion uses delta time so speed stays consistent. */
+    static final int DEFAULT_TARGET_FPS = 60;
     /** Default pony count when the preference is missing. */
     static final int DEFAULT_NUM_PONIES = 4;
     /** Hard ceiling so a corrupt preference cannot schedule a tight spin loop. */

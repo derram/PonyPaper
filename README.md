@@ -8,7 +8,7 @@ This repository is a **modernization fork** of the [Smithers888/PonyPaper](https
 
 - **Modern Gradle build** — builds and installs on current Android (minSdk 21); signed release APKs and editor JARs via GitHub/Gitea Actions
 - **Installs alongside upstream** — application id `io.github.derram.ponypaper` (does not replace the original app)
-- **Target frame rate** — prefer 30 / 60 / 90 / 120 FPS (default 30); motion is delta-time based so pony speed stays consistent
+- **Target frame rate** — prefer 30 / 60 / 90 / 120 FPS (default 60); motion is delta-time based so pony speed stays consistent
 - **Battery Saver support** — optional respect for system Battery Saver (default on): cap at 25 FPS, at most 3 ponies, and solid-colour backgrounds instead of images
 - **On-battery power profile** — optional prefs to force default FPS (30), default pony count (4), and/or disable image backgrounds while unplugged
 - **Up to 14 ponies** on screen (11 wasn't loud enough)

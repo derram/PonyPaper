@@ -90,10 +90,10 @@ final class TargetFps {
 
     /**
      * Highest listed target that this peak can run (always at least
-     * {@link #DEFAULT}).
+     * {@code LISTED[0]}).
      */
     static int maxListedFps(float peakHz) {
-        int best = DEFAULT;
+        int best = LISTED[0];
         for (int i = 0; i < LISTED.length; i++) {
             int fps = LISTED[i];
             if (fps <= peakHz + PEAK_EPSILON_HZ) {
@@ -113,7 +113,7 @@ final class TargetFps {
 
     /** Whether a listed target should appear for a display whose cap is {@code maxListed}. */
     static boolean isListedAllowed(int fps, int maxListed) {
-        if (fps == DEFAULT) return true;
+        if (fps == LISTED[0]) return true;
         return fps <= maxListed;
     }
 }

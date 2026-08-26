@@ -32,7 +32,7 @@
             android:dialogTitle="Target frame rate"
             android:entries="@array/pref_target_fps_entries"
             android:entryValues="@array/pref_target_fps_values"
-            android:defaultValue="30" />
+            android:defaultValue="60" />
         <uk.cpjsmith.ponypaper.ColorPreference
             android:key="pref_background_colour"
             android:title="@string/pref_background_colour_title"
@@ -70,7 +70,7 @@
         <CheckBoxPreference
             android:key="pref_battery_default_fps"
             android:title="Default frame rate on battery"
-            android:summary="Use 30 FPS while running on battery power"
+            android:summary="Use 60 FPS while running on battery power"
             android:defaultValue="false" />
         <CheckBoxPreference
             android:key="pref_battery_default_ponies"
