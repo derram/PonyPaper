@@ -63,14 +63,6 @@ Requirements: Android **5.0+** (`minSdk 21`). Live wallpapers must be supported 
 
 See [BUILDING.md](BUILDING.md) for debug builds, local signed releases, and the GitHub/Gitea release workflow.
 
-## Original features
-
-- Compatible in spirit with [Desktop Ponies](https://github.com/RoosterDragon/Desktop-Ponies), with a smaller pony set and fewer features.
-- Enable/disable individual ponies; a few appear at once and rotate on/off screen.
-- Optional custom ponies (see [custom/README.md](custom/README.md)). Export a zip backup from settings (custom ponies, background, and saved mixes), or choose a **Character library folder** so the herd survives uninstall.
-- Optional background image, auto-pixellated to match the sprites.
-- Drag ponies with touch (enabled in this fork).
-
 ## Licensing / credits
 
 All artwork was created by contributors to the Desktop Ponies team ([DeviantArt](http://desktop-pony-team.deviantart.com/), [source](https://github.com/RoosterDragon/Desktop-Ponies)). Artwork and original source are licensed under [CC BY-NC-SA 3.0](http://creativecommons.org/licenses/by-nc-sa/3.0/).
