@@ -55,6 +55,14 @@
     <string name="pref_screen_library_title">Library</string>
     <string name="pref_screen_library_summary">Add, remove, zip backup, and library folder</string>
     <string name="pref_screen_about_summary">Version, licenses, and credits</string>
+    <string name="pref_screen_debug_title">Debug</string>
+    <string name="pref_screen_debug_summary">HUD stats and render-path overrides (debug build)</string>
+    <string name="pref_debug_hud_title">Show debug HUD</string>
+    <string name="pref_debug_hud_summary">Overlay FPS, frame time, render path, and policy caps on the wallpaper and screen saver</string>
+    <string name="pref_debug_render_path_title">Canvas render path</string>
+    <string name="pref_debug_render_path_auto">Auto (prefer hardware)</string>
+    <string name="pref_debug_render_path_hardware">Force hardware canvas</string>
+    <string name="pref_debug_render_path_software">Force software canvas</string>
     <string name="pref_appearance_category">Appearance</string>
     <string name="pref_select_background_summary">Same image for the live wallpaper and screen saver</string>
     <string name="pref_background_colour_title">Base colour</string>

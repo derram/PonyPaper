@@ -42,6 +42,16 @@
         <item>60</item>
         <item>0</item>
     </string-array>
+    <string-array name="pref_debug_render_path_entries">
+        <item>@string/pref_debug_render_path_auto</item>
+        <item>@string/pref_debug_render_path_hardware</item>
+        <item>@string/pref_debug_render_path_software</item>
+    </string-array>
+    <string-array name="pref_debug_render_path_values">
+        <item>auto</item>
+        <item>hardware</item>
+        <item>software</item>
+    </string-array>
     <!-- Built-in favorites for pref_waifu; Settings appends custom ponies at runtime. -->
     <string-array name="pref_waifu_entries">
         <item>None</item>

@@ -26,4 +26,10 @@
         android:summary="@string/pref_screen_about_summary"
         app:fragment="uk.cpjsmith.ponypaper.AboutPreferencesFragment" />
 
+    <Preference
+        android:key="pref_screen_debug"
+        android:title="@string/pref_screen_debug_title"
+        android:summary="@string/pref_screen_debug_summary"
+        app:fragment="uk.cpjsmith.ponypaper.DebugPreferencesFragment" />
+
 </PreferenceScreen>

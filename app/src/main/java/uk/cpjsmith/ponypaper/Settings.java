@@ -31,6 +31,7 @@ import androidx.preference.Preference;
 import androidx.preference.PreferenceCategory;
 import androidx.preference.PreferenceFragmentCompat;
 import androidx.preference.PreferenceManager;
+import androidx.preference.PreferenceScreen;
 import android.provider.OpenableColumns;
 import android.util.TypedValue;
 import android.view.inputmethod.EditorInfo;
@@ -266,6 +267,17 @@ public class Settings extends AppCompatActivity
     }
 
     void bindRootPreferences(PreferenceFragmentCompat fragment) {
+        activePrefs = fragment;
+        Preference debug = findPreference("pref_screen_debug");
+        if (debug != null && !BuildConfig.DEBUG) {
+            PreferenceScreen screen = fragment.getPreferenceScreen();
+            if (screen != null) {
+                screen.removePreference(debug);
+            }
+        }
+    }
+
+    void bindDebugPreferences(PreferenceFragmentCompat fragment) {
         activePrefs = fragment;
     }
 

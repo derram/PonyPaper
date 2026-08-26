@@ -17,6 +17,7 @@ import android.os.Handler;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import androidx.preference.PreferenceManager;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Display;
 import android.view.MotionEvent;
@@ -225,6 +226,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * software-canvas sprite blits (HARDWARE-only sheets need a CPU reload).
      */
     private boolean cpuSpriteDemandHeld = false;
+    /** Debug-APK HUD + force-path helper; unused when {@link BuildConfig#DEBUG} is false. */
+    private final DebugOverlay debugOverlay = new DebugOverlay();
     /** Last FPS pushed to {@link Surface#setFrameRate}; negative means unset. */
     private float lastSurfaceFps = -1f;
     /**
@@ -339,14 +342,21 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * {@link HardwareCanvasSupport#lock} disables it until the next buffer.
      * When recovering from software fallback, restores FPS/pony caps and
      * reloads the image background (HARDWARE-only bitmaps were dropped).
+     * Debug force-software keeps the software path instead.
      */
     public void allowHardwareCanvasRetry() {
+        SharedPreferences prefs = getPreferences();
+        if (DebugOverlay.isForceSoftware(prefs)) {
+            if (hardwareCanvasAllowed) {
+                enterSoftwareCanvasFallback();
+            }
+            return;
+        }
         boolean wasDenied = !hardwareCanvasAllowed;
         if (!wasDenied) {
             hardwareCanvasAllowed = true;
             return;
         }
-        SharedPreferences prefs = getPreferences();
         int wasEffectivePonies = getEffectivePonyCount(prefs);
         hardwareCanvasAllowed = true;
         // HW path again: drop this host's CPU sprite demand so the cache can
@@ -395,6 +405,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         powerSaveMode = isSystemPowerSaveMode();
         onBattery = isOnBattery(null);
         batteryTempTenths = readBatteryTemperatureTenths();
+        applyDebugRenderPath(getPreferences());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             PowerManager pm = (PowerManager) appContext.getSystemService(Context.POWER_SERVICE);
             if (pm != null) {
@@ -544,7 +555,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                         herd = null;
                     }
                 }
-                final boolean uploadHardware = surface.shouldLockHardwareCanvas();
+                final boolean uploadHardware = wantsHardwareCanvasUpload();
                 if (bgFile != null && bgFile.exists()) {
                     try {
                         bg = decodeBackgroundFile(bgFile, canvasW, canvasH, pixelation,
@@ -671,7 +682,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         final File bgFile = new File(filesDir, CustomStorage.BACKGROUND_NAME);
         if (!bgFile.exists()) return;
         final int gen = sceneLoadGeneration;
-        final boolean uploadHardware = surface.shouldLockHardwareCanvas();
+        final boolean uploadHardware = wantsHardwareCanvasUpload();
         SpriteCache.execute(new Runnable() {
             @Override
             public void run() {
@@ -1456,6 +1467,16 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     @Override
     public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
+        if (DebugOverlay.PREF_HUD.equals(key)) {
+            forceSceneRedraw = true;
+            redrawIfActive();
+            return;
+        }
+        if (DebugOverlay.PREF_RENDER_PATH.equals(key)) {
+            applyDebugRenderPath(prefs);
+            redrawIfActive();
+            return;
+        }
         if (key != null && key.startsWith("pref_dream_")) {
             onDreamPreferenceChanged(prefs, key);
             return;
@@ -1603,10 +1624,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             clipRect.set(surfaceFrame);
         }
 
-        boolean needDraw = forceSceneRedraw;
+        boolean contentDirty = forceSceneRedraw;
         if (ponies != null && frameW > 0 && frameH > 0) {
             if (ponies.update(clipRect, deltaMs)) {
-                needDraw = true;
+                contentDirty = true;
             }
         }
 
@@ -1616,20 +1637,31 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             coverDestRect(background.getWidth(), background.getHeight(),
                     frameW, frameH, xOffset, yOffset, tmpDst);
             if (tmpDst.left != lastBgDestLeft || tmpDst.top != lastBgDestTop) {
-                needDraw = true;
+                contentDirty = true;
             }
         }
 
         if (surface.shouldShowClock()) {
-            needDraw = true;
+            contentDirty = true;
         }
 
+        SharedPreferences prefs = getPreferences();
+        boolean hudOn = DebugOverlay.hudEnabled(prefs);
+        // HUD must post to refresh numbers; content-clean frames still count as skips.
+        boolean needDraw = contentDirty || hudOn;
+
         if (!needDraw) {
+            if (DebugOverlay.isDebugBuild()) {
+                debugOverlay.recordSchedule(false, false, 0L);
+            }
             scheduleNextFrame();
             return;
         }
 
         Canvas c = null;
+        boolean posted = false;
+        long drawCostNs = 0L;
+        long drawStartNs = SystemClock.elapsedRealtimeNanos();
         try {
             c = lockFrameCanvas(holder);
             // Surface may be lost or not yet ready; never touch a null/zero canvas.
@@ -1661,10 +1693,19 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 if (surface.shouldShowClock()) {
                     dreamClock.draw(c, surface.getContext(), surface.shouldShowClockDate());
                 }
+                if (hudOn) {
+                    drawDebugHud(c, prefs, canvasW, canvasH);
+                }
                 forceSceneRedraw = false;
+                posted = true;
             }
         } finally {
             if (c != null) holder.unlockCanvasAndPost(c);
+            drawCostNs = SystemClock.elapsedRealtimeNanos() - drawStartNs;
+        }
+
+        if (DebugOverlay.isDebugBuild()) {
+            debugOverlay.recordSchedule(contentDirty, posted, posted ? drawCostNs : 0L);
         }
 
         scheduleNextFrame();
@@ -1689,10 +1730,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Prefer {@link SurfaceHolder#lockHardwareCanvas()} when the host allows it.
-     * On null/exception, fall back to {@link SurfaceHolder#lockCanvas()} for this
-     * surface generation ({@link #allowHardwareCanvasRetry()} resets): drop any
-     * HARDWARE-only image background and cap FPS/ponies to defaults until HW recovers.
+     * Prefer {@link SurfaceHolder#lockHardwareCanvas()} when the host (and any
+     * debug force-path) allows it. On null/exception, fall back to
+     * {@link SurfaceHolder#lockCanvas()} for this surface generation
+     * ({@link #allowHardwareCanvasRetry()} resets): drop any HARDWARE-only image
+     * background and cap FPS/ponies to defaults until HW recovers.
      * Never mixes dirty-rect software locks with hardware locks.
      */
     private Canvas lockFrameCanvas(SurfaceHolder holder) {
@@ -1702,7 +1744,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 && hardwareCanvasAllowed
-                && surface.shouldLockHardwareCanvas()) {
+                && wantsHardwareCanvas()) {
             try {
                 Canvas hw = HardwareCanvasSupport.lock(holder);
                 if (hw != null) {
@@ -1719,6 +1761,48 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         } catch (RuntimeException e) {
             Log.w("PonyPaper", "Software canvas lock failed", e);
             return null;
+        }
+    }
+
+    /**
+     * Whether this frame should attempt a hardware canvas lock / HARDWARE bitmap
+     * upload. Debug force-software returns false; force-hardware returns true;
+     * otherwise the host preference is used.
+     */
+    private boolean wantsHardwareCanvas() {
+        SharedPreferences prefs = getPreferences();
+        DebugOverlay.RenderPath path = DebugOverlay.renderPath(prefs);
+        if (path == DebugOverlay.RenderPath.SOFTWARE) return false;
+        if (path == DebugOverlay.RenderPath.HARDWARE) return true;
+        return surface.shouldLockHardwareCanvas();
+    }
+
+    /** Hardware bitmap upload only while the controller is still on the HW path. */
+    private boolean wantsHardwareCanvasUpload() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                && hardwareCanvasAllowed
+                && wantsHardwareCanvas();
+    }
+
+    /**
+     * Apply debug force-path: enter software fallback, or retry hardware after
+     * leaving force-software / choosing force-hardware.
+     */
+    private void applyDebugRenderPath(SharedPreferences prefs) {
+        if (!DebugOverlay.isDebugBuild()) return;
+        if (DebugOverlay.isForceSoftware(prefs)) {
+            if (hardwareCanvasAllowed) {
+                enterSoftwareCanvasFallback();
+            }
+            return;
+        }
+        // Auto or force-HW: recover from a prior forced software session.
+        if (!hardwareCanvasAllowed) {
+            allowHardwareCanvasRetry();
+        } else if (DebugOverlay.isForceHardware(prefs)) {
+            // Ensure uploads / FPS reflect HW even if we never fell back.
+            applyTargetFps(prefs);
+            requestBackgroundReloadIfNeeded();
         }
     }
 
@@ -1778,6 +1862,81 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (!cpuSpriteDemandHeld) return;
         cpuSpriteDemandHeld = false;
         SpriteCache.removeCpuDemand();
+    }
+
+    private void drawDebugHud(Canvas c, SharedPreferences prefs, int canvasW, int canvasH) {
+        DebugOverlay.Snapshot snap = debugOverlay.snapshot();
+        debugOverlay.fillRates(snap);
+        DebugOverlay.RenderPath path = DebugOverlay.renderPath(prefs);
+        snap.hostLabel = surface.isDream() ? "dream" : "wallpaper";
+        snap.preview = previewEngine;
+        snap.pathRequested = DebugOverlay.pathLabel(path);
+        snap.pathActualHw = c.isHardwareAccelerated();
+        snap.canvasHwAccel = c.isHardwareAccelerated();
+        snap.cpuDemandHeld = cpuSpriteDemandHeld;
+        snap.hwAllowed = hardwareCanvasAllowed;
+        snap.preferredFps = preferredTargetFpsUncapped(prefs);
+        snap.effectiveFps = targetFps;
+        snap.schedulePeriodMs = currentSchedulePeriodMs();
+        snap.preferredPonies = preferredPonyCount(prefs);
+        if (snap.preferredPonies < 1) snap.preferredPonies = DEFAULT_NUM_PONIES;
+        snap.effectivePonies = getEffectivePonyCount(prefs);
+        snap.livePonies = ponies != null ? ponies.getActiveCount() : 0;
+        snap.preferredBg = preferredBackgroundEnabled(prefs);
+        snap.bgDisabled = shouldDisableBackgroundImage(prefs);
+        snap.bgPresent = background != null && !background.isRecycled();
+        snap.caps = debugCapsLabel(prefs);
+        snap.surfaceW = canvasW;
+        snap.surfaceH = canvasH;
+        Display display = hostDisplay();
+        snap.displayHz = display != null ? TargetFps.peakRefreshHz(display) : 0f;
+        snap.surfaceFpsVote = lastSurfaceFps > 0f ? lastSurfaceFps : 0f;
+        snap.active = active;
+        snap.frozen = frozen;
+        snap.thermalEmergency = thermalEmergency;
+        snap.thermalThrottle = thermalThrottle;
+        snap.thermalStatus = computeEffectiveThermalStatus();
+        snap.powerSave = powerSaveMode;
+        snap.onBattery = onBattery;
+        snap.sceneLoading = sceneLoadInFlight;
+        Context ctx = surface.getContext() != null ? surface.getContext() : appContext;
+        DisplayMetrics metrics = ctx.getResources().getDisplayMetrics();
+        debugOverlay.draw(c, snap, metrics);
+    }
+
+    private int preferredTargetFpsUncapped(SharedPreferences prefs) {
+        int fps = DEFAULT_TARGET_FPS;
+        try {
+            fps = Integer.parseInt(preferredTargetFpsRaw(prefs).trim());
+        } catch (NumberFormatException e) {
+            fps = DEFAULT_TARGET_FPS;
+        }
+        if (fps < MIN_TARGET_FPS) fps = DEFAULT_TARGET_FPS;
+        if (fps > MAX_TARGET_FPS) fps = MAX_TARGET_FPS;
+        return fps;
+    }
+
+    private String debugCapsLabel(SharedPreferences prefs) {
+        StringBuilder caps = new StringBuilder();
+        if (shouldApplyBatterySaverLimits(prefs)) appendCap(caps, "battSaver");
+        if (shouldUseDefaultFpsOnBattery(prefs)) appendCap(caps, "battFps");
+        if (shouldUseDefaultPoniesOnBattery(prefs)) appendCap(caps, "battPonies");
+        if (onBattery && prefs.getBoolean(PREF_BATTERY_DISABLE_BACKGROUND, false)) {
+            appendCap(caps, "battBg");
+        }
+        if (shouldApplySoftwareCanvasLimits()) appendCap(caps, "softSW");
+        if (shouldApplyThermalThrottle()) appendCap(caps, "thermal");
+        if (thermalEmergency) appendCap(caps, "thermalEmer");
+        if (previewEngine) appendCap(caps, "preview");
+        int uncapped = preferredTargetFpsUncapped(prefs);
+        int displayCap = TargetFps.maxListedFps(hostDisplay());
+        if (uncapped > displayCap) appendCap(caps, "displayHz");
+        return caps.toString();
+    }
+
+    private static void appendCap(StringBuilder caps, String label) {
+        if (caps.length() > 0) caps.append(',');
+        caps.append(label);
     }
 
     private void applySurfaceFrameRate(SurfaceHolder holder, float fps) {
