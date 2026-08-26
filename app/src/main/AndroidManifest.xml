@@ -58,7 +58,9 @@
 
         <!-- Dream user-exit trampoline: requestDismissKeyguard needs an Activity.
              showWhenLocked stays false — wakeUp() makes us the top activity behind
-             keyguard; occluding via showWhenLocked left a stuck scrim on Pixel. -->
+             keyguard; occluding via showWhenLocked left a stuck scrim on Pixel.
+             configChanges keeps the dismiss callback across landscape→bouncer
+             rotation so we do not stick as a touch-modal layer over home. -->
         <activity
             android:name=".UnlockRequestActivity"
             android:exported="false"
@@ -67,7 +69,8 @@
             android:taskAffinity=""
             android:theme="@style/Theme.PonyPaper.UnlockRequest"
             android:showWhenLocked="false"
-            android:turnScreenOn="true" />
+            android:turnScreenOn="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode" />
 
         <!-- Dream idle-sleep trampoline: some OEMs ignore lockNow from TYPE_DREAM. -->
         <activity

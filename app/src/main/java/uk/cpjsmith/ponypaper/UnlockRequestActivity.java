@@ -36,6 +36,14 @@ import android.view.WindowManager;
  * <p>The window is floating and 1×1 px so exit is not treated as a full-screen
  * task wipe. {@link #finishQuietly()} and zero-duration theme animations further
  * suppress residual transitions after unlock.
+ *
+ * <p>After unlock the trampoline must leave immediately. A focused floating
+ * window is touch-modal by default and will eat every pointer event outside its
+ * 1×1 bounds — the home screen looks normal but is dead until Back finishes us.
+ * That shows up most when a landscape dream rotates into the bouncer and the
+ * dismiss callback is dropped ({@code Ignoring dismiss because we're already
+ * going away}). {@link WindowManager.LayoutParams#FLAG_NOT_TOUCH_MODAL},
+ * {@code configChanges}, and {@link #finishIfUnlocked()} cover that path.
  */
 public class UnlockRequestActivity extends Activity {
 
@@ -94,9 +102,27 @@ public class UnlockRequestActivity extends Activity {
         });
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Callback may never fire if keyguard was already going away (common when
+        // a landscape dream rotates into the bouncer). Leave as soon as unlocked.
+        finishIfUnlocked();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            finishIfUnlocked();
+        }
+    }
+
     /**
      * Shrink to a floating 1×1 window so WindowManager close anims (if any) are
      * not a full-screen wipe. Theme already sets {@code windowIsFloating}.
+     * {@link WindowManager.LayoutParams#FLAG_NOT_TOUCH_MODAL} lets touches outside
+     * the pixel pass through — without it a stuck trampoline bricks the launcher.
      */
     private void applyFloatingWindow() {
         Window window = getWindow();
@@ -109,8 +135,20 @@ public class UnlockRequestActivity extends Activity {
         lp.x = 0;
         lp.y = 0;
         lp.dimAmount = 0f;
+        lp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
         window.setAttributes(lp);
         window.setLayout(1, 1);
+    }
+
+    /** Finish once the keyguard is gone; no-op while the bouncer is still up. */
+    private void finishIfUnlocked() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return;
+        }
+        KeyguardManager keyguard = getSystemService(KeyguardManager.class);
+        if (keyguard != null && !keyguard.isKeyguardLocked()) {
+            finishQuietly();
+        }
     }
 
     /**
