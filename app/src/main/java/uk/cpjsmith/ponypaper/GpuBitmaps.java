@@ -8,6 +8,7 @@ import android.util.Log;
  * API 26+ {@link Bitmap.Config#HARDWARE} uploads isolated so pre-O devices never
  * resolve that config when loading callers. Decode and scale on the CPU first,
  * then upload once for {@link android.view.SurfaceHolder#lockHardwareCanvas()}.
+ * Sprite sheets may drop the CPU copy afterward; see {@link SpriteCache}.
  */
 final class GpuBitmaps {
 

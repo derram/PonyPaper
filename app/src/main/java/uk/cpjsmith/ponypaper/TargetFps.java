@@ -1,10 +1,12 @@
 package uk.cpjsmith.ponypaper;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.hardware.display.DisplayManager;
 import android.os.Build;
 import android.view.Display;
 import android.view.WindowManager;
+import androidx.preference.PreferenceManager;
 
 /**
  * Listed target frame rates and the peak-refresh cap used by
@@ -28,6 +30,22 @@ final class TargetFps {
     static final float PEAK_EPSILON_HZ = 0.5f;
 
     private TargetFps() {}
+
+    /**
+     * Writes {@link #DEFAULT} when the user has never chosen a target FPS.
+     * Numeric {@code android:defaultValue} literals compile as ints, and
+     * {@link androidx.preference.ListPreference} only reads string defaults —
+     * so XML alone may not persist. Call before {@link PrefDefaults#apply}.
+     * Uses {@code commit()} so a following {@code setDefaultValues} sees the key.
+     */
+    static void ensureDefault(Context context) {
+        if (context == null) return;
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        if (prefs.contains(PonySceneController.PREF_TARGET_FPS)) return;
+        prefs.edit()
+                .putString(PonySceneController.PREF_TARGET_FPS, Integer.toString(DEFAULT))
+                .commit();
+    }
 
     /**
      * Best-effort display for a context. Application contexts on API 30+ have

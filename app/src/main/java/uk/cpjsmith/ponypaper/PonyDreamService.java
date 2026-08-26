@@ -237,6 +237,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     public void onAttachedToWindow() {
         super.onAttachedToWindow();
         PonySize.ensureDefault(this);
+        TargetFps.ensureDefault(this);
         PonySceneController.ensureIdleTimeoutDefault(this);
         PrefDefaults.apply(this);
         PonySceneController.syncIdleTimeoutWithCapability(this);

@@ -616,9 +616,9 @@ public class PonyAction {
             boolean dragged, Rect srcScratch, Rect dstScratch) {
         if (sprites == null || dir < 0 || dir >= sprites.length) return;
         SpriteSheet sprite = sprites[dir];
-        // Recycled / unloaded sheets must not be blitted: that produces the
-        // classic garbage-stripe ("spaghetti") frames during teardown races.
-        if (sprite == null || sprite.bitmap == null || sprite.bitmap.isRecycled()) {
+        // Recycled / unloaded / HW-only-on-software sheets must not be blitted:
+        // that produces garbage-stripe ("spaghetti") frames during teardown races.
+        if (sprite == null || !sprite.hasDrawable()) {
             return;
         }
         Bitmap draw = sprite.bitmapFor(c);

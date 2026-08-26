@@ -10,16 +10,18 @@ import android.graphics.Rect;
  * Encapsulates a linear sequence of images with associated timings. The images
  * are all stored in a single Bitmap.
  *
- * <p>Optional {@link #hardwareBitmap} is a GPU-resident copy for
- * {@link android.view.SurfaceHolder#lockHardwareCanvas()}; the CPU
- * {@link #bitmap} is always kept for software {@code lockCanvas} fallback.
+ * <p>On API 26+ hardware-canvas hosts, {@link SpriteCache} prefers a
+ * GPU-resident {@link #hardwareBitmap} and may recycle the CPU {@link #bitmap}
+ * until a software-canvas consumer demands it again. Frame geometry
+ * ({@link #frameWidth} / {@link #frameHeight}) stays valid either way.
  */
 public class SpriteSheet {
     
     public Bitmap bitmap;
     /**
-     * Optional {@link Bitmap.Config#HARDWARE} copy of {@link #bitmap}. Null when
-     * upload was skipped or failed. Never drawn on a software canvas.
+     * Optional {@link Bitmap.Config#HARDWARE} copy for
+     * {@link android.view.SurfaceHolder#lockHardwareCanvas()}. Null when upload
+     * was skipped or failed. Never drawn on a software canvas.
      */
     Bitmap hardwareBitmap;
     public int totalTime;
@@ -130,23 +132,80 @@ public class SpriteSheet {
         frameWidth = bitmap.getWidth() / frameTimes.length;
         frameHeight = bitmap.getHeight();
     }
+
+    /** True when a non-recycled CPU {@link #bitmap} is present. */
+    boolean hasCpuBitmap() {
+        return bitmap != null && !bitmap.isRecycled();
+    }
+
+    /** True when a non-recycled {@link #hardwareBitmap} is present. */
+    boolean hasHardwareBitmap() {
+        return hardwareBitmap != null && !hardwareBitmap.isRecycled();
+    }
+
+    /** True when either residency can supply pixels for a blit. */
+    boolean hasDrawable() {
+        return hasHardwareBitmap() || hasCpuBitmap();
+    }
     
     /**
      * Upload {@link #bitmap} to {@link #hardwareBitmap} once (API 26+). Keeps
-     * the CPU bitmap for software-canvas fallback. Safe to call more than once.
+     * the CPU bitmap. Safe to call more than once.
      */
     void uploadToGpu() {
-        if (hardwareBitmap != null && !hardwareBitmap.isRecycled()) {
+        if (hasHardwareBitmap()) {
             return;
         }
         hardwareBitmap = null;
-        if (bitmap == null || bitmap.isRecycled()) {
+        if (!hasCpuBitmap()) {
             return;
         }
         Bitmap hw = GpuBitmaps.upload(bitmap);
         if (hw != null && hw != bitmap) {
             hardwareBitmap = hw;
+            hardwareBitmap.prepareToDraw();
         }
+    }
+
+    /**
+     * Recycle and clear the CPU {@link #bitmap} when a hardware copy exists.
+     * No-op when there is no GPU copy (software hosts must keep CPU pixels).
+     */
+    void recycleCpuBitmap() {
+        if (!hasHardwareBitmap()) {
+            return;
+        }
+        Bitmap old = bitmap;
+        bitmap = null;
+        if (old != null && old != hardwareBitmap && !old.isRecycled()) {
+            old.recycle();
+        }
+    }
+
+    /**
+     * Install a CPU bitmap produced by a cache re-decode. Recycles any previous
+     * CPU bitmap. Does not touch {@link #hardwareBitmap}.
+     */
+    void installCpuBitmap(Bitmap cpu) {
+        if (cpu == null || cpu.isRecycled()) {
+            return;
+        }
+        Bitmap old = bitmap;
+        bitmap = cpu;
+        bitmap.prepareToDraw();
+        if (old != null && old != bitmap && old != hardwareBitmap && !old.isRecycled()) {
+            old.recycle();
+        }
+    }
+
+    /**
+     * Detach the CPU bitmap from a throwaway decode sheet so the caller can
+     * install it elsewhere without double-recycle.
+     */
+    Bitmap detachCpuBitmap() {
+        Bitmap out = bitmap;
+        bitmap = null;
+        return out;
     }
 
     /**
@@ -154,11 +213,13 @@ public class SpriteSheet {
      * otherwise the CPU {@link #bitmap}.
      */
     Bitmap bitmapFor(Canvas c) {
-        if (c != null && c.isHardwareAccelerated()
-                && hardwareBitmap != null && !hardwareBitmap.isRecycled()) {
+        if (c != null && c.isHardwareAccelerated() && hasHardwareBitmap()) {
             return hardwareBitmap;
         }
-        return bitmap;
+        if (hasCpuBitmap()) {
+            return bitmap;
+        }
+        return null;
     }
 
     /**

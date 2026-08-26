@@ -203,9 +203,10 @@ public class Settings extends AppCompatActivity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.settings_container);
-        PrefDefaults.apply(this);
         PonySize.ensureDefault(this);
+        TargetFps.ensureDefault(this);
         PonySceneController.ensureIdleTimeoutDefault(this);
+        PrefDefaults.apply(this);
 
         PreferenceManager.getDefaultSharedPreferences(this)
                 .registerOnSharedPreferenceChangeListener(enableAllListener);
@@ -1470,8 +1471,16 @@ public class Settings extends AppCompatActivity
         pref.setEntries(outEntries.toArray(new CharSequence[outEntries.size()]));
         pref.setEntryValues(outValues.toArray(new CharSequence[outValues.size()]));
 
+        // Numeric XML defaultValues compile as ints; ListPreference only reads
+        // strings, so first attach can leave getValue() null even when the
+        // SharedPreferences key is missing. Persist DEFAULT so the row and
+        // dialog show 60 instead of the first entry (30).
         int chosen = TargetFps.DEFAULT;
         String raw = pref.getValue();
+        if (raw == null || raw.trim().isEmpty()) {
+            pref.setValue(Integer.toString(TargetFps.DEFAULT));
+            raw = pref.getValue();
+        }
         if (raw != null) {
             try {
                 chosen = Integer.parseInt(raw.trim());

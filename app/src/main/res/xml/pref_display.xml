@@ -32,7 +32,7 @@
             android:dialogTitle="Target frame rate"
             android:entries="@array/pref_target_fps_entries"
             android:entryValues="@array/pref_target_fps_values"
-            android:defaultValue="60" />
+            android:defaultValue="@string/pref_target_fps_default" />
         <uk.cpjsmith.ponypaper.ColorPreference
             android:key="pref_background_colour"
             android:title="@string/pref_background_colour_title"

@@ -163,6 +163,7 @@ public class PonyWallpaper extends WallpaperService {
     @Override
     public Engine onCreateEngine() {
         PonySize.ensureDefault(this);
+        TargetFps.ensureDefault(this);
         PonySceneController.ensureIdleTimeoutDefault(this);
         PrefDefaults.apply(this);
         return new PonyEngine();

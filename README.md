@@ -10,7 +10,7 @@ This repository is a **modernization fork** of the [Smithers888/PonyPaper](https
 - **Installs alongside upstream** — application id `io.github.derram.ponypaper` (does not replace the original app)
 - **Target frame rate** — prefer 30 / 60 / 90 / 120 FPS (default 60); motion is delta-time based so pony speed stays consistent
 - **Battery Saver support** — optional respect for system Battery Saver (default on): cap at 25 FPS, at most 3 ponies, and solid-colour backgrounds instead of images
-- **On-battery power profile** — optional prefs to force default FPS (30), default pony count (4), and/or disable image backgrounds while unplugged
+- **On-battery power profile** — optional prefs to force default FPS (60), default pony count (4), and/or disable image backgrounds while unplugged
 - **Up to 14 ponies** on screen (11 wasn't loud enough)
 - **Discrete gaits** — stroll, walk, and trot for more varied movement
 - **Hold-to-drag** — press and hold a pony to drag it; no more accidentally jostling ponies when swiping the home screen

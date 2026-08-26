@@ -1,6 +1,7 @@
 package uk.cpjsmith.ponypaper;
 
 import android.content.res.Resources;
+import android.graphics.Bitmap;
 import android.util.Log;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
@@ -24,6 +25,11 @@ import java.util.concurrent.ThreadFactory;
  *
  * <p>Pin/unpin is per owning {@link PonyAction} load/unload. Gait aliases still
  * delegate to the owner so one pony contributes at most one pin per sheet.
+ *
+ * <p>On API 26+, published sheets prefer a HARDWARE bitmap and drop the CPU
+ * copy while no host holds a {@link #addCpuDemand} (software-canvas fallback).
+ * Demand re-decodes CPU pixels for pinned sheets via the retained factory;
+ * releasing the last demand uploads again and drops CPU copies.
  */
 final class SpriteCache {
 
@@ -34,6 +40,11 @@ final class SpriteCache {
     private static final IdentityHashMap<SpriteSheet, Entry> BY_SHEET =
             new IdentityHashMap<SpriteSheet, Entry>();
     private static final HashMap<String, InFlight> IN_FLIGHT = new HashMap<String, InFlight>();
+    private static final ArrayList<Runnable> CPU_WAITERS = new ArrayList<Runnable>();
+
+    /** Hosts that need software-canvas blit (refcount). */
+    private static int cpuDemand = 0;
+    private static boolean cpuEnsureInFlight = false;
 
     private static final Executor DECODE_EXECUTOR = Executors.newSingleThreadExecutor(new ThreadFactory() {
         @Override
@@ -46,11 +57,13 @@ final class SpriteCache {
 
     private static final class Entry {
         final String key;
+        final SheetFactory factory;
         final SpriteSheet sheet;
         int refs;
 
-        Entry(String key, SpriteSheet sheet) {
+        Entry(String key, SheetFactory factory, SpriteSheet sheet) {
             this.key = key;
+            this.factory = factory;
             this.sheet = sheet;
             this.refs = 0;
         }
@@ -65,6 +78,18 @@ final class SpriteCache {
         InFlight(String key, SheetFactory factory) {
             this.key = key;
             this.factory = factory;
+        }
+    }
+
+    private static final class CpuReload {
+        final String key;
+        final SheetFactory factory;
+        final SpriteSheet sheet;
+
+        CpuReload(String key, SheetFactory factory, SpriteSheet sheet) {
+            this.key = key;
+            this.factory = factory;
+            this.sheet = sheet;
         }
     }
 
@@ -197,15 +222,85 @@ final class SpriteCache {
         return pin;
     }
 
+    /**
+     * Declare that a host needs CPU-resident sprite pixels (software
+     * {@code lockCanvas}). Re-decodes any HARDWARE-only pinned sheets on the
+     * decode thread. {@code whenReady} runs on that thread when every published
+     * sheet has a CPU bitmap (or immediately if already satisfied).
+     */
+    static void addCpuDemand(Runnable whenReady) {
+        final ArrayList<Runnable> readyNow;
+        synchronized (LOCK) {
+            cpuDemand++;
+            if (whenReady != null) {
+                CPU_WAITERS.add(whenReady);
+            }
+            if (allHaveCpuLocked()) {
+                readyNow = takeCpuWaitersLocked();
+            } else {
+                readyNow = null;
+                if (!cpuEnsureInFlight) {
+                    cpuEnsureInFlight = true;
+                    DECODE_EXECUTOR.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            ensureCpuBitmapsWork();
+                        }
+                    });
+                }
+            }
+        }
+        runAll(readyNow);
+    }
+
+    /**
+     * Drop one software-canvas CPU demand. When the count reaches zero, upload
+     * any missing HARDWARE copies and recycle CPU bitmaps again.
+     */
+    static void removeCpuDemand() {
+        final ArrayList<SpriteSheet> toTrim;
+        synchronized (LOCK) {
+            if (cpuDemand > 0) {
+                cpuDemand--;
+            }
+            if (cpuDemand != 0) {
+                return;
+            }
+            toTrim = new ArrayList<SpriteSheet>(BY_SHEET.size());
+            for (Entry entry : BY_KEY.values()) {
+                toTrim.add(entry.sheet);
+            }
+        }
+        for (int i = 0; i < toTrim.size(); i++) {
+            SpriteSheet sheet = toTrim.get(i);
+            if (sheet == null) {
+                continue;
+            }
+            if (!sheet.hasHardwareBitmap() && sheet.hasCpuBitmap()) {
+                sheet.uploadToGpu();
+            }
+            synchronized (LOCK) {
+                if (cpuDemand > 0) {
+                    return;
+                }
+                if (BY_SHEET.get(sheet) == null) {
+                    continue;
+                }
+                if (sheet.hasHardwareBitmap()) {
+                    sheet.recycleCpuBitmap();
+                }
+            }
+        }
+    }
+
     private static void finishDecode(InFlight inflight) {
         SpriteSheet created = null;
         RuntimeException err = null;
         try {
             created = inflight.factory.create();
-            if (created == null || created.bitmap == null) {
+            if (created == null || !created.hasCpuBitmap()) {
                 err = new IllegalArgumentException("Failed to decode sprite sheet");
             } else {
-                // CPU bitmap kept for software lockCanvas; HW copy for lockHardwareCanvas.
                 created.uploadToGpu();
             }
         } catch (RuntimeException e) {
@@ -233,12 +328,108 @@ final class SpriteCache {
                 }
                 return;
             }
-            Entry entry = new Entry(inflight.key, created);
+            // Prefer HW-only when no software host needs CPU pixels.
+            if (cpuDemand == 0 && created.hasHardwareBitmap()) {
+                created.recycleCpuBitmap();
+            }
+            Entry entry = new Entry(inflight.key, inflight.factory, created);
             entry.refs = inflight.refs;
             BY_KEY.put(inflight.key, entry);
             BY_SHEET.put(created, entry);
             for (int i = 0; i < inflight.waiters.size(); i++) {
                 inflight.waiters.get(i).sheet = created;
+            }
+        }
+    }
+
+    private static void ensureCpuBitmapsWork() {
+        final ArrayList<CpuReload> jobs = new ArrayList<CpuReload>();
+        synchronized (LOCK) {
+            for (Entry entry : BY_KEY.values()) {
+                if (!entry.sheet.hasCpuBitmap()) {
+                    jobs.add(new CpuReload(entry.key, entry.factory, entry.sheet));
+                }
+            }
+        }
+        for (int i = 0; i < jobs.size(); i++) {
+            CpuReload job = jobs.get(i);
+            Bitmap cpu = null;
+            try {
+                SpriteSheet tmp = job.factory.create();
+                if (tmp != null) {
+                    cpu = tmp.detachCpuBitmap();
+                    tmp.recycle();
+                }
+            } catch (RuntimeException e) {
+                Log.e(TAG, "CPU sprite reload failed for " + job.key, e);
+                if (cpu != null && !cpu.isRecycled()) {
+                    cpu.recycle();
+                }
+                cpu = null;
+            }
+            synchronized (LOCK) {
+                Entry live = BY_KEY.get(job.key);
+                if (live == null || live.sheet != job.sheet) {
+                    if (cpu != null && !cpu.isRecycled()) {
+                        cpu.recycle();
+                    }
+                    continue;
+                }
+                if (cpuDemand <= 0) {
+                    if (cpu != null && !cpu.isRecycled()) {
+                        cpu.recycle();
+                    }
+                    continue;
+                }
+                if (live.sheet.hasCpuBitmap()) {
+                    if (cpu != null && !cpu.isRecycled()) {
+                        cpu.recycle();
+                    }
+                    continue;
+                }
+                if (cpu != null) {
+                    live.sheet.installCpuBitmap(cpu);
+                }
+            }
+        }
+
+        final ArrayList<Runnable> ready;
+        synchronized (LOCK) {
+            cpuEnsureInFlight = false;
+            // finishDecode keeps CPU while cpuDemand > 0, so one pass covers
+            // published sheets. Failed reloads stay undrawable on software;
+            // still notify waiters so the host can redraw.
+            ready = takeCpuWaitersLocked();
+        }
+        runAll(ready);
+    }
+
+    private static boolean allHaveCpuLocked() {
+        for (Entry entry : BY_KEY.values()) {
+            if (!entry.sheet.hasCpuBitmap()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static ArrayList<Runnable> takeCpuWaitersLocked() {
+        if (CPU_WAITERS.isEmpty()) {
+            return null;
+        }
+        ArrayList<Runnable> out = new ArrayList<Runnable>(CPU_WAITERS);
+        CPU_WAITERS.clear();
+        return out;
+    }
+
+    private static void runAll(ArrayList<Runnable> runnables) {
+        if (runnables == null) {
+            return;
+        }
+        for (int i = 0; i < runnables.size(); i++) {
+            Runnable r = runnables.get(i);
+            if (r != null) {
+                r.run();
             }
         }
     }

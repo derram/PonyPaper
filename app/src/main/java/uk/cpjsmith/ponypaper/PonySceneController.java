@@ -220,6 +220,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private int lastBgDestTop = Integer.MIN_VALUE;
     /** False after {@link HardwareCanvasSupport#lock} fails for this controller. */
     private boolean hardwareCanvasAllowed = true;
+    /**
+     * True while this controller holds a {@link SpriteCache#addCpuDemand} for
+     * software-canvas sprite blits (HARDWARE-only sheets need a CPU reload).
+     */
+    private boolean cpuSpriteDemandHeld = false;
     /** Last FPS pushed to {@link Surface#setFrameRate}; negative means unset. */
     private float lastSurfaceFps = -1f;
     /**
@@ -344,6 +349,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         SharedPreferences prefs = getPreferences();
         int wasEffectivePonies = getEffectivePonyCount(prefs);
         hardwareCanvasAllowed = true;
+        // HW path again: drop this host's CPU sprite demand so the cache can
+        // return to HARDWARE-only residency when no software host remains.
+        releaseCpuSpriteDemand();
         if (!started) return;
         applyTargetFps(prefs);
         int nowEffectivePonies = getEffectivePonyCount(prefs);
@@ -381,6 +389,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         started = true;
         Log.d("PonyPaper", "Controller starting...");
         PonySize.ensureDefault(appContext);
+        TargetFps.ensureDefault(appContext);
         ensureIdleTimeoutDefault(appContext);
         getPreferences().registerOnSharedPreferenceChangeListener(this);
         powerSaveMode = isSystemPowerSaveMode();
@@ -427,6 +436,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         handler.removeCallbacks(coalescedDropHerd);
         dropHerd();
         recycleDisplayedBackground();
+        releaseCpuSpriteDemand();
         thermalEmergency = false;
         thermalThrottle = false;
     }
@@ -1714,9 +1724,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     /**
      * Software composition mode for this surface generation: no more HW locks,
-     * no image background (HARDWARE-only BG cannot be blitted on software), and
-     * FPS/pony count capped to defaults. Called from {@link #lockFrameCanvas}
-     * mid-draw, so herd unload is deferred via {@link #scheduleDropHerd()}.
+     * no image background (HARDWARE-only BG cannot be blitted on software),
+     * CPU sprite reload via {@link SpriteCache#addCpuDemand}, and FPS/pony count
+     * capped to defaults. Called from {@link #lockFrameCanvas} mid-draw, so herd
+     * unload (when the pony cap changes) is deferred via {@link #scheduleDropHerd()}.
      */
     private void enterSoftwareCanvasFallback() {
         if (!hardwareCanvasAllowed) return;
@@ -1726,11 +1737,47 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         recycleDisplayedBackground();
         forceSceneRedraw = true;
         applyTargetFps(prefs);
+        acquireCpuSpriteDemand();
         Log.w("PonyPaper", "Software canvas fallback: image background disabled; "
-                + "FPS/ponies capped to defaults");
+                + "FPS/ponies capped to defaults; reloading CPU sprites");
         if (!frozen && wasEffectivePonies != getEffectivePonyCount(prefs)) {
             scheduleDropHerd();
         }
+    }
+
+    /**
+     * Ask {@link SpriteCache} to keep / re-decode CPU sprite bitmaps for
+     * software blits. Idempotent per controller; redraws when reload finishes.
+     */
+    private void acquireCpuSpriteDemand() {
+        if (cpuSpriteDemandHeld) return;
+        cpuSpriteDemandHeld = true;
+        SpriteCache.addCpuDemand(new Runnable() {
+            @Override
+            public void run() {
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!started || hardwareCanvasAllowed || !cpuSpriteDemandHeld) {
+                            return;
+                        }
+                        forceSceneRedraw = true;
+                        if (active && !frozen && !thermalEmergency
+                                && surface.isDrawingEnabled()) {
+                            lastFrameUptimeMs = 0;
+                            drawFrame();
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    /** Drop this controller's {@link SpriteCache#addCpuDemand} if held. */
+    private void releaseCpuSpriteDemand() {
+        if (!cpuSpriteDemandHeld) return;
+        cpuSpriteDemandHeld = false;
+        SpriteCache.removeCpuDemand();
     }
 
     private void applySurfaceFrameRate(SurfaceHolder holder, float fps) {
