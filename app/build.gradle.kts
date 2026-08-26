@@ -77,6 +77,10 @@ android {
     }
 }
 
+// Align transitive Kotlin artifacts. Without this, kotlin-stdlib resolves to
+// 1.8.22 (from AndroidX) while kotlinx-coroutines still pulls
+// kotlin-stdlib-jdk7/jdk8:1.6.21, and check*DuplicateClasses fails because
+// those JDK7/8 APIs were folded into kotlin-stdlib in 1.8+.
 configurations.all {
     resolutionStrategy.eachDependency {
         if (requested.group == "org.jetbrains.kotlin") {
