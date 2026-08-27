@@ -2,7 +2,7 @@
 
 I.e. adding extra ponies (griffons, dragons, etc.) to PonyPaper that aren't available by default. This can mean anything from your own OC to characters from the fandom or even canon characters that I haven't added yet (and how could I possibly not have added *insert name here* because they are clearly **best horse**).
 
-![Examples](screenshots/custom-header.png)
+![Examples](/screenshots/custom-header.png)
 
 ## Overview
 PonyPaper represent each custom pony as a single XML file.
@@ -37,7 +37,7 @@ The file [twilight-sparkle.xml](/custom/twilight-sparkle.xml) contains a copy of
 
 ## The Editor
 
-![Editor screenshot](screenshots/custom-editor.png)
+![Editor screenshot](/screenshots/custom-editor.png)
 
 ### Download (recommended)
 
