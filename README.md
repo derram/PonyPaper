@@ -1,28 +1,74 @@
+<!-- <img src="header.png" width="100%" alt="PonyPaper Header"> -->
+
 # PonyPaper (modern fork)
+
+[![Latest Release](https://img.shields.io/github/v/release/derram/PonyPaper?style=flat-square)](https://github.com/derram/PonyPaper/releases/latest)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/derram/PonyPaper/release.yml?branch=master&style=flat-square)](https://github.com/derram/PonyPaper/actions)
+[![Min SDK](https://img.shields.io/badge/Min%20SDK-21%20(5.0)-brightgreen?style=flat-square)](https://developer.android.com/about/dashboards)
+[![License](https://img.shields.io/badge/License-CC%20BY--NC--SA%203.0-orange?style=flat-square)](http://creativecommons.org/licenses/by-nc-sa/3.0/)
 
 A live wallpaper for Android using pixel-art sprites of characters from *My Little Pony: Friendship is Magic*.
 
 This repository is a **modernization fork** of the [Smithers888/PonyPaper](https://github.com/Smithers888/PonyPaper) project. Upstream Ant tooling and an ancient `targetSdk` no longer build or install cleanly on current Android. This fork targets a Gradle-based build and modern SDK levels so you can produce **debug/sideload APKs** without upstream signing keys.
 
-### Features in this fork
+---
 
-- **Modern Gradle build** — builds and installs on current Android (minSdk 21); signed release APKs and editor JARs via GitHub/Gitea Actions
-- **Installs alongside upstream** — application id `io.github.derram.ponypaper` (does not replace the original app)
-- **Target frame rate** — prefer 30 / 60 / 90 / 120 FPS (default 60); motion is delta-time based so pony speed stays consistent
-- **Battery Saver support** — optional respect for system Battery Saver (default on): cap at 25 FPS, at most 3 ponies, and solid-colour backgrounds instead of images
-- **On-battery power profile** — optional prefs to force default FPS (60), default pony count (4), and/or disable image backgrounds while unplugged
-- **Up to 14 ponies** on screen (11 wasn't loud enough)
-- **Discrete gaits** — stroll, walk, and trot for more varied movement
-- **Hold-to-drag** — press and hold a pony to drag it; no more accidentally jostling ponies when swiping the home screen
-- **Import from Desktop Ponies** — updated custom character editor can import a folder from DP and build an xml file for use with PP
-- **Optional screen saver** — wallpaper and screensaver can be enabled/disabled independently, uses the same herd and settings; enable under system Display settings. Idle timeout (default 10 minutes, or never) ends the saver after no touch so the display can sleep
-- **Optional screensaver clock** — large digital clock, with optional date, drawn over the herd; 12/24-hour follows the system setting
-- **Crash and stability fixes** — safer canvas handling, preference listener cleanup, hardened custom-pony import, sprite bitmap recycling
-- **Custom pony library** — export/import a zip of custom ponies, the background, and saved mixes; optional user-owned folder (survives uninstall; reconnect once after reinstall)
-- **Waifu selector** — best pony should always come first
+### 🚀 [Download Latest APK](https://github.com/derram/PonyPaper/releases/latest)
 
-<img src='screenshots/screen1.png' width='180'> <img src='screenshots/screen2.png' width='180'> <img src='screenshots/screen3.png' width='180'> <img src='screenshots/preview.png' width='180'>  <img src='screenshots/preferences1.png' width='180'> <img src='screenshots/preferences2.png' width='180'> <img src='screenshots/screensaver.png' width='180'> <img src='screenshots/custom.png' width='180'>
+---
 
+## Table of Contents
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Installation](#install-from-releases)
+  - [Wallpaper (Android)](#wallpaper-android)
+  - [Custom Editor (Desktop)](#custom-pony-editor-desktop)
+- [Android Install Warnings](#android-install-warnings)
+- [Building](#building)
+- [Technical Stack](#technical-stack)
+- [Licensing / Credits](#licensing--credits)
+
+## Features
+
+### ⚡ Performance & Battery
+- **Modern Gradle build** — builds and installs on current Android (minSdk 21); signed release APKs and editor JARs via GitHub/Gitea Actions.
+- **Target frame rate** — prefer 30 / 60 / 90 / 120 FPS (default 60); motion is delta-time based so pony speed stays consistent.
+- **Battery Saver support** — optional respect for system Battery Saver (default on): cap at 25 FPS, at most 3 ponies, and solid-colour backgrounds instead of images.
+- **On-battery power profile** — optional prefs to force default FPS (60), default pony count (4), and/or disable image backgrounds while unplugged.
+
+### 🐎 The Herd & Customization
+- **Up to 14 ponies** on screen (11 wasn't loud enough).
+- **Discrete gaits** — stroll, walk, and trot for more varied movement.
+- **Hold-to-drag** — press and hold a pony to drag it; no more accidentally jostling ponies when swiping the home screen.
+- **Import from Desktop Ponies** — updated custom character editor can import a folder from DP and build an xml file for use with PP.
+- **Custom pony library** — export/import a zip of custom ponies, the background, and saved mixes; optional user-owned folder (survives uninstall).
+- **Waifu selector** — best pony should always come first.
+
+### 🌙 Screen Saver
+- **Optional screen saver** — wallpaper and screensaver can be enabled/disabled independently, uses the same herd and settings.
+- **Optional screensaver clock** — large digital clock, with optional date, drawn over the herd; 12/24-hour follows the system setting.
+- **Idle timeout** — (default 10 minutes, or never) ends the saver after no touch so the display can sleep.
+
+### 🛠️ Stability & Fixes
+- **Installs alongside upstream** — application id `io.github.derram.ponypaper`.
+- **Crash and stability fixes** — safer canvas handling, preference listener cleanup, hardened custom-pony import, sprite bitmap recycling.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td><img src='screenshots/screen1.png' width='180'></td>
+    <td><img src='screenshots/screen2.png' width='180'></td>
+    <td><img src='screenshots/screen3.png' width='180'></td>
+    <td><img src='screenshots/preview.png' width='180'></td>
+  </tr>
+  <tr>
+    <td><img src='screenshots/preferences1.png' width='180'></td>
+    <td><img src='screenshots/preferences2.png' width='180'></td>
+    <td><img src='screenshots/screensaver.png' width='180'></td>
+    <td><img src='screenshots/custom.png' width='180'></td>
+  </tr>
+</table>
 
 ## Install (from Releases)
 
@@ -62,6 +108,13 @@ Requirements: Android **5.0+** (`minSdk 21`). Live wallpapers must be supported 
 ## Building
 
 See [BUILDING.md](BUILDING.md) for debug builds, local signed releases, and the GitHub/Gitea release workflow.
+
+## Technical Stack
+- **Language:** Java 17
+- **Build System:** Gradle (modernized from Ant)
+- **Min SDK:** 21 (Android 5.0)
+- **Target SDK:** 35 (Android 15)
+- **Architecture:** Android Live Wallpaper / DreamService
 
 ## Licensing / credits
 
