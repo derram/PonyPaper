@@ -27,6 +27,8 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import javax.imageio.ImageIO;
+import java.awt.Component;
+import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListModel;
@@ -43,7 +45,9 @@ import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JSplitPane;
 import javax.swing.JTextField;
+import javax.swing.JToolBar;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
@@ -83,7 +87,7 @@ public class PonyEditorGUI extends JPanel {
             public void update(DocumentEvent e) {
                 if (currentIndex >= 0) {
                     editor.setActionSpecial(currentIndex, specialTypeField.getText());
-                    hasChanges = true;
+                    setDirty(true);
                 }
             }
         };
@@ -123,7 +127,7 @@ public class PonyEditorGUI extends JPanel {
                 } else {
                     editor.setActionAnchorY(currentIndex, direction, Float.NaN);
                 }
-                hasChanges = true;
+                setDirty(true);
                 return;
             }
             try {
@@ -134,7 +138,7 @@ public class PonyEditorGUI extends JPanel {
                     } else {
                         editor.setActionAnchorY(currentIndex, direction, value);
                     }
-                    hasChanges = true;
+                    setDirty(true);
                 }
             } catch (NumberFormatException ex) {
                 // Leave previous value until the field parses cleanly.
@@ -152,7 +156,7 @@ public class PonyEditorGUI extends JPanel {
                         float speed = Float.parseFloat(text);
                         if (speed > 0f && !Float.isNaN(speed)) {
                             editor.setActionSpeed(currentIndex, speed);
-                            hasChanges = true;
+                            setDirty(true);
                         }
                     } catch (NumberFormatException ex) {
                         // Leave previous value until the field parses cleanly.
@@ -165,7 +169,7 @@ public class PonyEditorGUI extends JPanel {
             public void actionPerformed(ActionEvent e) {
                 if (currentIndex >= 0) {
                     editor.setActionLoops(currentIndex, loopCheckBox.isSelected());
-                    hasChanges = true;
+                    setDirty(true);
                 }
             }
         };
@@ -175,7 +179,7 @@ public class PonyEditorGUI extends JPanel {
                 if (currentIndex >= 0) {
                     try {
                         editor.setActionSpritesFrom(currentIndex, spritesFromField.getText());
-                        hasChanges = true;
+                        setDirty(true);
                         refreshSpriteFieldsFromEditor();
                     } catch (IllegalArgumentException ex) {
                         // Incomplete name while typing, or invalid owner — keep typing.
@@ -189,7 +193,7 @@ public class PonyEditorGUI extends JPanel {
                 if (currentIndex >= 0) {
                     try {
                         editor.setActionGaits(currentIndex, gaitsField.getText());
-                        hasChanges = true;
+                        setDirty(true);
                     } catch (IllegalArgumentException ex) {
                         // Incomplete gaits string while typing.
                     }
@@ -241,7 +245,7 @@ public class PonyEditorGUI extends JPanel {
                     if (!editor.getActionSpritesFrom(currentIndex).equals(spritesFromField.getText())) {
                         spritesFromField.setText(editor.getActionSpritesFrom(currentIndex));
                     }
-                    hasChanges = true;
+                    setDirty(true);
                 }
             }
         };
@@ -289,7 +293,7 @@ public class PonyEditorGUI extends JPanel {
                     if (!editor.getActionSpritesFrom(currentIndex).equals(spritesFromField.getText())) {
                         spritesFromField.setText(editor.getActionSpritesFrom(currentIndex));
                     }
-                    hasChanges = true;
+                    setDirty(true);
                 }
             }
         };
@@ -298,7 +302,7 @@ public class PonyEditorGUI extends JPanel {
             public void update(DocumentEvent e) {
                 if (currentIndex >= 0) {
                     editor.setActionNext(currentIndex, "waiting", nextWaitingField.getText());
-                    hasChanges = true;
+                    setDirty(true);
                 }
             }
         };
@@ -307,7 +311,7 @@ public class PonyEditorGUI extends JPanel {
             public void update(DocumentEvent e) {
                 if (currentIndex >= 0) {
                     editor.setActionNext(currentIndex, "moving", nextMovingField.getText());
-                    hasChanges = true;
+                    setDirty(true);
                 }
             }
         };
@@ -316,7 +320,7 @@ public class PonyEditorGUI extends JPanel {
             public void update(DocumentEvent e) {
                 if (currentIndex >= 0) {
                     editor.setActionNext(currentIndex, "drag", nextDragField.getText());
-                    hasChanges = true;
+                    setDirty(true);
                 }
             }
         };
@@ -364,31 +368,100 @@ public class PonyEditorGUI extends JPanel {
         int currentIndex;
         
         ActionPanel() {
-            super(new GridBagLayout());
-            
-            ((GridBagLayout)getLayout()).columnWeights = new double[] { 0.0, 1.0 };
-            GridBagConstraints c;
-            
-            JLabel specialTypeLabel = new JLabel("Special type:");
-            c = getConstraints(0, 0);
-            c.anchor = GridBagConstraints.WEST;
-            add(specialTypeLabel, c);
-            
+            super(new BorderLayout());
+
+            JPanel identity = newSection("Identity & motion");
+            JPanel anchors = newSection("Anchors");
+            JPanel leftSprites = newSection("Sprites — left");
+            JPanel rightSprites = newSection("Sprites — right");
+            JPanel transitions = newSection("Transitions");
+
+            // --- Identity & motion ---
             specialTypeField = new JTextField();
+            constrainGrowableField(specialTypeField);
             specialTypeField.setToolTipText("Usually blank. teleport-out / teleport-in jump to a "
                     + "destination. screen-in appears on-screen; screen-out vanishes in place "
                     + "(1-in-8 leave chance, same as walking off).");
             specialTypeField.getDocument().addDocumentListener(specialTypeListener);
-            c = getConstraints(1, 0);
-            c.weighty = 1.0;
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(specialTypeField, c);
+            addFormRow(identity, 0, new JLabel("Special type:"), specialTypeField, 1.0);
 
-            JLabel anchorLeftLabel = new JLabel("Anchors left (X,Y):");
-            c = getConstraints(0, 1);
-            c.anchor = GridBagConstraints.WEST;
-            add(anchorLeftLabel, c);
+            speedField = new JTextField();
+            speedField.setToolTipText("Travel/animation factor. Typical gaits: 0.5 stroll, 0.7 walk, 1.0 trot.");
+            speedField.getDocument().addDocumentListener(speedListener);
+            addFormRow(identity, 1, new JLabel("Speed:"), speedField, 1.0);
 
+            loopCheckBox = new JCheckBox("Loop while active");
+            loopCheckBox.setSelected(true);
+            loopCheckBox.setToolTipText("Uncheck for one-shot transitions (intros/outros/reactions). "
+                    + "After one play, advances via Next waiting/moving or Default drag / drag override.");
+            loopCheckBox.addActionListener(loopListener);
+            addFormRow(identity, 2, new JLabel("Loop animation:"), loopCheckBox, 1.0, GridBagConstraints.WEST, false);
+
+            spritesFromField = new JTextField();
+            spritesFromField.setToolTipText("Reuse another action's bitmaps (leave empty to own sprites). "
+                    + "Alias needs only speed + next lists. Tab completes owner action names.");
+            spritesFromField.getDocument().addDocumentListener(spritesFromListener);
+            ActionNameCompleter.install(spritesFromField, new ActionNameCompleter.CandidateSource() {
+                @Override
+                public List<String> getCandidates() {
+                    return ActionNameCompleter.spriteOwnerCandidates(editor);
+                }
+            }, false);
+            addFormRow(identity, 3, new JLabel("Sprites from:"), spritesFromField, 1.0);
+
+            gaitsField = new JTextField();
+            constrainGrowableField(gaitsField);
+            gaitsField.setToolTipText("Load-time bag speed:weight,... e.g. 0.5:1,0.7:3,1:1. Empty = single speed.");
+            gaitsField.getDocument().addDocumentListener(gaitsListener);
+            gaitsDefaultButton = new JButton("Ground");
+            gaitsDefaultButton.setToolTipText("Built-in ground bag: 0.5:1,0.7:3,1:1");
+            gaitsDefaultButton.setMargin(new Insets(2, 6, 2, 6));
+            gaitsDefaultButton.addActionListener(new ActionListener() {
+                public void actionPerformed(ActionEvent e) {
+                    if (currentIndex >= 0) {
+                        editor.applyDefaultGaits(currentIndex);
+                        gaitsField.setText(editor.getActionGaits(currentIndex));
+                        setDirty(true);
+                    }
+                }
+            });
+            gaitsIdleButton = new JButton("Idle");
+            gaitsIdleButton.setToolTipText("Built-in idle bag: 1:1,0.7:1");
+            gaitsIdleButton.setMargin(new Insets(2, 6, 2, 6));
+            gaitsIdleButton.addActionListener(new ActionListener() {
+                public void actionPerformed(ActionEvent e) {
+                    if (currentIndex >= 0) {
+                        editor.applyDefaultIdleGaits(currentIndex);
+                        gaitsField.setText(editor.getActionGaits(currentIndex));
+                        setDirty(true);
+                    }
+                }
+            });
+            gaitsClearButton = new JButton("Clear");
+            gaitsClearButton.setToolTipText("Remove gait expansion");
+            gaitsClearButton.setMargin(new Insets(2, 6, 2, 6));
+            gaitsClearButton.addActionListener(new ActionListener() {
+                public void actionPerformed(ActionEvent e) {
+                    if (currentIndex >= 0) {
+                        editor.setActionGaits(currentIndex, "");
+                        gaitsField.setText("");
+                        setDirty(true);
+                    }
+                }
+            });
+            addFormRow(identity, 4, new JLabel("Gaits:"),
+                    wrapGaitsField(gaitsField, gaitsDefaultButton, gaitsIdleButton, gaitsClearButton), 1.0);
+
+            cloneGaitButton = new JButton("Clone as gait…");
+            cloneGaitButton.setToolTipText("Create a new action that reuses this action's sprites at another speed.");
+            cloneGaitButton.addActionListener(new ActionListener() {
+                public void actionPerformed(ActionEvent e) {
+                    cloneAsGait();
+                }
+            });
+            addFormRow(identity, 5, new JLabel(""), cloneGaitButton, 0.0, GridBagConstraints.WEST, true);
+
+            // --- Anchors ---
             anchorXLeftField = new JTextField();
             anchorXLeftField.setToolTipText("Optional. Left sheet feet column in pixels from the left of "
                     + "each frame. Leave empty for frame centre. Often differs from right when sheets are mirrors.");
@@ -404,19 +477,12 @@ public class PonyEditorGUI extends JPanel {
                     pickAnchors("left");
                 }
             });
-            c = getConstraints(1, 1);
-            c.weighty = 1.0;
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapAnchorRow(anchorXLeftField, anchorYLeftField, pickAnchorsLeftButton), c);
-
-            JLabel anchorRightLabel = new JLabel("Anchors right (X,Y):");
-            c = getConstraints(0, 2);
-            c.anchor = GridBagConstraints.WEST;
-            add(anchorRightLabel, c);
+            addFormRow(anchors, 0, new JLabel("Left (X,Y):"),
+                    wrapAnchorRow(anchorXLeftField, anchorYLeftField, pickAnchorsLeftButton), 1.0);
 
             anchorXRightField = new JTextField();
             anchorXRightField.setToolTipText("Optional. Right sheet feet column in pixels from the left of "
-                    + "each frame. Leave empty for frame centre. Often differs from left when sheets are mirrors.");
+                    + "each frame. Leave empty for frame centre. Often differs from left when sheets are horizontal mirrors.");
             anchorXRightField.getDocument().addDocumentListener(anchorXRightListener);
             anchorYRightField = new JTextField();
             anchorYRightField.setToolTipText("Optional. Right sheet feet row in pixels from the top of each "
@@ -437,142 +503,23 @@ public class PonyEditorGUI extends JPanel {
                     checkTransitions();
                 }
             });
-            c = getConstraints(1, 2);
-            c.weighty = 1.0;
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapAnchorRow(anchorXRightField, anchorYRightField, pickAnchorsRightButton, checkTransitionsButton), c);
+            addFormRow(anchors, 1, new JLabel("Right (X,Y):"),
+                    wrapAnchorRow(anchorXRightField, anchorYRightField, pickAnchorsRightButton, checkTransitionsButton), 1.0);
 
-            JLabel speedLabel = new JLabel("Speed:");
-            c = getConstraints(0, 3);
-            c.anchor = GridBagConstraints.WEST;
-            add(speedLabel, c);
-
-            speedField = new JTextField();
-            speedField.setToolTipText("Travel/animation factor. Typical gaits: 0.5 stroll, 0.7 walk, 1.0 trot.");
-            speedField.getDocument().addDocumentListener(speedListener);
-            c = getConstraints(1, 3);
-            c.weighty = 1.0;
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(speedField, c);
-
-            JLabel loopLabel = new JLabel("Loop animation:");
-            c = getConstraints(0, 4);
-            c.anchor = GridBagConstraints.WEST;
-            add(loopLabel, c);
-
-            loopCheckBox = new JCheckBox("Loop while active");
-            loopCheckBox.setSelected(true);
-            loopCheckBox.setToolTipText("Uncheck for one-shot transitions (intros/outros/reactions). "
-                    + "After one play, advances via Next waiting/moving or Default drag / drag override.");
-            loopCheckBox.addActionListener(loopListener);
-            c = getConstraints(1, 4);
-            c.weighty = 1.0;
-            c.anchor = GridBagConstraints.WEST;
-            add(loopCheckBox, c);
-
-            JLabel spritesFromLabel = new JLabel("Sprites from:");
-            c = getConstraints(0, 5);
-            c.anchor = GridBagConstraints.WEST;
-            add(spritesFromLabel, c);
-
-            spritesFromField = new JTextField();
-            spritesFromField.setToolTipText("Reuse another action's bitmaps (leave empty to own sprites). "
-                    + "Alias needs only speed + next lists. Tab completes owner action names.");
-            spritesFromField.getDocument().addDocumentListener(spritesFromListener);
-            ActionNameCompleter.install(spritesFromField, new ActionNameCompleter.CandidateSource() {
-                @Override
-                public List<String> getCandidates() {
-                    return ActionNameCompleter.spriteOwnerCandidates(editor);
-                }
-            }, false);
-            c = getConstraints(1, 5);
-            c.weighty = 1.0;
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(spritesFromField, c);
-
-            JLabel gaitsLabel = new JLabel("Gaits:");
-            c = getConstraints(0, 6);
-            c.anchor = GridBagConstraints.WEST;
-            add(gaitsLabel, c);
-
-            gaitsField = new JTextField();
-            gaitsField.setToolTipText("Load-time bag speed:weight,... e.g. 0.5:1,0.7:3,1:1. Empty = single speed.");
-            gaitsField.getDocument().addDocumentListener(gaitsListener);
-            gaitsDefaultButton = new JButton("Ground");
-            gaitsDefaultButton.setToolTipText("Built-in ground bag: 0.5:1,0.7:3,1:1");
-            gaitsDefaultButton.setMargin(new java.awt.Insets(2, 6, 2, 6));
-            gaitsDefaultButton.addActionListener(new ActionListener() {
-                public void actionPerformed(ActionEvent e) {
-                    if (currentIndex >= 0) {
-                        editor.applyDefaultGaits(currentIndex);
-                        gaitsField.setText(editor.getActionGaits(currentIndex));
-                        hasChanges = true;
-                    }
-                }
-            });
-            gaitsIdleButton = new JButton("Idle");
-            gaitsIdleButton.setToolTipText("Built-in idle bag: 1:1,0.7:1");
-            gaitsIdleButton.setMargin(new java.awt.Insets(2, 6, 2, 6));
-            gaitsIdleButton.addActionListener(new ActionListener() {
-                public void actionPerformed(ActionEvent e) {
-                    if (currentIndex >= 0) {
-                        editor.applyDefaultIdleGaits(currentIndex);
-                        gaitsField.setText(editor.getActionGaits(currentIndex));
-                        hasChanges = true;
-                    }
-                }
-            });
-            gaitsClearButton = new JButton("Clear");
-            gaitsClearButton.setToolTipText("Remove gait expansion");
-            gaitsClearButton.setMargin(new java.awt.Insets(2, 6, 2, 6));
-            gaitsClearButton.addActionListener(new ActionListener() {
-                public void actionPerformed(ActionEvent e) {
-                    if (currentIndex >= 0) {
-                        editor.setActionGaits(currentIndex, "");
-                        gaitsField.setText("");
-                        hasChanges = true;
-                    }
-                }
-            });
-            c = getConstraints(1, 6);
-            c.weighty = 1.0;
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapGaitsField(gaitsField, gaitsDefaultButton, gaitsIdleButton, gaitsClearButton), c);
-
-            cloneGaitButton = new JButton("Clone as gait…");
-            cloneGaitButton.setToolTipText("Create a new action that reuses this action's sprites at another speed.");
-            cloneGaitButton.addActionListener(new ActionListener() {
-                public void actionPerformed(ActionEvent e) {
-                    cloneAsGait();
-                }
-            });
-            c = getConstraints(1, 7);
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(cloneGaitButton, c);
-            
-            JLabel imageLeftLabel = new JLabel("Left sprite:");
-            c = getConstraints(0, 8);
-            c.anchor = GridBagConstraints.SOUTHWEST;
-            add(imageLeftLabel, c);
-            
+            // --- Left sprites ---
             imageLeftField = new JTextField();
             imageLeftField.setEditable(false);
-            c = getConstraints(1, 8);
-            c.weighty = 0.5;
-            c.anchor = GridBagConstraints.SOUTH;
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(imageLeftField, c);
-            
+            addFormRow(leftSprites, 0, new JLabel("Sheet:"), imageLeftField, 0.5);
+
             imageLeftPreview = new JButton("Preview");
             imageLeftPreview.addActionListener(previewLeftListener);
             imageLeftMirror = new JButton("Mirror to right");
             imageLeftMirror.setToolTipText(
                     "Build the right spritesheet by flopping each left frame (same order and timings).");
             imageLeftMirror.addActionListener(mirrorLeftListener);
-            c = getConstraints(1, 9);
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapTwoButtons(imageLeftPreview, imageLeftMirror), c);
-            
+            styleSecondary(imageLeftMirror);
+            addFormRow(leftSprites, 1, new JLabel(""), wrapTwoButtons(imageLeftPreview, imageLeftMirror), 0.0);
+
             imageLeftImport = new JButton("Import image");
             imageLeftImport.setToolTipText(
                     "Load a packed PNG strip as-is, or a GIF (coalesced and packed). "
@@ -591,19 +538,13 @@ public class PonyEditorGUI extends JPanel {
                     "Save each left cell as its own PNG (sheet width ÷ timings count). "
                             + "Use this instead of cropping the strip by hand.");
             imageLeftExportFrames.addActionListener(exportFramesLeftListener);
-            c = getConstraints(1, 10);
-            c.weighty = 0.5;
-            c.anchor = GridBagConstraints.NORTH;
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapImportExportButtons(
-                    imageLeftImport, imageLeftImportFrames, imageLeftExport, imageLeftExportFrames), c);
-            
-            JLabel timingsLeftLabel = new JLabel("Left timings:");
-            c = getConstraints(0, 11);
-            c.anchor = GridBagConstraints.WEST;
-            add(timingsLeftLabel, c);
-            
+            styleSecondary(imageLeftExport);
+            styleSecondary(imageLeftExportFrames);
+            addFormRow(leftSprites, 2, new JLabel(""), wrapImportExportButtons(
+                    imageLeftImport, imageLeftImportFrames, imageLeftExport, imageLeftExportFrames), 0.5);
+
             timingsLeftField = new JTextField();
+            constrainGrowableField(timingsLeftField);
             timingsLeftField.getDocument().addDocumentListener(timingsLeftListener);
             timingsLeftMinus = createTimingsAdjustButton("−", "Subtract 1 from all frame timings (Shift: −5)");
             timingsLeftPlus = createTimingsAdjustButton("+", "Add 1 to all frame timings (Shift: +5)");
@@ -617,34 +558,23 @@ public class PonyEditorGUI extends JPanel {
                     adjustTimingsField(timingsLeftField, e, 1);
                 }
             });
-            c = getConstraints(1, 11);
-            c.weighty = 1.0;
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapTimingsField(timingsLeftField, timingsLeftMinus, timingsLeftPlus), c);
-            
-            JLabel imageRightLabel = new JLabel("Right sprite:");
-            c = getConstraints(0, 12);
-            c.anchor = GridBagConstraints.SOUTHWEST;
-            add(imageRightLabel, c);
-            
+            addFormRow(leftSprites, 3, new JLabel("Timings:"),
+                    wrapTimingsField(timingsLeftField, timingsLeftMinus, timingsLeftPlus), 1.0);
+
+            // --- Right sprites ---
             imageRightField = new JTextField();
             imageRightField.setEditable(false);
-            c = getConstraints(1, 12);
-            c.weighty = 0.5;
-            c.anchor = GridBagConstraints.SOUTH;
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(imageRightField, c);
-            
+            addFormRow(rightSprites, 0, new JLabel("Sheet:"), imageRightField, 0.5);
+
             imageRightPreview = new JButton("Preview");
             imageRightPreview.addActionListener(previewRightListener);
             imageRightMirror = new JButton("Mirror to left");
             imageRightMirror.setToolTipText(
                     "Build the left spritesheet by flopping each right frame (same order and timings).");
             imageRightMirror.addActionListener(mirrorRightListener);
-            c = getConstraints(1, 13);
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapTwoButtons(imageRightPreview, imageRightMirror), c);
-            
+            styleSecondary(imageRightMirror);
+            addFormRow(rightSprites, 1, new JLabel(""), wrapTwoButtons(imageRightPreview, imageRightMirror), 0.0);
+
             imageRightImport = new JButton("Import image");
             imageRightImport.setToolTipText(
                     "Load a packed PNG strip as-is, or a GIF (coalesced and packed). "
@@ -663,19 +593,13 @@ public class PonyEditorGUI extends JPanel {
                     "Save each right cell as its own PNG (sheet width ÷ timings count). "
                             + "Use this instead of cropping the strip by hand.");
             imageRightExportFrames.addActionListener(exportFramesRightListener);
-            c = getConstraints(1, 14);
-            c.weighty = 0.5;
-            c.anchor = GridBagConstraints.NORTH;
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapImportExportButtons(
-                    imageRightImport, imageRightImportFrames, imageRightExport, imageRightExportFrames), c);
-            
-            JLabel timingsRightLabel = new JLabel("Right timings:");
-            c = getConstraints(0, 15);
-            c.anchor = GridBagConstraints.WEST;
-            add(timingsRightLabel, c);
-            
+            styleSecondary(imageRightExport);
+            styleSecondary(imageRightExportFrames);
+            addFormRow(rightSprites, 2, new JLabel(""), wrapImportExportButtons(
+                    imageRightImport, imageRightImportFrames, imageRightExport, imageRightExportFrames), 0.5);
+
             timingsRightField = new JTextField();
+            constrainGrowableField(timingsRightField);
             timingsRightField.getDocument().addDocumentListener(timingsRightListener);
             timingsRightMinus = createTimingsAdjustButton("−", "Subtract 1 from all frame timings (Shift: −5)");
             timingsRightPlus = createTimingsAdjustButton("+", "Add 1 to all frame timings (Shift: +5)");
@@ -689,18 +613,12 @@ public class PonyEditorGUI extends JPanel {
                     adjustTimingsField(timingsRightField, e, 1);
                 }
             });
-            c = getConstraints(1, 15);
-            c.weighty = 1.0;
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(wrapTimingsField(timingsRightField, timingsRightMinus, timingsRightPlus), c);
-            
-            JLabel nextWaitingLabel = new JLabel("Next waiting actions:");
-            c = getConstraints(0, 16);
-            c.weighty = 1.0;
-            c.anchor = GridBagConstraints.WEST;
-            add(nextWaitingLabel, c);
-            
+            addFormRow(rightSprites, 3, new JLabel("Timings:"),
+                    wrapTimingsField(timingsRightField, timingsRightMinus, timingsRightPlus), 1.0);
+
+            // --- Transitions ---
             nextWaitingField = new JTextField();
+            constrainGrowableField(nextWaitingField);
             nextWaitingField.setToolTipText("Comma-separated actions. Repeats raise chance, or write "
                     + "name:N (same as N copies). That action's gait bag then expands. When a "
                     + "looping idle's timer ends, these slots compete with next moving. Use none or - "
@@ -713,17 +631,10 @@ public class PonyEditorGUI extends JPanel {
                     return ActionNameCompleter.candidatesFromEditor(editor, true);
                 }
             }, true);
-            c = getConstraints(1, 16);
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(nextWaitingField, c);
-            
-            JLabel nextMovingLabel = new JLabel("Next moving actions:");
-            c = getConstraints(0, 17);
-            c.weighty = 1.0;
-            c.anchor = GridBagConstraints.WEST;
-            add(nextMovingLabel, c);
-            
+            addFormRow(transitions, 0, new JLabel("Next waiting:"), nextWaitingField, 1.0);
+
             nextMovingField = new JTextField();
+            constrainGrowableField(nextMovingField);
             nextMovingField.setToolTipText("Comma-separated actions. Repeats raise chance, or write "
                     + "name:N (same as N copies). That action's gait bag then expands. When a "
                     + "looping idle's timer ends, these slots compete with next waiting. Use none or - "
@@ -736,17 +647,10 @@ public class PonyEditorGUI extends JPanel {
                     return ActionNameCompleter.candidatesFromEditor(editor, true);
                 }
             }, true);
-            c = getConstraints(1, 17);
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(nextMovingField, c);
-            
-            JLabel nextDragLabel = new JLabel("Drag override:");
-            c = getConstraints(0, 18);
-            c.weighty = 1.0;
-            c.anchor = GridBagConstraints.WEST;
-            add(nextDragLabel, c);
-            
+            addFormRow(transitions, 1, new JLabel("Next moving:"), nextMovingField, 1.0);
+
             nextDragField = new JTextField();
+            constrainGrowableField(nextDragField);
             nextDragField.setToolTipText("Optional. Leave empty to use Default drag. When set, replaces "
                     + "the default for this action only. Repeats or name:N raise chance. Tab completes "
                     + "the name; :N is optional.");
@@ -757,13 +661,90 @@ public class PonyEditorGUI extends JPanel {
                     return ActionNameCompleter.candidatesFromEditor(editor, false);
                 }
             }, true);
-            c = getConstraints(1, 18);
-            c.fill = GridBagConstraints.HORIZONTAL;
-            add(nextDragField, c);
-            
+            addFormRow(transitions, 2, new JLabel("Drag override:"), nextDragField, 1.0);
+
+            JPanel stack = new JPanel();
+            stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
+            stack.setBorder(BorderFactory.createEmptyBorder(4, 4, 8, 4));
+            stack.add(identity);
+            stack.add(Box.createVerticalStrut(2));
+            stack.add(anchors);
+            stack.add(Box.createVerticalStrut(2));
+            stack.add(leftSprites);
+            stack.add(Box.createVerticalStrut(2));
+            stack.add(rightSprites);
+            stack.add(Box.createVerticalStrut(2));
+            stack.add(transitions);
+            stack.add(Box.createVerticalGlue());
+
+            // Full width in the scroll pane, but keep natural section heights.
+            capSectionWidth(identity);
+            capSectionWidth(anchors);
+            capSectionWidth(leftSprites);
+            capSectionWidth(rightSprites);
+            capSectionWidth(transitions);
+
+            JScrollPane scroll = new JScrollPane(stack);
+            scroll.getVerticalScrollBar().setUnitIncrement(16);
+            scroll.setBorder(BorderFactory.createEmptyBorder());
+            scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+            add(scroll, BorderLayout.CENTER);
+
             setAction(-1);
         }
-        
+
+        private static JPanel newSection(String title) {
+            JPanel p = new JPanel(new GridBagLayout());
+            ((GridBagLayout) p.getLayout()).columnWeights = new double[] { 0.0, 1.0 };
+            p.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createTitledBorder(title),
+                    BorderFactory.createEmptyBorder(2, 2, 2, 2)));
+            p.setAlignmentX(Component.LEFT_ALIGNMENT);
+            return p;
+        }
+
+        private static void capSectionWidth(JPanel section) {
+            Dimension pref = section.getPreferredSize();
+            section.setMaximumSize(new Dimension(Integer.MAX_VALUE, pref.height));
+        }
+
+        private static void addFormRow(JPanel section, int row, JComponent label, JComponent field, double weighty) {
+            addFormRow(section, row, label, field, weighty, GridBagConstraints.WEST, true);
+        }
+
+        private static void addFormRow(JPanel section, int row, JComponent label, JComponent field,
+                double weighty, int fieldAnchor, boolean fillHorizontal) {
+            GridBagConstraints c = getConstraints(0, row);
+            c.anchor = GridBagConstraints.WEST;
+            c.insets = new Insets(2, 0, 2, 8);
+            section.add(label, c);
+
+            c = getConstraints(1, row);
+            c.weighty = weighty;
+            c.anchor = fieldAnchor;
+            c.insets = new Insets(2, 0, 2, 0);
+            if (fillHorizontal) {
+                c.fill = GridBagConstraints.HORIZONTAL;
+            }
+            section.add(field, c);
+        }
+
+        private static void styleSecondary(JButton button) {
+            // Slightly tighter chrome so Preview / Import read as primary.
+            button.setMargin(new Insets(2, 6, 2, 6));
+        }
+
+        /**
+         * Keep long comma-lists (timings, next actions) from driving the section
+         * preferred width; the field still fills and scrolls caret within the row.
+         */
+        private static void constrainGrowableField(JTextField field) {
+            field.setColumns(20);
+            Dimension pref = field.getPreferredSize();
+            field.setMinimumSize(new Dimension(48, pref.height));
+            field.setPreferredSize(pref);
+        }
+
         void setAction(int index) {
             currentIndex = -1;
             
@@ -860,7 +841,7 @@ public class PonyEditorGUI extends JPanel {
             try {
                 float speed = Float.parseFloat(speedText.trim());
                 int newIndex = editor.cloneActionAsGait(currentIndex, name.trim(), speed);
-                hasChanges = true;
+                setDirty(true);
                 // Parent list refresh is handled via PonyEditorGUI.reloadActionList if present;
                 // fall back to notifying through a package-visible helper.
                 PonyEditorGUI.this.afterCloneGait(newIndex);
@@ -962,6 +943,12 @@ public class PonyEditorGUI extends JPanel {
             JPanel row = new JPanel(new BorderLayout(4, 0));
             row.add(field, BorderLayout.CENTER);
             row.add(buttons, BorderLayout.EAST);
+            // BorderLayout reports the center's preferred width; keep it column-sized
+            // so long timing lists do not stretch the Sprites section / button rows.
+            Dimension pref = row.getPreferredSize();
+            row.setPreferredSize(pref);
+            row.setMinimumSize(new Dimension(120, pref.height));
+            row.setMaximumSize(new Dimension(Integer.MAX_VALUE, pref.height));
             return row;
         }
 
@@ -1274,7 +1261,7 @@ public class PonyEditorGUI extends JPanel {
             try {
                 editor.mirrorActionSprite(currentIndex, fromDirection);
                 setAction(currentIndex);
-                hasChanges = true;
+                setDirty(true);
                 previewImage(toDirection);
             } catch (PonyEditor.GenericException e) {
                 JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
@@ -1296,7 +1283,7 @@ public class PonyEditorGUI extends JPanel {
                     } else {
                         editor.loadActionSprite(currentIndex, direction, file);
                         setAction(currentIndex);
-                        hasChanges = true;
+                        setDirty(true);
                     }
                 } catch (PonyEditor.GenericException e) {
                     JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
@@ -1374,7 +1361,7 @@ public class PonyEditorGUI extends JPanel {
                 editor.setActionTimings(currentIndex, direction, imported.timings);
             }
             setAction(currentIndex);
-            hasChanges = true;
+            setDirty(true);
             previewImage(direction);
         }
 
@@ -1769,11 +1756,15 @@ public class PonyEditorGUI extends JPanel {
         } else if (editor.getActionCount() > 0) {
             actionList.setSelectedIndex(0);
         }
+        refreshStatusBar();
     }
     
     private WindowListener windowListener = new WindowAdapter() {
         public void windowClosing(WindowEvent e) {
             if (!checkChanges()) return;
+            if (e.getWindow() instanceof JFrame) {
+                EditorWindowPrefs.save((JFrame) e.getWindow());
+            }
             e.getWindow().dispose();
         }
     };
@@ -1822,7 +1813,11 @@ public class PonyEditorGUI extends JPanel {
     
     private ListSelectionListener actionListSelectionListener = new ListSelectionListener() {
         public void valueChanged(ListSelectionEvent e) {
+            if (e.getValueIsAdjusting()) {
+                return;
+            }
             actionSettingsPane.setAction(actionList.getSelectedIndex());
+            refreshStatusBar();
         }
     };
     
@@ -1831,7 +1826,7 @@ public class PonyEditorGUI extends JPanel {
             String actionName = JOptionPane.showInputDialog(PonyEditorGUI.this, "Enter a name for the new action:", "New Action", JOptionPane.PLAIN_MESSAGE);
             if (actionName != null && !actionName.equals("")) {
                 int i = editor.addAction(actionName);
-                hasChanges = true;
+                setDirty(true);
                 
                 actionListModel.addElement(actionName);
                 actionList.setSelectedIndex(i);
@@ -1844,7 +1839,7 @@ public class PonyEditorGUI extends JPanel {
             int i = actionList.getSelectedIndex();
             if (i != -1) {
                 editor.removeAction(i);
-                hasChanges = true;
+                setDirty(true);
                 
                 actionListModel.remove(i);
                 int newIndex = i < editor.getActionCount() ? i : i - 1;
@@ -1874,7 +1869,7 @@ public class PonyEditorGUI extends JPanel {
         public void update(DocumentEvent e) {
             if (!startActionsField.getText().equals(editor.getStartActions())) {
                 editor.setStartActions(startActionsField.getText());
-                hasChanges = true;
+                setDirty(true);
             }
         }
     };
@@ -1883,7 +1878,7 @@ public class PonyEditorGUI extends JPanel {
         public void update(DocumentEvent e) {
             if (!defaultDragField.getText().equals(editor.getDefaultDrag())) {
                 editor.setDefaultDrag(defaultDragField.getText());
-                hasChanges = true;
+                setDirty(true);
             }
         }
     };
@@ -1894,6 +1889,7 @@ public class PonyEditorGUI extends JPanel {
     private ActionPanel actionSettingsPane;
     private JTextField startActionsField;
     private JTextField defaultDragField;
+    private JLabel statusLabel;
     
     private JFileChooser fc;
     
@@ -1912,39 +1908,111 @@ public class PonyEditorGUI extends JPanel {
      * @param dirty       whether to treat the model as having unsaved changes
      */
     private PonyEditorGUI(JFrame parentFrame, PonyEditor existing, File initialFile, boolean dirty) {
-        super(new GridBagLayout());
+        super(new BorderLayout(0, 0));
         
         this.parentFrame = parentFrame;
         
         fc = new JFileChooser(".");
         fc.setAcceptAllFileFilterUsed(false);
-        
-        GridBagConstraints c;
-        
+
+        add(createToolBar(), BorderLayout.NORTH);
+
         JComponent actionListPane = createActionListPane();
-        c = getConstraints(0, 0);
-        c.weighty = 1.0;
-        c.fill = GridBagConstraints.BOTH;
-        add(actionListPane, c);
-        
+        actionListPane.setPreferredSize(new Dimension(220, 400));
+        actionListPane.setMinimumSize(new Dimension(160, 200));
+
         actionSettingsPane = new ActionPanel();
-        c = getConstraints(1, 0);
-        c.weightx = 1.0;
-        c.fill = GridBagConstraints.BOTH;
-        add(actionSettingsPane, c);
-        
-        JComponent startActionsPane = createStartActionsPane();
-        c = getConstraints(0, 1);
-        c.fill = GridBagConstraints.BOTH;
-        c.gridwidth = 2;
-        add(startActionsPane, c);
+        // Match Actions pane chrome so both split children share the same outer
+        // bottom edge; without this, only the left titled card fills the height
+        // and the right sections look short.
+        actionSettingsPane.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder("Action"),
+                BorderFactory.createEmptyBorder(2, 4, 4, 4)));
+        actionSettingsPane.setMinimumSize(new Dimension(420, 200));
+
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, actionListPane, actionSettingsPane);
+        split.setResizeWeight(0.22);
+        split.setContinuousLayout(true);
+        split.setBorder(BorderFactory.createEmptyBorder());
+        split.setDividerSize(6);
+
+        JPanel center = new JPanel(new BorderLayout(0, 0));
+        center.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 6));
+        center.add(split, BorderLayout.CENTER);
+        center.add(createStartActionsPane(), BorderLayout.SOUTH);
+        add(center, BorderLayout.CENTER);
+        add(createStatusBar(), BorderLayout.SOUTH);
         
         editor = existing != null ? existing : new PonyEditor();
         setFile(initialFile);
-        hasChanges = dirty;
+        setDirty(dirty);
         if (existing != null) {
             setUIFromPony();
+        } else {
+            refreshStatusBar();
         }
+    }
+
+    private JToolBar createToolBar() {
+        JToolBar bar = new JToolBar();
+        bar.setFloatable(false);
+        bar.setRollover(true);
+        bar.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+
+        bar.add(toolButton("New", "New pony (Ctrl+N)", fileNewListener));
+        bar.add(toolButton("Open", "Open pony XML (Ctrl+O)", fileOpenListener));
+        bar.add(toolButton("Save", "Save (Ctrl+S)", fileSaveListener));
+        bar.addSeparator();
+        bar.add(toolButton("Import DP", "Import from Desktop-Ponies (Ctrl+I)", fileImportDesktopPoniesListener));
+        bar.addSeparator();
+        JButton check = toolButton("Check transitions", "Preview feet-locked A→B transition for the selected action",
+                new ActionListener() {
+                    @Override
+                    public void actionPerformed(ActionEvent e) {
+                        actionSettingsPane.checkTransitions();
+                    }
+                });
+        bar.add(check);
+        return bar;
+    }
+
+    private static JButton toolButton(String text, String tooltip, ActionListener listener) {
+        JButton button = new JButton(text);
+        button.setToolTipText(tooltip);
+        button.setFocusable(false);
+        button.addActionListener(listener);
+        return button;
+    }
+
+    private JComponent createStatusBar() {
+        statusLabel = new JLabel("Ready");
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(4, 10, 4, 10));
+        JPanel bar = new JPanel(new BorderLayout());
+        bar.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+        bar.add(statusLabel, BorderLayout.CENTER);
+        return bar;
+    }
+
+    private void setDirty(boolean dirty) {
+        hasChanges = dirty;
+        refreshStatusBar();
+    }
+
+    private void refreshStatusBar() {
+        if (statusLabel == null) {
+            return;
+        }
+        int actions = editor != null ? editor.getActionCount() : 0;
+        int sel = actionList != null ? actionList.getSelectedIndex() : -1;
+        String actionName = "—";
+        if (editor != null && sel >= 0 && sel < editor.getActionCount()) {
+            actionName = editor.getActionName(sel);
+        }
+        String path = currentFile != null ? currentFile.getAbsolutePath() : "(unsaved)";
+        String dirty = hasChanges ? "Modified" : "Saved";
+        String actionWord = actions == 1 ? "action" : "actions";
+        statusLabel.setText(dirty + "  ·  " + actions + " " + actionWord
+                + "  ·  " + actionName + "  ·  " + path);
     }
 
     /**
@@ -1990,6 +2058,7 @@ public class PonyEditorGUI extends JPanel {
         } else {
             parentFrame.setTitle("PonyPaper Custom Pony Editor");
         }
+        refreshStatusBar();
     }
     
     private void setUIFromPony() {
@@ -2002,7 +2071,11 @@ public class PonyEditorGUI extends JPanel {
         
         if (editor.getActionCount() > 0) {
             actionList.setSelectedIndex(0);
+        } else {
+            actionList.clearSelection();
+            actionSettingsPane.setAction(-1);
         }
+        refreshStatusBar();
     }
     
     private void createNewPony() {
@@ -2011,7 +2084,7 @@ public class PonyEditorGUI extends JPanel {
         setUIFromPony();
         
         setFile(null);
-        hasChanges = false;
+        setDirty(false);
     }
     
     private void loadPony(File file) {
@@ -2025,7 +2098,7 @@ public class PonyEditorGUI extends JPanel {
         setUIFromPony();
         
         setFile(file);
-        hasChanges = false;
+        setDirty(false);
     }
 
     /**
@@ -2065,7 +2138,7 @@ public class PonyEditorGUI extends JPanel {
         setUIFromPony();
         // Unsaved import; suggest a filename from the folder name on first Save
         setFile(null);
-        hasChanges = true;
+        setDirty(true);
 
         String message = String.join("\n", notes);
         int messageType = JOptionPane.INFORMATION_MESSAGE;
@@ -2126,7 +2199,7 @@ public class PonyEditorGUI extends JPanel {
         }
         
         setFile(file);
-        hasChanges = false;
+        setDirty(false);
         return true;
     }
     
@@ -2218,7 +2291,7 @@ public class PonyEditorGUI extends JPanel {
             JOptionPane.showMessageDialog(this, ex.getMessage(), "Rename Failed", JOptionPane.ERROR_MESSAGE);
             return;
         }
-        hasChanges = true;
+        setDirty(true);
         actionListModel.set(i, actionName);
         // Refresh next-action fields and start actions so rewritten names show.
         actionSettingsPane.setAction(i);
@@ -2227,9 +2300,10 @@ public class PonyEditorGUI extends JPanel {
     }
 
     private JComponent createActionListPane() {
-        JPanel result = new JPanel(new GridBagLayout());
-        
-        GridBagConstraints c;
+        JPanel result = new JPanel(new BorderLayout(0, 4));
+        result.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder("Actions"),
+                BorderFactory.createEmptyBorder(2, 4, 4, 4)));
         
         actionListModel = new DefaultListModel<String>();
         actionList = new JList<String>(actionListModel);
@@ -2244,41 +2318,38 @@ public class PonyEditorGUI extends JPanel {
                 }
             }
         });
-        JScrollPane actionListScroller = new JScrollPane(actionList);
-        c = getConstraints(0, 0);
-        c.fill = GridBagConstraints.BOTH;
-        c.weighty = 1.0;
-        c.gridwidth = 3;
-        result.add(actionListScroller, c);
-        
-        JButton newAction = new JButton("New action");
-        newAction.addActionListener(newActionListener);
-        c = getConstraints(0, 1);
-        result.add(newAction, c);
+        result.add(new JScrollPane(actionList), BorderLayout.CENTER);
 
+        JPanel buttons = new JPanel(new GridLayout(1, 3, 4, 0));
+        JButton newAction = new JButton("New");
+        newAction.setToolTipText("Create a new action");
+        newAction.addActionListener(newActionListener);
         JButton renameAction = new JButton("Rename");
         renameAction.setToolTipText("Rename the selected action and update all references");
         renameAction.addActionListener(renameActionListener);
-        c = getConstraints(1, 1);
-        result.add(renameAction, c);
-        
-        JButton deleteAction = new JButton("Delete action");
+        JButton deleteAction = new JButton("Delete");
+        deleteAction.setToolTipText("Delete the selected action");
         deleteAction.addActionListener(deleteActionListener);
-        c = getConstraints(2, 1);
-        result.add(deleteAction, c);
+        buttons.add(newAction);
+        buttons.add(renameAction);
+        buttons.add(deleteAction);
+        result.add(buttons, BorderLayout.SOUTH);
         
         return result;
     }
     
     private JComponent createStartActionsPane() {
         JPanel result = new JPanel(new GridBagLayout());
+        result.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder("Pony"),
+                BorderFactory.createEmptyBorder(2, 4, 4, 4)));
         
         GridBagConstraints c;
         
         JLabel startActionsLabel = new JLabel("Start actions:");
         c = getConstraints(0, 0);
-        c.weighty = 1.0;
         c.anchor = GridBagConstraints.WEST;
+        c.insets = new Insets(2, 0, 2, 8);
         result.add(startActionsLabel, c);
         
         startActionsField = new JTextField();
@@ -2294,13 +2365,13 @@ public class PonyEditorGUI extends JPanel {
         c = getConstraints(1, 0);
         c.weightx = 1.0;
         c.fill = GridBagConstraints.HORIZONTAL;
+        c.insets = new Insets(2, 0, 2, 0);
         result.add(startActionsField, c);
         
         JLabel defaultDragLabel = new JLabel("Default drag:");
         c = getConstraints(2, 0);
-        c.weighty = 1.0;
         c.anchor = GridBagConstraints.WEST;
-        c.insets = new Insets(0, 12, 0, 0);
+        c.insets = new Insets(2, 12, 2, 8);
         result.add(defaultDragLabel, c);
         
         defaultDragField = new JTextField();
@@ -2316,6 +2387,7 @@ public class PonyEditorGUI extends JPanel {
         c = getConstraints(3, 0);
         c.weightx = 1.0;
         c.fill = GridBagConstraints.HORIZONTAL;
+        c.insets = new Insets(2, 0, 2, 0);
         result.add(defaultDragField, c);
         
         return result;
@@ -2389,7 +2461,7 @@ public class PonyEditorGUI extends JPanel {
     private static void createAndShowGUI(PonyEditor existing, File initialFile, boolean dirty) {
         JFrame frame = new JFrame();
         frame.setMinimumSize(new Dimension(720, 640));
-        frame.setPreferredSize(new Dimension(960, 720));
+        frame.setPreferredSize(new Dimension(960, 1000));
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         
         PonyEditorGUI contentPane = new PonyEditorGUI(frame, existing, initialFile, dirty);
@@ -2400,7 +2472,10 @@ public class PonyEditorGUI extends JPanel {
         frame.setJMenuBar(contentPane.createMenuBar());
         
         frame.pack();
-        frame.setLocationRelativeTo(null);
+        if (!EditorWindowPrefs.apply(frame)) {
+            frame.setLocationRelativeTo(null);
+        }
+        EditorWindowPrefs.installPersistence(frame);
         frame.setVisible(true);
     }
     

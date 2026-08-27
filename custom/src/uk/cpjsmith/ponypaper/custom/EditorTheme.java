@@ -5,6 +5,8 @@ import com.formdev.flatlaf.FlatLaf;
 import com.formdev.flatlaf.FlatLightLaf;
 import java.awt.Color;
 import java.util.Collections;
+import java.util.prefs.BackingStoreException;
+import java.util.prefs.Preferences;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
@@ -12,9 +14,13 @@ import javax.swing.UIManager;
  * Shared look-and-feel bootstrap and colour tokens for the custom pony editor.
  * <p>
  * Preview canvases stay dark regardless of chrome theme so sprite contrast is
- * stable; chrome follows FlatLaf dark/light.
+ * stable; chrome follows FlatLaf dark/light. The View-menu choice is stored in
+ * {@link Preferences} so it survives restarts.
  */
 public final class EditorTheme {
+
+    private static final String PREF_DARK = "darkTheme";
+    private static final boolean PREF_DARK_DEFAULT = true;
 
     /** Soft violet accent — echoes the Android launcher background {@code #241F40}. */
     public static final Color ACCENT = new Color(0x7C, 0x6A, 0xF0);
@@ -61,9 +67,16 @@ public final class EditorTheme {
         return dark;
     }
 
+    /** Last saved chrome preference (defaults to dark when unset). */
+    public static boolean isPreferredDark() {
+        return prefs().getBoolean(PREF_DARK, PREF_DARK_DEFAULT);
+    }
+
     /**
      * Installs FlatLaf before any Swing window is created. Safe to call more
      * than once; subsequent calls switch theme and refresh open windows.
+     * Does not write preferences — use {@link #setPreferredDark(boolean)} for
+     * View-menu changes that should persist.
      *
      * @param preferDark {@code true} for FlatDarkLaf, {@code false} for FlatLightLaf
      */
@@ -88,9 +101,29 @@ public final class EditorTheme {
         }
     }
 
-    /** Default bootstrap: dark chrome. */
+    /** Bootstrap from the saved preference (dark when none is stored). */
     public static void install() {
-        install(true);
+        install(isPreferredDark());
+    }
+
+    /**
+     * Saves the chrome preference and applies it immediately.
+     *
+     * @param preferDark {@code true} for FlatDarkLaf, {@code false} for FlatLightLaf
+     */
+    public static void setPreferredDark(boolean preferDark) {
+        Preferences node = prefs();
+        node.putBoolean(PREF_DARK, preferDark);
+        try {
+            node.flush();
+        } catch (BackingStoreException ignored) {
+            // In-memory theme still applies; next run falls back to default if store failed.
+        }
+        install(preferDark);
+    }
+
+    private static Preferences prefs() {
+        return Preferences.userNodeForPackage(EditorTheme.class);
     }
 
     private static void applyUiDefaults() {
