@@ -62,15 +62,15 @@ This repository is a **modernization fork** of the [Smithers888/PonyPaper](https
 <table>
   <tr>
     <td><img src='screenshots/screen1.png' width='180'></td>
-    <td><img src='screenshots/screen2.png' width='180'></td>
-    <td><img src='screenshots/screen3.png' width='180'></td>
-    <td><img src='screenshots/preferences1.png' width='180'></td>
+    <td><img src='screenshots/screensaver.png' width='180'></td>
+    <td><img src='screenshots/screensaver-clock.png' width='180'></td>
+    <td><img src='screenshots/custom.png' width='180'></td>
   </tr>
   <tr>
+    <td><img src='screenshots/preferences1.png' width='180'></td>
+    <td><img src='screenshots/preferences4.png' width='180'></td>
     <td><img src='screenshots/preferences2.png' width='180'></td>
     <td><img src='screenshots/preferences3.png' width='180'></td>
-    <td><img src='screenshots/screensaver.png' width='180'></td>
-    <td><img src='screenshots/custom.png' width='180'></td>
   </tr>
 </table>
 
