@@ -71,5 +71,5 @@ Original Android source: [Smithers888](http://cpjsmith.uk) / [Smithers888/PonyPa
 
 You may share and modify this project under the same terms: credit, non-commercial use, and share-alike.
 
-The custom pony editor uses [FlatLaf](https://github.com/JFormDesigner/FlatLaf)
-(Apache License 2.0) for its Swing look and feel.
+See [THIRD_PARTY.md](THIRD_PARTY.md) for redistributed third-party licenses/credits.
+
