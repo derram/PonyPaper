@@ -7,6 +7,10 @@
 [![Min SDK](https://img.shields.io/badge/Min%20SDK-21%20(5.0)-brightgreen?style=flat-square)](https://developer.android.com/about/dashboards)
 [![License](https://img.shields.io/badge/License-CC%20BY--NC--SA%203.0-orange?style=flat-square)](http://creativecommons.org/licenses/by-nc-sa/3.0/)
 
+You got any ponies on your phone?
+
+![Project header](screenshots/header.png "Running on a Galaxy Tab S7+, 50% character size")
+
 A live wallpaper for Android using pixel-art sprites of characters from *My Little Pony: Friendship is Magic*.
 
 This repository is a **modernization fork** of the [Smithers888/PonyPaper](https://github.com/Smithers888/PonyPaper) project. Upstream Ant tooling and an ancient `targetSdk` no longer build or install cleanly on current Android. This fork targets a Gradle-based build and modern SDK levels so you can produce **debug/sideload APKs** without upstream signing keys.
@@ -37,7 +41,7 @@ This repository is a **modernization fork** of the [Smithers888/PonyPaper](https
 - **On-battery power profile** — optional prefs to force default FPS (60), default pony count (4), and/or disable image backgrounds while unplugged.
 
 ### 🐎 The Herd & Customization
-- **Up to 14 ponies** on screen (11 wasn't loud enough).
+- **Up to 20 ponies** on screen (11 wasn't loud enough).
 - **Discrete gaits** — stroll, walk, and trot for more varied movement.
 - **Hold-to-drag** — press and hold a pony to drag it; no more accidentally jostling ponies when swiping the home screen.
 - **Import from Desktop Ponies** — updated custom character editor can import a folder from DP and build an xml file for use with PP.
@@ -118,7 +122,7 @@ See [BUILDING.md](BUILDING.md) for debug builds, local signed releases, and the 
 
 ## Licensing / credits
 
-All artwork was created by contributors to the Desktop Ponies team ([DeviantArt](http://desktop-pony-team.deviantart.com/), [source](https://github.com/RoosterDragon/Desktop-Ponies)). Artwork and original source are licensed under [CC BY-NC-SA 3.0](http://creativecommons.org/licenses/by-nc-sa/3.0/).
+Pony sprites were created by contributors to the Desktop Ponies team ([DeviantArt](http://desktop-pony-team.deviantart.com/), [source](https://github.com/RoosterDragon/Desktop-Ponies)). That artwork and original source are licensed under [CC BY-NC-SA 3.0](http://creativecommons.org/licenses/by-nc-sa/3.0/).
 
 Original Android source: [Smithers888](http://cpjsmith.uk) / [Smithers888/PonyPaper](https://github.com/Smithers888/PonyPaper).
 
