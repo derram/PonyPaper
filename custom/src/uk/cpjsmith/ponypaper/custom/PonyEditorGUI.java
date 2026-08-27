@@ -47,7 +47,6 @@ import javax.swing.JTextField;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.ListSelectionEvent;
@@ -2358,14 +2357,39 @@ public class PonyEditorGUI extends JPanel {
         fileMenu.add(saveAs);
         
         result.add(fileMenu);
+
+        JMenu viewMenu = new JMenu("View");
+        viewMenu.setMnemonic(KeyEvent.VK_V);
+
+        JMenuItem themeDark = new JMenuItem("Dark theme");
+        themeDark.setToolTipText("FlatLaf dark chrome (default). Preview canvases stay dark either way.");
+        themeDark.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                EditorTheme.install(true);
+            }
+        });
+        viewMenu.add(themeDark);
+
+        JMenuItem themeLight = new JMenuItem("Light theme");
+        themeLight.setToolTipText("FlatLaf light chrome. Preview canvases stay dark for sprite contrast.");
+        themeLight.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                EditorTheme.install(false);
+            }
+        });
+        viewMenu.add(themeLight);
+
+        result.add(viewMenu);
         
         return result;
     }
     
     private static void createAndShowGUI(PonyEditor existing, File initialFile, boolean dirty) {
         JFrame frame = new JFrame();
-        frame.setMinimumSize(new Dimension(600, 600));
-        frame.setPreferredSize(new Dimension(800, 700));
+        frame.setMinimumSize(new Dimension(720, 640));
+        frame.setPreferredSize(new Dimension(960, 720));
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         
         PonyEditorGUI contentPane = new PonyEditorGUI(frame, existing, initialFile, dirty);
@@ -2393,15 +2417,7 @@ public class PonyEditorGUI extends JPanel {
      * @param dirty       whether the model should be treated as unsaved
      */
     public static void start(PonyEditor existing, File initialFile, boolean dirty) {
-        try {
-            for (UIManager.LookAndFeelInfo info : UIManager.getInstalledLookAndFeels()) {
-                if (info.getName().equals("Nimbus")) {
-                    UIManager.setLookAndFeel(info.getClassName());
-                    break;
-                }
-            }
-        } catch (Exception e) {
-        }
+        EditorTheme.install(true);
         SwingUtilities.invokeLater(new Runnable() {
             @Override
             public void run() {

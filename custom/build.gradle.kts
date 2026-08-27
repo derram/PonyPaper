@@ -15,6 +15,11 @@ application {
     mainClass.set("uk.cpjsmith.ponypaper.custom.PonyEditor")
 }
 
+dependencies {
+    // Modern Swing L&F; bundled into customponies.jar (fat jar below).
+    implementation("com.formdev:flatlaf:3.7.2")
+}
+
 sourceSets {
     main {
         java {
@@ -46,6 +51,15 @@ tasks.jar {
     }
     // Avoid "customponies-.jar" when archiveVersion is empty
     archiveFileName.set("customponies.jar")
+
+    // Fat jar so `java -jar customponies.jar` still works with FlatLaf on the classpath.
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from({
+        configurations.runtimeClasspath.get()
+            .filter { it.name.endsWith(".jar") }
+            .map { zipTree(it) }
+    })
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/*.EC")
 }
 
 tasks.named<Jar>("jar") {

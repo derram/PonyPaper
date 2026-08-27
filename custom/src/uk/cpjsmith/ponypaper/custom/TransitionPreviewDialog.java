@@ -3,7 +3,6 @@ package uk.cpjsmith.ponypaper.custom;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -53,12 +52,6 @@ public final class TransitionPreviewDialog extends JDialog {
     private static final int TICK_MS = 33;
     private static final float CS_PER_MS = 0.1f;
     private static final int PAD = 24;
-    private static final Color GROUND = new Color(0x44, 0xaa, 0x44, 0xcc);
-    private static final Color FEET_RING = new Color(0xff, 0x33, 0x33, 0xee);
-    private static final Color FEET_CORE = new Color(0xff, 0x33, 0x33, 0x99);
-    private static final Color CHECKER_A = new Color(0x2a, 0x2a, 0x2e);
-    private static final Color CHECKER_B = new Color(0x36, 0x36, 0x3c);
-    private static final Color STATUS_BG = new Color(0x1e, 0x1e, 0x22);
 
     private final PonyEditor editor;
     private final StagePanel stage;
@@ -95,8 +88,8 @@ public final class TransitionPreviewDialog extends JDialog {
         statusLabel = new JLabel(" ");
         statusLabel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
         statusLabel.setOpaque(true);
-        statusLabel.setBackground(STATUS_BG);
-        statusLabel.setForeground(Color.LIGHT_GRAY);
+        statusLabel.setBackground(EditorTheme.STATUS_BAR);
+        statusLabel.setForeground(EditorTheme.STATUS_TEXT);
 
         actionACombo = new JComboBox<ActionItem>();
         actionBCombo = new JComboBox<ActionItem>();
@@ -879,7 +872,7 @@ public final class TransitionPreviewDialog extends JDialog {
                 float feetY = h - PAD - maxExtentBelow() * scale;
 
                 // Ground line
-                g2.setColor(GROUND);
+                g2.setColor(EditorTheme.GROUND_STAGE);
                 g2.setStroke(new BasicStroke(2f));
                 g2.drawLine(PAD / 2, Math.round(feetY), w - PAD / 2, Math.round(feetY));
 
@@ -927,7 +920,7 @@ public final class TransitionPreviewDialog extends JDialog {
             for (int y = 0; y < h; y += cell) {
                 for (int x = 0; x < w; x += cell) {
                     boolean dark = ((x / cell) + (y / cell)) % 2 == 0;
-                    g2.setColor(dark ? CHECKER_A : CHECKER_B);
+                    g2.setColor(dark ? EditorTheme.CHECKER_A : EditorTheme.CHECKER_B);
                     g2.fillRect(x, y, cell, cell);
                 }
             }
@@ -965,12 +958,12 @@ public final class TransitionPreviewDialog extends JDialog {
         private void paintFeet(Graphics2D g2, int cx, int cy) {
             int arm = 12;
             g2.setStroke(new BasicStroke(2f));
-            g2.setColor(FEET_RING);
+            g2.setColor(EditorTheme.FEET_RING);
             g2.drawLine(cx - arm, cy, cx + arm, cy);
             g2.drawLine(cx, cy - arm, cx, cy + arm);
-            g2.setColor(FEET_CORE);
+            g2.setColor(EditorTheme.FEET_CORE);
             g2.fillOval(cx - 3, cy - 3, 7, 7);
-            g2.setColor(FEET_RING);
+            g2.setColor(EditorTheme.FEET_RING);
             g2.drawOval(cx - 4, cy - 4, 9, 9);
         }
     }

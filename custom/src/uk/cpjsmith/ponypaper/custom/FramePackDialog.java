@@ -147,7 +147,7 @@ public final class FramePackDialog extends JDialog {
         headerLabel = new JLabel(" ");
         headerLabel.setBorder(BorderFactory.createEmptyBorder(8, 10, 0, 10));
         warningLabel = new JLabel(" ");
-        warningLabel.setForeground(new Color(0xb8, 0x5c, 0x00));
+        warningLabel.setForeground(EditorTheme.WARNING);
         warningLabel.setBorder(BorderFactory.createEmptyBorder(0, 10, 4, 10));
 
         DefaultListModel<Integer> model = new DefaultListModel<Integer>();
@@ -654,7 +654,7 @@ public final class FramePackDialog extends JDialog {
 
         CellPreview() {
             setOpaque(true);
-            setBackground(new Color(0x2b, 0x2b, 0x2b));
+            setBackground(EditorTheme.CANVAS);
             setPreferredSize(new Dimension(280, 240));
             setFocusable(true);
             addMouseListener(new MouseAdapter() {
@@ -772,7 +772,7 @@ public final class FramePackDialog extends JDialog {
                 BufferedImage frame = frameAtPlayback(index);
                 Rectangle bounds = cellBounds();
                 paintChecker(g2, bounds);
-                g2.setColor(new Color(0x66, 0x66, 0x66));
+                g2.setColor(EditorTheme.GUIDE);
                 g2.drawRect(bounds.x, bounds.y, bounds.width - 1, bounds.height - 1);
 
                 float scale = cellScale();
@@ -785,9 +785,9 @@ public final class FramePackDialog extends JDialog {
                 g2.drawImage(frame, dx, dy, dw, dh, null);
 
                 int groundY = bounds.y + bounds.height - 1;
-                g2.setColor(new Color(0xff, 0x55, 0x33));
+                g2.setColor(EditorTheme.GROUND_LINE);
                 g2.fillRect(bounds.x, groundY - 1, bounds.width, 2);
-                g2.setColor(new Color(0xff, 0xcc, 0x00));
+                g2.setColor(EditorTheme.GROUND_LABEL);
                 g2.drawString("ground", bounds.x + 4, groundY - 4);
             } finally {
                 g2.dispose();
@@ -797,8 +797,8 @@ public final class FramePackDialog extends JDialog {
 
     private static void paintChecker(Graphics2D g2, Rectangle bounds) {
         int size = 8;
-        Color a = new Color(0x3a, 0x3a, 0x3a);
-        Color b = new Color(0x4a, 0x4a, 0x4a);
+        Color a = EditorTheme.CHECKER_CELL_A;
+        Color b = EditorTheme.CHECKER_CELL_B;
         for (int y = 0; y < bounds.height; y += size) {
             for (int x = 0; x < bounds.width; x += size) {
                 g2.setColor((((x / size) + (y / size)) & 1) == 0 ? a : b);
@@ -817,7 +817,7 @@ public final class FramePackDialog extends JDialog {
 
         StripPreview() {
             setOpaque(true);
-            setBackground(new Color(0x22, 0x22, 0x22));
+            setBackground(EditorTheme.CANVAS_DEEP);
             addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent e) {
@@ -891,10 +891,10 @@ public final class FramePackDialog extends JDialog {
                 if (selected >= 0 && frameCount > 0) {
                     int x0 = bounds.x + bounds.width * selected / frameCount;
                     int x1 = bounds.x + bounds.width * (selected + 1) / frameCount;
-                    g2.setColor(new Color(0x33, 0x99, 0xff, 0xcc));
+                    g2.setColor(EditorTheme.SELECTION);
                     g2.drawRect(x0, bounds.y, Math.max(1, x1 - x0 - 1), bounds.height - 1);
                 }
-                g2.setColor(new Color(0x88, 0x88, 0x88));
+                g2.setColor(EditorTheme.GUIDE_MUTED);
                 for (int i = 1; i < frameCount; i++) {
                     int x = bounds.x + bounds.width * i / frameCount;
                     g2.drawLine(x, bounds.y, x, bounds.y + bounds.height);

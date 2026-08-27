@@ -530,14 +530,14 @@ public class SpriteSheetPreview extends JComponent
             focus = selectedFrame;
         }
         if (focus >= 0 && frameCount > 0) {
-            g2.setColor(new Color(0, 0, 0, 0x66));
+            g2.setColor(EditorTheme.DIM_OVERLAY);
             int highlightStart = bounds.x + bounds.width * focus / frameCount;
             int highlightEnd = bounds.x + bounds.width * (focus + 1) / frameCount;
             g2.fillRect(bounds.x, bounds.y, highlightStart - bounds.x, bounds.height);
             g2.fillRect(highlightEnd, bounds.y, bounds.x + bounds.width - highlightEnd, bounds.height);
 
             if (mode == Mode.SELECT_FRAME) {
-                g2.setColor(new Color(0x33, 0x99, 0xff, 0xcc));
+                g2.setColor(EditorTheme.SELECTION);
                 g2.setStroke(new BasicStroke(2f));
                 g2.drawRect(highlightStart, bounds.y, Math.max(1, highlightEnd - highlightStart - 1), bounds.height - 1);
             }
@@ -711,8 +711,8 @@ public class SpriteSheetPreview extends JComponent
         int maxY = vis.y + vis.height + pad;
 
         // Dual low-opacity grid so it reads on both light and dark sprites.
-        Color dark = new Color(0, 0, 0, 40);
-        Color light = new Color(255, 255, 255, 36);
+        Color dark = EditorTheme.GRID_DARK;
+        Color light = EditorTheme.GRID_LIGHT;
         g2.setStroke(new BasicStroke(1f));
 
         for (int gx = 0; gx <= frameWidth; gx++) {
@@ -737,8 +737,8 @@ public class SpriteSheetPreview extends JComponent
         }
 
         // Slightly stronger lines every 8 source pixels for orientation.
-        Color majorDark = new Color(0, 0, 0, 70);
-        Color majorLight = new Color(255, 255, 255, 55);
+        Color majorDark = EditorTheme.GRID_MAJOR_DARK;
+        Color majorLight = EditorTheme.GRID_MAJOR_LIGHT;
         for (int gx = 0; gx <= frameWidth; gx += 8) {
             int x = bounds.x + destForSrc(gx, bounds.width, frameWidth, false);
             if (x < minX || x > maxX) {
@@ -763,8 +763,8 @@ public class SpriteSheetPreview extends JComponent
 
     private void paintCrosshair(Graphics2D g2, int cx, int cy, boolean isDefault) {
         int arm = 10;
-        Color ring = isDefault ? new Color(0xff, 0xcc, 0x00, 0xaa) : new Color(0xff, 0x33, 0x33, 0xee);
-        Color core = isDefault ? new Color(0xff, 0xcc, 0x00, 0x66) : new Color(0xff, 0x33, 0x33, 0x99);
+        Color ring = isDefault ? EditorTheme.FEET_DEFAULT_RING : EditorTheme.FEET_RING;
+        Color core = isDefault ? EditorTheme.FEET_DEFAULT_CORE : EditorTheme.FEET_CORE;
 
         g2.setStroke(new BasicStroke(2f));
         g2.setColor(ring);

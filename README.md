@@ -70,3 +70,6 @@ All artwork was created by contributors to the Desktop Ponies team ([DeviantArt]
 Original Android source: [Smithers888](http://cpjsmith.uk) / [Smithers888/PonyPaper](https://github.com/Smithers888/PonyPaper).
 
 You may share and modify this project under the same terms: credit, non-commercial use, and share-alike.
+
+The custom pony editor uses [FlatLaf](https://github.com/JFormDesigner/FlatLaf)
+(Apache License 2.0) for its Swing look and feel.
