@@ -1,5 +1,8 @@
 # Custom ponies in PonyPaper
+
 I.e. adding extra ponies (griffons, dragons, etc.) to PonyPaper that aren't available by default. This can mean anything from your own OC to characters from the fandom or even canon characters that I haven't added yet (and how could I possibly not have added *insert name here* because they are clearly **best horse**).
+
+![Examples](screenshots/custom-header.png)
 
 ## Overview
 PonyPaper represent each custom pony as a single XML file.
@@ -18,7 +21,7 @@ Once a pony has been created by the editor, load it into the wallpaper in any of
 
 After the new pony is added, they can be enabled and disabled just like built-in ponies. Unchecking only hides them. Use **Remove custom pony** in settings to delete a file from the working copy and from the linked folder (if one is connected). You can also delete or rename the XML in the linked folder; the next sync follows that. Removing a pony while no folder is connected only clears the working copy — reconnecting the folder restores whatever is still in it.
 
-Files for some of my own favourite fan characters are available at http://cpjsmith.co.uk/downloads/ponypaper/.
+Several pre-made characters can be found at the [PonyPaper Library](https://www.ponypaper.net).
 
 # PonyPaper Custom Pony Editor
 This tool is capable of creating and editting the XML files that represent custom ponies, selecting the desired sprites and behaviours of the pony.
@@ -33,6 +36,8 @@ For each action that your pony can perform, the app requires a sprite each for t
 The file [twilight-sparkle.xml](/custom/twilight-sparkle.xml) contains a copy of the built-in Twilight Sparkle. Twilight can be either a unicorn or an alicorn and can both fly and teleport, so she has examples of many possible details in creating ponies.
 
 ## The Editor
+
+![Editor screenshot](screenshots/custom-editor.png)
 
 ### Download (recommended)
 
