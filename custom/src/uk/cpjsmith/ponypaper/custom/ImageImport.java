@@ -26,10 +26,12 @@ import javax.imageio.ImageIO;
  * per-frame lift (pixels of air under the sprite), no inter-frame padding.
  * Animated GIFs are decoded, fully coalesced (so each frame is a complete
  * image, not a dirty-rectangle delta), and packed left-to-right into a
- * single PNG spritesheet with matching frame timings. Scale is explicit:
- * {@link #SCALE_NATIVE} (default) or {@link #SCALE_DESKTOP_PONIES} (50%,
- * used by the Desktop Ponies folder importer so stock ponies match built-in
- * sheet size).
+ * single PNG spritesheet with matching frame timings. Scale is an exact
+ * dyadic divisor ({@link #SCALE_DIVISOR_NATIVE}…{@link #SCALE_DIVISOR_SIXTEENTH}):
+ * nearest-neighbour successive halvings, so ÷2 / ÷4 / ÷8 / ÷16 match
+ * re-running the old 50% option. {@link #SCALE_DIVISOR_HALF} is what the
+ * Desktop Ponies folder importer uses so stock ponies match built-in sheet
+ * size.
  *
  * <p>Desktop Ponies GIFs are often heavily optimised: partial frames, mixed
  * disposal methods, and occasionally a transparent colour index that lies
@@ -43,18 +45,52 @@ public class ImageImport {
     /** Default per-frame duration when packing stills (hundredths of a second). */
     public static final int DEFAULT_FRAME_TIMING_CS = 10;
 
-    /** Pack at the source pixel size. */
+    /** Pack at the source pixel size (÷1). */
+    public static final int SCALE_DIVISOR_NATIVE = 1;
+
+    /**
+     * Half linear size (÷2) — Desktop Ponies GIFs vs typical built-in
+     * PonyPaper sheets. Successive integer halvings, same as the old silent
+     * GIF shrink.
+     */
+    public static final int SCALE_DIVISOR_HALF = 2;
+
+    /** Quarter linear size (÷4) — two successive 50% passes. */
+    public static final int SCALE_DIVISOR_QUARTER = 4;
+
+    /** Eighth linear size (÷8) — three successive 50% passes. */
+    public static final int SCALE_DIVISOR_EIGHTH = 8;
+
+    /** Sixteenth linear size (÷16) — four successive 50% passes. */
+    public static final int SCALE_DIVISOR_SIXTEENTH = 16;
+
+    /**
+     * Allowed dyadic scale divisors, largest scale first (native → ÷16).
+     */
+    public static final int[] SCALE_DIVISORS = {
+        SCALE_DIVISOR_NATIVE,
+        SCALE_DIVISOR_HALF,
+        SCALE_DIVISOR_QUARTER,
+        SCALE_DIVISOR_EIGHTH,
+        SCALE_DIVISOR_SIXTEENTH,
+    };
+
+    /**
+     * Percent label for native size. Prefer {@link #SCALE_DIVISOR_NATIVE} in
+     * new code; kept for call sites and docs that speak in percents.
+     */
     public static final int SCALE_NATIVE = 100;
 
     /**
-     * Half linear size — Desktop Ponies GIFs vs typical built-in PonyPaper
-     * sheets. Integer division, same as the old silent GIF shrink.
+     * Percent label for half size / Desktop Ponies. Prefer
+     * {@link #SCALE_DIVISOR_HALF}.
      */
     public static final int SCALE_DESKTOP_PONIES = 50;
 
     /**
      * Built-in sheets top out around this height. Taller packed cells will
-     * draw roughly 2× a stock pony on the wallpaper.
+     * draw roughly 2× a stock pony on the wallpaper. Also the target for
+     * {@link #fitBuiltinScaleDivisor(int)}.
      */
     public static final int LARGE_CELL_HEIGHT_PX = 80;
 
@@ -90,10 +126,18 @@ public class ImageImport {
          */
         public int[] lifts;
         /**
-         * Linear scale applied before packing. {@link #SCALE_NATIVE} (default)
-         * or {@link #SCALE_DESKTOP_PONIES}.
+         * Dyadic linear shrink applied before packing:
+         * {@link #SCALE_DIVISOR_NATIVE} (default), {@link #SCALE_DIVISOR_HALF},
+         * {@link #SCALE_DIVISOR_QUARTER}, {@link #SCALE_DIVISOR_EIGHTH}, or
+         * {@link #SCALE_DIVISOR_SIXTEENTH}. Ignored when
+         * {@link #scaleFitBuiltin} is true.
          */
-        public int scalePercent = SCALE_NATIVE;
+        public int scaleDivisor = SCALE_DIVISOR_NATIVE;
+        /**
+         * When true, pick the largest dyadic scale whose max frame height is
+         * ≤ {@link #LARGE_CELL_HEIGHT_PX} (see {@link #fitBuiltinScaleDivisor}).
+         */
+        public boolean scaleFitBuiltin = false;
         /**
          * Optional per-frame timings in hundredths of a second. When
          * {@code null}, every frame uses {@link #defaultTimingCs}. Length
@@ -196,32 +240,195 @@ public class ImageImport {
         return new GifFrames(frames, timingsCs, animation.logicalWidth, animation.logicalHeight);
     }
 
-    public static int normalizeScalePercent(int scalePercent) throws IOException {
-        if (scalePercent != SCALE_NATIVE && scalePercent != SCALE_DESKTOP_PONIES) {
-            throw new IOException("Scale must be 100 or 50 (got " + scalePercent + ").");
+    public static int normalizeScaleDivisor(int scaleDivisor) throws IOException {
+        for (int allowed : SCALE_DIVISORS) {
+            if (scaleDivisor == allowed) {
+                return scaleDivisor;
+            }
         }
-        return scalePercent;
+        throw new IOException(
+                "Scale divisor must be 1, 2, 4, 8, or 16 (got " + scaleDivisor + ").");
     }
 
     /**
-     * Accepts {@code 100}, {@code 50}, {@code 100%}, {@code half}, {@code native}.
+     * Maps legacy percent labels ({@link #SCALE_NATIVE}, {@link #SCALE_DESKTOP_PONIES},
+     * 25) onto a dyadic divisor. Prefer passing divisors directly.
      */
-    public static int parseScalePercent(String text) throws IOException {
+    public static int scaleDivisorFromPercent(int scalePercent) throws IOException {
+        if (scalePercent == SCALE_NATIVE || scalePercent == 100) {
+            return SCALE_DIVISOR_NATIVE;
+        }
+        if (scalePercent == SCALE_DESKTOP_PONIES || scalePercent == 50) {
+            return SCALE_DIVISOR_HALF;
+        }
+        if (scalePercent == 25) {
+            return SCALE_DIVISOR_QUARTER;
+        }
+        throw new IOException(
+                "Scale percent must be 100, 50, or 25 (got " + scalePercent
+                        + "). Use divisor 8 or 16 for 12.5% / 6.25%.");
+    }
+
+    /**
+     * Number of successive 50% passes for a normalised divisor (0…4).
+     */
+    public static int scaleHalveCount(int scaleDivisor) throws IOException {
+        int divisor = normalizeScaleDivisor(scaleDivisor);
+        return Integer.numberOfTrailingZeros(divisor);
+    }
+
+    /**
+     * One dimension after {@code scaleDivisor} successive integer halvings.
+     */
+    public static int scaleDimension(int size, int scaleDivisor) throws IOException {
+        int halvings = scaleHalveCount(scaleDivisor);
+        int value = Math.max(0, size);
+        for (int i = 0; i < halvings; i++) {
+            value = Math.max(1, value / 2);
+        }
+        return value == 0 ? 1 : value;
+    }
+
+    /**
+     * Largest dyadic scale (smallest divisor) whose height is
+     * ≤ {@link #LARGE_CELL_HEIGHT_PX}. Falls back to ÷16 when even that is
+     * taller.
+     */
+    public static int fitBuiltinScaleDivisor(int sourceMaxHeight) throws IOException {
+        int height = Math.max(1, sourceMaxHeight);
+        for (int divisor : SCALE_DIVISORS) {
+            if (scaleDimension(height, divisor) <= LARGE_CELL_HEIGHT_PX) {
+                return divisor;
+            }
+        }
+        return SCALE_DIVISOR_SIXTEENTH;
+    }
+
+    public static int maxFrameHeight(List<BufferedImage> frames) throws IOException {
+        if (frames == null || frames.isEmpty()) {
+            throw new IOException("No frames.");
+        }
+        int max = 0;
+        for (int i = 0; i < frames.size(); i++) {
+            BufferedImage frame = frames.get(i);
+            if (frame == null) {
+                throw new IOException("Null frame");
+            }
+            max = Math.max(max, frame.getHeight());
+        }
+        return Math.max(1, max);
+    }
+
+    public static int maxFrameWidth(List<BufferedImage> frames) throws IOException {
+        if (frames == null || frames.isEmpty()) {
+            throw new IOException("No frames.");
+        }
+        int max = 0;
+        for (int i = 0; i < frames.size(); i++) {
+            BufferedImage frame = frames.get(i);
+            if (frame == null) {
+                throw new IOException("Null frame");
+            }
+            max = Math.max(max, frame.getWidth());
+        }
+        return Math.max(1, max);
+    }
+
+    /**
+     * Resolves {@link PackOptions#scaleFitBuiltin} or
+     * {@link PackOptions#scaleDivisor} against the source frames.
+     */
+    public static int resolveScaleDivisor(PackOptions options, List<BufferedImage> frames)
+            throws IOException {
+        PackOptions opts = options != null ? options : new PackOptions();
+        if (opts.scaleFitBuiltin) {
+            return fitBuiltinScaleDivisor(maxFrameHeight(frames));
+        }
+        return normalizeScaleDivisor(opts.scaleDivisor);
+    }
+
+    /** Human-readable scale, e.g. {@code 100%}, {@code 12.5%}. */
+    public static String formatScaleDivisor(int scaleDivisor) throws IOException {
+        int divisor = normalizeScaleDivisor(scaleDivisor);
+        switch (divisor) {
+            case SCALE_DIVISOR_NATIVE:
+                return "100%";
+            case SCALE_DIVISOR_HALF:
+                return "50%";
+            case SCALE_DIVISOR_QUARTER:
+                return "25%";
+            case SCALE_DIVISOR_EIGHTH:
+                return "12.5%";
+            case SCALE_DIVISOR_SIXTEENTH:
+                return "6.25%";
+            default:
+                return "÷" + divisor;
+        }
+    }
+
+    /** Short label including the divisor, e.g. {@code 25% (÷4)}. */
+    public static String formatScaleDivisorLabel(int scaleDivisor) throws IOException {
+        int divisor = normalizeScaleDivisor(scaleDivisor);
+        if (divisor == SCALE_DIVISOR_NATIVE) {
+            return "100% (native)";
+        }
+        if (divisor == SCALE_DIVISOR_HALF) {
+            return "50% (Desktop Ponies / ÷2)";
+        }
+        return formatScaleDivisor(divisor) + " (÷" + divisor + ")";
+    }
+
+    /**
+     * Accepts {@code 100}, {@code 50%}, {@code 12.5}, {@code 1/8}, {@code half},
+     * {@code quarter}, {@code eighth}, {@code 16}, {@code fit}, {@code native}.
+     * Returns a scale divisor, or {@code -1} for {@code fit} (caller must
+     * resolve against frame heights).
+     */
+    public static int parseScaleDivisor(String text) throws IOException {
         if (text == null || text.trim().isEmpty()) {
             throw new IOException("Scale is empty.");
         }
         String t = text.trim();
+        if ("fit".equalsIgnoreCase(t)
+                || "builtin".equalsIgnoreCase(t)
+                || "built-in".equalsIgnoreCase(t)
+                || "auto".equalsIgnoreCase(t)) {
+            return -1;
+        }
         if ("half".equalsIgnoreCase(t)
                 || "dp".equalsIgnoreCase(t)
                 || "desktop".equalsIgnoreCase(t)) {
-            return SCALE_DESKTOP_PONIES;
+            return SCALE_DIVISOR_HALF;
+        }
+        if ("quarter".equalsIgnoreCase(t)) {
+            return SCALE_DIVISOR_QUARTER;
+        }
+        if ("eighth".equalsIgnoreCase(t)) {
+            return SCALE_DIVISOR_EIGHTH;
+        }
+        if ("sixteenth".equalsIgnoreCase(t)) {
+            return SCALE_DIVISOR_SIXTEENTH;
         }
         if ("native".equalsIgnoreCase(t)
                 || "full".equalsIgnoreCase(t)) {
-            return SCALE_NATIVE;
+            return SCALE_DIVISOR_NATIVE;
+        }
+        if (t.startsWith("1/") || t.startsWith("÷")) {
+            String rest = t.startsWith("1/") ? t.substring(2).trim() : t.substring("÷".length()).trim();
+            try {
+                return normalizeScaleDivisor(Integer.parseInt(rest));
+            } catch (NumberFormatException e) {
+                throw new IOException("Invalid scale: " + text);
+            }
         }
         if (t.endsWith("%")) {
             t = t.substring(0, t.length() - 1).trim();
+        }
+        if ("12.5".equals(t) || "12,5".equals(t)) {
+            return SCALE_DIVISOR_EIGHTH;
+        }
+        if ("6.25".equals(t) || "6,25".equals(t)) {
+            return SCALE_DIVISOR_SIXTEENTH;
         }
         int value;
         try {
@@ -229,7 +436,24 @@ public class ImageImport {
         } catch (NumberFormatException e) {
             throw new IOException("Invalid scale: " + text);
         }
-        return normalizeScalePercent(value);
+        // Bare 1/2/4/8/16 are divisors; 100/50/25 are percent labels.
+        if (value == 100 || value == 50 || value == 25) {
+            return scaleDivisorFromPercent(value);
+        }
+        return normalizeScaleDivisor(value);
+    }
+
+    /**
+     * @deprecated use {@link #parseScaleDivisor(String)}; still returns a
+     *             divisor (not a percent) for the values it accepts.
+     */
+    @Deprecated
+    public static int parseScalePercent(String text) throws IOException {
+        int parsed = parseScaleDivisor(text);
+        if (parsed < 0) {
+            throw new IOException("Scale 'fit' needs frame heights; use parseScaleDivisor.");
+        }
+        return parsed;
     }
 
     public static boolean isLargeCell(int cellHeight) {
@@ -241,16 +465,17 @@ public class ImageImport {
     }
 
     /**
-     * Nearest-neighbour scale. {@link #SCALE_NATIVE} returns {@code frames}
-     * itself. Other allowed percents allocate new images.
+     * Nearest-neighbour dyadic scale. {@link #SCALE_DIVISOR_NATIVE} returns
+     * {@code frames} itself. Other divisors allocate new images via successive
+     * halvings.
      */
-    public static List<BufferedImage> scaleFrames(List<BufferedImage> frames, int scalePercent)
+    public static List<BufferedImage> scaleFrames(List<BufferedImage> frames, int scaleDivisor)
             throws IOException {
-        int scale = normalizeScalePercent(scalePercent);
+        int divisor = normalizeScaleDivisor(scaleDivisor);
         if (frames == null || frames.isEmpty()) {
             throw new IOException("No frames to scale.");
         }
-        if (scale == SCALE_NATIVE) {
+        if (divisor == SCALE_DIVISOR_NATIVE) {
             return frames;
         }
         List<BufferedImage> out = new ArrayList<BufferedImage>(frames.size());
@@ -259,32 +484,37 @@ public class ImageImport {
             if (frame == null) {
                 throw new IOException("Null frame");
             }
-            out.add(scaleImage(frame, scale));
+            out.add(scaleImage(frame, divisor));
         }
         return out;
     }
 
-    public static BufferedImage scaleImage(BufferedImage src, int scalePercent) throws IOException {
-        int scale = normalizeScalePercent(scalePercent);
+    public static BufferedImage scaleImage(BufferedImage src, int scaleDivisor) throws IOException {
+        int divisor = normalizeScaleDivisor(scaleDivisor);
         if (src == null) {
             throw new IOException("Null frame");
         }
-        if (scale == SCALE_NATIVE) {
+        if (divisor == SCALE_DIVISOR_NATIVE) {
             return src;
         }
-        int w = Math.max(1, src.getWidth() * scale / 100);
-        int h = Math.max(1, src.getHeight() * scale / 100);
-        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = out.createGraphics();
-        g.setRenderingHint(
-                RenderingHints.KEY_INTERPOLATION,
-                RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-        g.setRenderingHint(
-                RenderingHints.KEY_RENDERING,
-                RenderingHints.VALUE_RENDER_QUALITY);
-        g.drawImage(src, 0, 0, w, h, null);
-        g.dispose();
-        return out;
+        int halvings = scaleHalveCount(divisor);
+        BufferedImage current = src;
+        for (int i = 0; i < halvings; i++) {
+            int w = Math.max(1, current.getWidth() / 2);
+            int h = Math.max(1, current.getHeight() / 2);
+            BufferedImage next = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = next.createGraphics();
+            g.setRenderingHint(
+                    RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+            g.setRenderingHint(
+                    RenderingHints.KEY_RENDERING,
+                    RenderingHints.VALUE_RENDER_QUALITY);
+            g.drawImage(current, 0, 0, w, h, null);
+            g.dispose();
+            current = next;
+        }
+        return current;
     }
 
     /**
@@ -753,8 +983,8 @@ public class ImageImport {
     public static ImageImport fromFrames(List<BufferedImage> frames, PackOptions options)
             throws IOException {
         PackOptions opts = options != null ? options : new PackOptions();
-        int scalePercent = normalizeScalePercent(opts.scalePercent);
-        List<BufferedImage> scaled = scaleFrames(frames, scalePercent);
+        int scaleDivisor = resolveScaleDivisor(opts, frames);
+        List<BufferedImage> scaled = scaleFrames(frames, scaleDivisor);
         PackPreview preview = inspectFrames(scaled, opts.lifts);
         if (opts.rejectMixedSizes && preview.mixedSizes) {
             throw new IOException("Frame sizes differ; every frame must be the same size.");

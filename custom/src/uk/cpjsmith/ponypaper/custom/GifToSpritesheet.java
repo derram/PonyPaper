@@ -58,16 +58,23 @@ public final class GifToSpritesheet {
                 continue;
             }
             if ("--half".equals(arg)) {
-                options.scalePercent = ImageImport.SCALE_DESKTOP_PONIES;
+                options.scaleDivisor = ImageImport.SCALE_DIVISOR_HALF;
+                options.scaleFitBuiltin = false;
                 continue;
             }
             if ("--scale".equals(arg)) {
                 if (i + 1 >= args.length) {
-                    System.err.println("Option " + arg + " requires 100 or 50.");
+                    System.err.println("Option " + arg + " requires 100|50|25|12.5|6.25|fit.");
                     return 2;
                 }
                 try {
-                    options.scalePercent = ImageImport.parseScalePercent(args[++i]);
+                    int parsed = ImageImport.parseScaleDivisor(args[++i]);
+                    if (parsed < 0) {
+                        options.scaleFitBuiltin = true;
+                    } else {
+                        options.scaleDivisor = parsed;
+                        options.scaleFitBuiltin = false;
+                    }
                 } catch (IOException e) {
                     System.err.println("Invalid --scale: " + e.getMessage());
                     return 2;
@@ -125,11 +132,23 @@ public final class GifToSpritesheet {
                     int frames = imported.timings.isEmpty()
                             ? 0
                             : imported.timings.split(",", -1).length;
+                    String scaleLabel;
+                    try {
+                        if (options.scaleFitBuiltin) {
+                            scaleLabel = "fit → " + imported.cellWidth + "×" + imported.cellHeight
+                                    + " cells";
+                        } else {
+                            scaleLabel = ImageImport.formatScaleDivisor(options.scaleDivisor)
+                                    + " (÷" + options.scaleDivisor + ")";
+                        }
+                    } catch (IOException e) {
+                        scaleLabel = options.scaleFitBuiltin ? "fit" : ("÷" + options.scaleDivisor);
+                    }
                     System.err.println("Frames: " + frames
                             + (imported.cellWidth > 0
                                     ? "  cell: " + imported.cellWidth + "×" + imported.cellHeight
                                     : "")
-                            + "  scale: " + options.scalePercent + "%"
+                            + "  scale: " + scaleLabel
                             + "  timings (cs): " + imported.timings);
                 }
                 if (timingsFile != null) {
@@ -163,7 +182,10 @@ public final class GifToSpritesheet {
         System.out.println("  -h, --help           Show this help");
         System.out.println("  -q, --quiet          Suppress status on stderr (timings still on stdout)");
         System.out.println("  -t, --timings FILE   Also write comma-separated frame timings to FILE");
-        System.out.println("  --scale 100|50       Linear size (default 100 / native pixels)");
+        System.out.println("  --scale 100|50|25|12.5|6.25|fit");
+        System.out.println("                       Dyadic nearest-neighbour shrink (default 100).");
+        System.out.println("                       fit = largest scale with frame height ≤ "
+                + ImageImport.LARGE_CELL_HEIGHT_PX + "px");
         System.out.println("  --half               Same as --scale 50 (Desktop Ponies → built-in size)");
         System.out.println();
         System.out.println("If OUTPUT is omitted, writes INPUT with the extension replaced by .png.");

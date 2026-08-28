@@ -51,10 +51,10 @@ import javax.swing.event.ListSelectionListener;
 
 /**
  * Modal dialog: review imported frames (PNG stills or coalesced GIF frames),
- * choose native vs Desktop Ponies 50% scale, rearrange playback order, set
- * per-frame lift, and pack. Lift {@code 0} is the usual bottom-centre
- * alignment; positive lift bakes a hop into a taller cell. Returns
- * {@code null} on cancel.
+ * choose a dyadic pack scale (100%…6.25%, or fit-to-built-in), rearrange
+ * playback order, set per-frame lift, and pack. Lift {@code 0} is the usual
+ * bottom-centre alignment; positive lift bakes a hop into a taller cell.
+ * Returns {@code null} on cancel.
  */
 public final class FramePackDialog extends JDialog {
 
@@ -65,25 +65,36 @@ public final class FramePackDialog extends JDialog {
      * User choices after Pack. Lift values are in <em>output</em> pixels
      * (after scale) and follow playback order. {@link #order} is a
      * permutation of source indices ({@code 0..n-1}).
+     * {@link #scaleDivisor} is the resolved dyadic divisor actually applied
+     * (never a "fit" sentinel).
      */
     public static final class Result {
         public final int[] lifts;
-        public final int scalePercent;
+        public final int scaleDivisor;
         public final int[] order;
 
-        Result(int[] lifts, int scalePercent, int[] order) {
+        Result(int[] lifts, int scaleDivisor, int[] order) {
             this.lifts = lifts;
-            this.scalePercent = scalePercent;
+            this.scaleDivisor = scaleDivisor;
             this.order = order;
         }
     }
 
     private static final class ScaleItem {
-        final int percent;
-        final String label;
+        /** Resolved divisor, or {@code -1} for fit-to-built-in. */
+        final int divisor;
+        final boolean fit;
+        String label;
 
-        ScaleItem(int percent, String label) {
-            this.percent = percent;
+        ScaleItem(int divisor, String label) {
+            this.divisor = divisor;
+            this.fit = false;
+            this.label = label;
+        }
+
+        ScaleItem(boolean fit, int resolvedDivisor, String label) {
+            this.divisor = resolvedDivisor;
+            this.fit = fit;
             this.label = label;
         }
 
@@ -109,10 +120,12 @@ public final class FramePackDialog extends JDialog {
     private final JSpinner hopPeakSpinner;
     private final SpinnerNumberModel liftModel;
     private final JComboBox<ScaleItem> scaleCombo;
+    private final ScaleItem fitScaleItem;
+    private final int fitScaleDivisor;
     private final JButton moveUpButton;
     private final JButton moveDownButton;
     private final JButton resetOrderButton;
-    private int scalePercent;
+    private int scaleDivisor;
     private List<BufferedImage> scaledFrames;
     private boolean updatingSpinner;
     private boolean packed;
@@ -120,7 +133,7 @@ public final class FramePackDialog extends JDialog {
 
     private FramePackDialog(Component parent, String title,
             List<String> frameNames, List<BufferedImage> frames, String notes,
-            int defaultScalePercent) {
+            int defaultScaleDivisor) {
         super(SwingUtilities.getWindowAncestor(parent),
                 title != null ? title : "Import Frames",
                 ModalityType.APPLICATION_MODAL);
@@ -132,10 +145,40 @@ public final class FramePackDialog extends JDialog {
         for (int i = 0; i < frames.size(); i++) {
             this.order[i] = i;
         }
-        int initialScale = defaultScalePercent == ImageImport.SCALE_DESKTOP_PONIES
-                ? ImageImport.SCALE_DESKTOP_PONIES
-                : ImageImport.SCALE_NATIVE;
-        this.scalePercent = initialScale;
+        int initialDivisor;
+        try {
+            initialDivisor = ImageImport.normalizeScaleDivisor(
+                    defaultScaleDivisor <= 0
+                            ? ImageImport.SCALE_DIVISOR_NATIVE
+                            : (defaultScaleDivisor == ImageImport.SCALE_NATIVE
+                                    ? ImageImport.SCALE_DIVISOR_NATIVE
+                                    : (defaultScaleDivisor == ImageImport.SCALE_DESKTOP_PONIES
+                                            ? ImageImport.SCALE_DIVISOR_HALF
+                                            : defaultScaleDivisor)));
+        } catch (IOException e) {
+            initialDivisor = ImageImport.SCALE_DIVISOR_NATIVE;
+        }
+        this.scaleDivisor = initialDivisor;
+
+        int computedFitDivisor = ImageImport.SCALE_DIVISOR_NATIVE;
+        String fitLabel = "Fit to built-in";
+        try {
+            int maxW = ImageImport.maxFrameWidth(frames);
+            int maxH = ImageImport.maxFrameHeight(frames);
+            computedFitDivisor = ImageImport.fitBuiltinScaleDivisor(maxH);
+            int scaledW = ImageImport.scaleDimension(maxW, computedFitDivisor);
+            int scaledH = ImageImport.scaleDimension(maxH, computedFitDivisor);
+            fitLabel = String.format(
+                    "Fit to built-in — %s → %d×%d",
+                    ImageImport.formatScaleDivisorLabel(computedFitDivisor),
+                    scaledW,
+                    scaledH);
+        } catch (IOException ignored) {
+            // Keep a safe fallback label; packing will surface real errors.
+        }
+        this.fitScaleDivisor = computedFitDivisor;
+        this.fitScaleItem = new ScaleItem(true, computedFitDivisor, fitLabel);
+
         for (int i = 0; i < frames.size(); i++) {
             if (frameNames != null && i < frameNames.size() && frameNames.get(i) != null) {
                 names.add(frameNames.get(i));
@@ -168,22 +211,45 @@ public final class FramePackDialog extends JDialog {
         hopPeakSpinner = new JSpinner(new SpinnerNumberModel(16, 1, MAX_LIFT, 1));
         hopPeakSpinner.setToolTipText("Peak height in pixels for the hop-curve preset.");
 
-        scaleCombo = new JComboBox<ScaleItem>(new ScaleItem[] {
-            new ScaleItem(ImageImport.SCALE_NATIVE, "100% (native)"),
-            new ScaleItem(ImageImport.SCALE_DESKTOP_PONIES, "50% (Desktop Ponies)"),
-        });
-        scaleCombo.setSelectedIndex(initialScale == ImageImport.SCALE_DESKTOP_PONIES ? 1 : 0);
+        ScaleItem[] scaleItems;
+        try {
+            scaleItems = new ScaleItem[] {
+                new ScaleItem(ImageImport.SCALE_DIVISOR_NATIVE,
+                        ImageImport.formatScaleDivisorLabel(ImageImport.SCALE_DIVISOR_NATIVE)),
+                new ScaleItem(ImageImport.SCALE_DIVISOR_HALF,
+                        ImageImport.formatScaleDivisorLabel(ImageImport.SCALE_DIVISOR_HALF)),
+                new ScaleItem(ImageImport.SCALE_DIVISOR_QUARTER,
+                        ImageImport.formatScaleDivisorLabel(ImageImport.SCALE_DIVISOR_QUARTER)),
+                new ScaleItem(ImageImport.SCALE_DIVISOR_EIGHTH,
+                        ImageImport.formatScaleDivisorLabel(ImageImport.SCALE_DIVISOR_EIGHTH)),
+                new ScaleItem(ImageImport.SCALE_DIVISOR_SIXTEENTH,
+                        ImageImport.formatScaleDivisorLabel(ImageImport.SCALE_DIVISOR_SIXTEENTH)),
+                fitScaleItem,
+            };
+        } catch (IOException e) {
+            scaleItems = new ScaleItem[] {
+                new ScaleItem(ImageImport.SCALE_DIVISOR_NATIVE, "100% (native)"),
+                fitScaleItem,
+            };
+        }
+        scaleCombo = new JComboBox<ScaleItem>(scaleItems);
+        selectScaleItem(initialDivisor, false);
         scaleCombo.setToolTipText(
-                "Linear size of the packed sheet. 50% matches built-in ponies when the source is Desktop Ponies art.");
+                "Nearest-neighbour dyadic shrink before packing. "
+                        + "Prefer ÷2 / ÷4 / ÷8 / ÷16 for crisp sprites. "
+                        + "Fit picks the largest scale whose tallest frame is ≤ "
+                        + ImageImport.LARGE_CELL_HEIGHT_PX + "px.");
         scaleCombo.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 ScaleItem item = (ScaleItem) scaleCombo.getSelectedItem();
-                int next = item != null ? item.percent : ImageImport.SCALE_NATIVE;
-                if (next == scalePercent) {
+                int next = item != null
+                        ? (item.fit ? fitScaleDivisor : item.divisor)
+                        : ImageImport.SCALE_DIVISOR_NATIVE;
+                if (next == scaleDivisor) {
                     return;
                 }
-                scalePercent = next;
+                scaleDivisor = next;
                 scaledFrames = null;
                 refreshAll();
             }
@@ -243,7 +309,7 @@ public final class FramePackDialog extends JDialog {
             @Override
             public void actionPerformed(ActionEvent e) {
                 packed = true;
-                result = new Result(lifts.clone(), scalePercent, order.clone());
+                result = new Result(lifts.clone(), scaleDivisor, order.clone());
                 dispose();
             }
         });
@@ -420,25 +486,25 @@ public final class FramePackDialog extends JDialog {
      */
     public static Result showDialog(Component parent, String title,
             List<File> files, List<BufferedImage> frames, String notes) {
-        return showDialog(parent, title, files, frames, notes, ImageImport.SCALE_NATIVE);
+        return showDialog(parent, title, files, frames, notes, ImageImport.SCALE_DIVISOR_NATIVE);
     }
 
     public static Result showDialog(Component parent, String title,
-            List<File> files, List<BufferedImage> frames, String notes, int defaultScalePercent) {
+            List<File> files, List<BufferedImage> frames, String notes, int defaultScaleDivisor) {
         return showDialog(parent, title,
                 namesFromFiles(files, frames).toArray(new String[0]),
-                frames, notes, defaultScalePercent);
+                frames, notes, defaultScaleDivisor);
     }
 
     public static Result showDialog(Component parent, String title,
             String[] frameNames, List<BufferedImage> frames, String notes,
-            int defaultScalePercent) {
+            int defaultScaleDivisor) {
         if (frames == null || frames.isEmpty()) {
             throw new IllegalArgumentException("frames");
         }
         List<String> names = frameNames != null ? Arrays.asList(frameNames) : null;
         FramePackDialog dialog = new FramePackDialog(
-                parent, title, names, frames, notes, defaultScalePercent);
+                parent, title, names, frames, notes, defaultScaleDivisor);
         dialog.setVisible(true);
         return dialog.packed ? dialog.result : null;
     }
@@ -455,13 +521,40 @@ public final class FramePackDialog extends JDialog {
         return names;
     }
 
+    private void selectScaleItem(int divisor, boolean preferFitWhenMatching) {
+        int match = -1;
+        int fitIndex = -1;
+        for (int i = 0; i < scaleCombo.getItemCount(); i++) {
+            ScaleItem item = scaleCombo.getItemAt(i);
+            if (item == null) {
+                continue;
+            }
+            if (item.fit) {
+                fitIndex = i;
+                continue;
+            }
+            if (item.divisor == divisor && match < 0) {
+                match = i;
+            }
+        }
+        if (preferFitWhenMatching && fitIndex >= 0 && fitScaleDivisor == divisor) {
+            scaleCombo.setSelectedIndex(fitIndex);
+        } else if (match >= 0) {
+            scaleCombo.setSelectedIndex(match);
+        } else if (fitIndex >= 0 && fitScaleDivisor == divisor) {
+            scaleCombo.setSelectedIndex(fitIndex);
+        } else {
+            scaleCombo.setSelectedIndex(0);
+        }
+    }
+
     private List<BufferedImage> packFrames() {
-        if (scalePercent == ImageImport.SCALE_NATIVE) {
+        if (scaleDivisor == ImageImport.SCALE_DIVISOR_NATIVE) {
             return frames;
         }
         if (scaledFrames == null) {
             try {
-                scaledFrames = ImageImport.scaleFrames(frames, scalePercent);
+                scaledFrames = ImageImport.scaleFrames(frames, scaleDivisor);
             } catch (IOException e) {
                 return frames;
             }
@@ -578,15 +671,26 @@ public final class FramePackDialog extends JDialog {
         try {
             List<BufferedImage> toPack = playbackFrames();
             ImageImport.PackPreview preview = ImageImport.inspectFrames(toPack, lifts);
+            String scaleLabel;
+            try {
+                scaleLabel = ImageImport.formatScaleDivisor(scaleDivisor)
+                        + " (÷" + scaleDivisor + ")";
+            } catch (IOException e) {
+                scaleLabel = "÷" + scaleDivisor;
+            }
+            ScaleItem selectedScale = (ScaleItem) scaleCombo.getSelectedItem();
+            if (selectedScale != null && selectedScale.fit) {
+                scaleLabel = "fit → " + scaleLabel;
+            }
             headerLabel.setText(String.format(
-                    "Pack %d frame%s into %d×%d cells (sheet %d×%d) at %d%%.",
+                    "Pack %d frame%s into %d×%d cells (sheet %d×%d) at %s.",
                     preview.frameCount,
                     preview.frameCount == 1 ? "" : "s",
                     preview.cellWidth,
                     preview.cellHeight,
                     preview.sheetWidth(),
                     preview.cellHeight,
-                    scalePercent));
+                    scaleLabel));
             if (ImageImport.isLargeCell(preview.cellHeight)) {
                 warningLabel.setText(ImageImport.largeCellWarning());
                 warningLabel.setVisible(true);

@@ -58,7 +58,8 @@ public class PonyEditorCLI {
         try {
             int currentAction = -1;
             int[] packLifts = null;
-            int packScale = ImageImport.SCALE_NATIVE;
+            int packScaleDivisor = ImageImport.SCALE_DIVISOR_NATIVE;
+            boolean packScaleFit = false;
             
             for (int i = 0; i < args.length; i++) {
                 switch (args[i]) {
@@ -266,7 +267,14 @@ public class PonyEditorCLI {
                     {
                         checkArgument(args, i);
                         try {
-                            packScale = ImageImport.parseScalePercent(args[++i]);
+                            int parsed = ImageImport.parseScaleDivisor(args[++i]);
+                            if (parsed < 0) {
+                                packScaleFit = true;
+                                packScaleDivisor = ImageImport.SCALE_DIVISOR_NATIVE;
+                            } else {
+                                packScaleFit = false;
+                                packScaleDivisor = parsed;
+                            }
                         } catch (java.io.IOException e) {
                             throw new PonyEditor.GenericException("", "Invalid scale: " + e.getMessage());
                         }
@@ -281,9 +289,10 @@ public class PonyEditorCLI {
                         String spritePath = args[++i];
                         try {
                             ImageImport.PackOptions spriteOpts = null;
-                            if (packScale != ImageImport.SCALE_NATIVE) {
+                            if (packScaleFit || packScaleDivisor != ImageImport.SCALE_DIVISOR_NATIVE) {
                                 spriteOpts = new ImageImport.PackOptions();
-                                spriteOpts.scalePercent = packScale;
+                                spriteOpts.scaleDivisor = packScaleDivisor;
+                                spriteOpts.scaleFitBuiltin = packScaleFit;
                             }
                             editor.loadActionSprite(currentAction, spriteDir, new File(spritePath), spriteOpts);
                             guiDirty = true;
@@ -325,7 +334,8 @@ public class PonyEditorCLI {
                         }
                         try {
                             ImageImport.PackOptions packOpts = new ImageImport.PackOptions();
-                            packOpts.scalePercent = packScale;
+                            packOpts.scaleDivisor = packScaleDivisor;
+                            packOpts.scaleFitBuiltin = packScaleFit;
                             if (packLifts != null) {
                                 packOpts.lifts = packLifts;
                             }
@@ -418,10 +428,12 @@ public class PonyEditorCLI {
         System.out.println("-clone-gait NAME SPEED");
         System.out.println("    Create NAME as a spritesfrom-alias of the current action at SPEED,");
         System.out.println("    then select the new action.");
-        System.out.println("-scale 100|50|native|half");
-        System.out.println("    Linear size for the next -sprite (GIF only) and -sprite-frames.");
-        System.out.println("    100/native is default (full pixels). 50/half matches built-in ponies");
-        System.out.println("    when the source is Desktop Ponies art. Persists until changed.");
+        System.out.println("-scale 100|50|25|12.5|6.25|fit|native|half|quarter|eighth");
+        System.out.println("    Dyadic nearest-neighbour shrink for the next -sprite (GIF only)");
+        System.out.println("    and -sprite-frames. 100/native is default. 50/half matches built-in");
+        System.out.println("    ponies for Desktop Ponies art. fit picks the largest scale whose");
+        System.out.println("    tallest frame is ≤ " + ImageImport.LARGE_CELL_HEIGHT_PX + "px.");
+        System.out.println("    Persists until changed.");
         System.out.println("-sprite DIRECTION FILE");
         System.out.println("    Set the current action's sprite for the given direction.");
         System.out.println("    GIFs are coalesced and packed (scale from -scale; default 100%).");
@@ -434,7 +446,7 @@ public class PonyEditorCLI {
         System.out.println("    Pack PNG frames (a folder or listed files) into a spritesheet for");
         System.out.println("    DIRECTION. Natural-sorted, bottom-centred cells, no gutters.");
         System.out.println("    Optional -lifts raises frames in a taller cell (baked into the PNG).");
-        System.out.println("    Optional -scale 50 halves the frames before packing.");
+        System.out.println("    Optional -scale shrinks frames before packing (see -scale).");
         System.out.println("    Keeps existing timings when the frame count already matches.");
         System.out.println("-mirror-facing DIRECTION");
         System.out.println("    Build the opposite facing by flopping each cell of DIRECTION's sheet");

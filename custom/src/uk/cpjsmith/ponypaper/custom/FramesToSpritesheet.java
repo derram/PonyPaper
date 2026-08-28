@@ -80,16 +80,23 @@ public final class FramesToSpritesheet {
                 continue;
             }
             if ("--half".equals(arg)) {
-                options.scalePercent = ImageImport.SCALE_DESKTOP_PONIES;
+                options.scaleDivisor = ImageImport.SCALE_DIVISOR_HALF;
+                options.scaleFitBuiltin = false;
                 continue;
             }
             if ("--scale".equals(arg)) {
                 if (i + 1 >= args.length) {
-                    System.err.println("Option " + arg + " requires 100 or 50.");
+                    System.err.println("Option " + arg + " requires 100|50|25|12.5|6.25|fit.");
                     return 2;
                 }
                 try {
-                    options.scalePercent = ImageImport.parseScalePercent(args[++i]);
+                    int parsed = ImageImport.parseScaleDivisor(args[++i]);
+                    if (parsed < 0) {
+                        options.scaleFitBuiltin = true;
+                    } else {
+                        options.scaleDivisor = parsed;
+                        options.scaleFitBuiltin = false;
+                    }
                 } catch (IOException e) {
                     System.err.println("Invalid --scale: " + e.getMessage());
                     return 2;
@@ -139,10 +146,22 @@ public final class FramesToSpritesheet {
             if (!quiet) {
                 int frames = ImageImport.countTimings(timings);
                 System.err.println("Wrote " + output.getPath());
+                String scaleLabel;
+                try {
+                    if (options.scaleFitBuiltin) {
+                        scaleLabel = "fit → " + packed.cellWidth + "×" + packed.cellHeight
+                                + " cells";
+                    } else {
+                        scaleLabel = ImageImport.formatScaleDivisor(options.scaleDivisor)
+                                + " (÷" + options.scaleDivisor + ")";
+                    }
+                } catch (IOException e) {
+                    scaleLabel = options.scaleFitBuiltin ? "fit" : ("÷" + options.scaleDivisor);
+                }
                 System.err.println("Frames: " + frames
                         + "  cell: " + packed.cellWidth + "×" + packed.cellHeight
                         + "  sheet: " + (frames * packed.cellWidth) + "×" + packed.cellHeight
-                        + "  scale: " + options.scalePercent + "%"
+                        + "  scale: " + scaleLabel
                         + "  timings (cs): " + timings);
                 if (options.lifts != null) {
                     System.err.println("Lifts: " + ImageImport.formatLifts(options.lifts));
@@ -173,7 +192,10 @@ public final class FramesToSpritesheet {
         System.out.println("  -t, --timings FILE   Also write comma-separated frame timings to FILE");
         System.out.println("  --timing-cs N        Duration for every frame (hundredths of a second, default 10)");
         System.out.println("  --strict-size        Fail if frame pixel sizes differ (default: pad to max, bottom-centre)");
-        System.out.println("  --scale 100|50       Linear size before packing (default 100 / native pixels)");
+        System.out.println("  --scale 100|50|25|12.5|6.25|fit");
+        System.out.println("                       Dyadic nearest-neighbour shrink before packing");
+        System.out.println("                       (default 100). fit = largest scale with frame height");
+        System.out.println("                       ≤ " + ImageImport.LARGE_CELL_HEIGHT_PX + "px");
         System.out.println("  --half               Same as --scale 50 (Desktop Ponies → built-in size)");
         System.out.println("  --lifts N,N,...      Pixels up from the baseline for each frame (0 = on the ground).");
         System.out.println("                       Length must match the frame count. Omit for all zeros.");

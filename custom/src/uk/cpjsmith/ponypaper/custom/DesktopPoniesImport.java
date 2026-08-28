@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
  * free-form linked sequences that PonyPaper does not model. Those are skipped
  * with warnings. Locomotion, idle, drag, and simple teleport chains are mapped
  * onto PonyPaper actions and next-action lists. The editor packs GIF sprites
- * at 50% ({@link ImageImport#SCALE_DESKTOP_PONIES}) so imported stock ponies
+ * at 50% ({@link ImageImport#SCALE_DIVISOR_HALF}) so imported stock ponies
  * match built-in sheet size.
  *
  * @see <a href="https://github.com/RoosterDragon/Desktop-Ponies">Desktop Ponies</a>

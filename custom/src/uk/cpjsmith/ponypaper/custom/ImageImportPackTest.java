@@ -36,8 +36,11 @@ public final class ImageImportPackTest {
         failures += run("negativeLiftRejected", ImageImportPackTest::testNegativeLiftRejected);
         failures += run("scale50HalvesCell", ImageImportPackTest::testScale50HalvesCell);
         failures += run("scale100IsIdentity", ImageImportPackTest::testScale100IsIdentity);
+        failures += run("scale25AndSixteenth", ImageImportPackTest::testScale25AndSixteenth);
+        failures += run("scaleSuccessiveHalvesMatchRepeated50", ImageImportPackTest::testScaleSuccessiveHalvesMatchRepeated50);
         failures += run("scaleInvalidRejected", ImageImportPackTest::testScaleInvalidRejected);
-        failures += run("parseScalePercent", ImageImportPackTest::testParseScalePercent);
+        failures += run("parseScaleDivisor", ImageImportPackTest::testParseScaleDivisor);
+        failures += run("fitBuiltinScaleDivisor", ImageImportPackTest::testFitBuiltinScaleDivisor);
         failures += run("explicitTimingsCs", ImageImportPackTest::testExplicitTimingsCs);
         failures += run("gifLoadIsNativeSize", ImageImportPackTest::testGifLoadIsNativeSize);
         failures += run("gifLoadHalfScale", ImageImportPackTest::testGifLoadHalfScale);
@@ -301,7 +304,7 @@ public final class ImageImportPackTest {
     private static void testScale50HalvesCell() throws IOException {
         BufferedImage a = solid(10, 8, 0xffff0000);
         ImageImport.PackOptions opts = new ImageImport.PackOptions();
-        opts.scalePercent = ImageImport.SCALE_DESKTOP_PONIES;
+        opts.scaleDivisor = ImageImport.SCALE_DIVISOR_HALF;
         ImageImport packed = ImageImport.fromFrames(Arrays.asList(a), opts);
         assertEq("cellW", 5, packed.cellWidth);
         assertEq("cellH", 4, packed.cellHeight);
@@ -314,39 +317,92 @@ public final class ImageImportPackTest {
     private static void testScale100IsIdentity() throws IOException {
         BufferedImage a = solid(10, 8, 0xff00ff00);
         ImageImport.PackOptions opts = new ImageImport.PackOptions();
-        opts.scalePercent = ImageImport.SCALE_NATIVE;
+        opts.scaleDivisor = ImageImport.SCALE_DIVISOR_NATIVE;
         ImageImport packed = ImageImport.fromFrames(Arrays.asList(a), opts);
         assertEq("cellW", 10, packed.cellWidth);
         assertEq("cellH", 8, packed.cellHeight);
     }
 
+    private static void testScale25AndSixteenth() throws IOException {
+        BufferedImage a = solid(64, 64, 0xff00ff00);
+        ImageImport.PackOptions quarter = new ImageImport.PackOptions();
+        quarter.scaleDivisor = ImageImport.SCALE_DIVISOR_QUARTER;
+        ImageImport packedQ = ImageImport.fromFrames(Arrays.asList(a), quarter);
+        assertEq("quarter W", 16, packedQ.cellWidth);
+        assertEq("quarter H", 16, packedQ.cellHeight);
+
+        ImageImport.PackOptions sixteenth = new ImageImport.PackOptions();
+        sixteenth.scaleDivisor = ImageImport.SCALE_DIVISOR_SIXTEENTH;
+        ImageImport packedS = ImageImport.fromFrames(Arrays.asList(a), sixteenth);
+        assertEq("sixteenth W", 4, packedS.cellWidth);
+        assertEq("sixteenth H", 4, packedS.cellHeight);
+    }
+
+    private static void testScaleSuccessiveHalvesMatchRepeated50() throws IOException {
+        BufferedImage src = solid(101, 80, 0xffff00ff);
+        BufferedImage once = ImageImport.scaleImage(src, ImageImport.SCALE_DIVISOR_SIXTEENTH);
+        BufferedImage step = src;
+        for (int i = 0; i < 4; i++) {
+            step = ImageImport.scaleImage(step, ImageImport.SCALE_DIVISOR_HALF);
+        }
+        assertEq("w", step.getWidth(), once.getWidth());
+        assertEq("h", step.getHeight(), once.getHeight());
+        assertEq("px", step.getRGB(0, 0), once.getRGB(0, 0));
+    }
+
     private static void testScaleInvalidRejected() throws IOException {
         BufferedImage a = solid(4, 4, 0xff0000ff);
         ImageImport.PackOptions opts = new ImageImport.PackOptions();
-        opts.scalePercent = 25;
+        opts.scaleDivisor = 3;
         try {
             ImageImport.fromFrames(Arrays.asList(a), opts);
             throw new AssertionError("expected invalid scale failure");
         } catch (IOException e) {
-            if (!e.getMessage().contains("100 or 50")) {
+            if (!e.getMessage().contains("1, 2, 4, 8, or 16")) {
                 throw new AssertionError("unexpected message: " + e.getMessage());
             }
         }
     }
 
-    private static void testParseScalePercent() throws IOException {
-        assertEq("100", ImageImport.SCALE_NATIVE, ImageImport.parseScalePercent("100"));
-        assertEq("50%", ImageImport.SCALE_DESKTOP_PONIES, ImageImport.parseScalePercent("50%"));
-        assertEq("half", ImageImport.SCALE_DESKTOP_PONIES, ImageImport.parseScalePercent("half"));
-        assertEq("native", ImageImport.SCALE_NATIVE, ImageImport.parseScalePercent("native"));
+    private static void testParseScaleDivisor() throws IOException {
+        assertEq("100", ImageImport.SCALE_DIVISOR_NATIVE, ImageImport.parseScaleDivisor("100"));
+        assertEq("50%", ImageImport.SCALE_DIVISOR_HALF, ImageImport.parseScaleDivisor("50%"));
+        assertEq("half", ImageImport.SCALE_DIVISOR_HALF, ImageImport.parseScaleDivisor("half"));
+        assertEq("native", ImageImport.SCALE_DIVISOR_NATIVE, ImageImport.parseScaleDivisor("native"));
+        assertEq("25", ImageImport.SCALE_DIVISOR_QUARTER, ImageImport.parseScaleDivisor("25"));
+        assertEq("12.5", ImageImport.SCALE_DIVISOR_EIGHTH, ImageImport.parseScaleDivisor("12.5"));
+        assertEq("6.25%", ImageImport.SCALE_DIVISOR_SIXTEENTH, ImageImport.parseScaleDivisor("6.25%"));
+        assertEq("1/8", ImageImport.SCALE_DIVISOR_EIGHTH, ImageImport.parseScaleDivisor("1/8"));
+        assertEq("fit", -1, ImageImport.parseScaleDivisor("fit"));
+        assertEq("legacy parseScalePercent", ImageImport.SCALE_DIVISOR_HALF,
+                ImageImport.parseScalePercent("half"));
         try {
-            ImageImport.parseScalePercent("75");
+            ImageImport.parseScaleDivisor("75");
             throw new AssertionError("expected 75 to fail");
         } catch (IOException e) {
-            if (!e.getMessage().contains("100 or 50")) {
+            if (!e.getMessage().contains("1, 2, 4, 8, or 16")) {
                 throw new AssertionError("unexpected message: " + e.getMessage());
             }
         }
+    }
+
+    private static void testFitBuiltinScaleDivisor() throws IOException {
+        assertEq("already small", ImageImport.SCALE_DIVISOR_NATIVE,
+                ImageImport.fitBuiltinScaleDivisor(40));
+        assertEq("just over", ImageImport.SCALE_DIVISOR_HALF,
+                ImageImport.fitBuiltinScaleDivisor(ImageImport.LARGE_CELL_HEIGHT_PX + 1));
+        assertEq("needs quarter", ImageImport.SCALE_DIVISOR_QUARTER,
+                ImageImport.fitBuiltinScaleDivisor(200));
+        assertEq("needs sixteenth", ImageImport.SCALE_DIVISOR_SIXTEENTH,
+                ImageImport.fitBuiltinScaleDivisor(2000));
+
+        BufferedImage tall = solid(100, 200, 0xffabcdef);
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        opts.scaleFitBuiltin = true;
+        ImageImport packed = ImageImport.fromFrames(Arrays.asList(tall), opts);
+        assertEq("fit cellW", 25, packed.cellWidth);
+        assertEq("fit cellH", 50, packed.cellHeight);
+        assertEq("fit under limit", true, packed.cellHeight <= ImageImport.LARGE_CELL_HEIGHT_PX);
     }
 
     private static void testExplicitTimingsCs() throws IOException {
@@ -636,7 +692,7 @@ public final class ImageImportPackTest {
         try {
             ImageIO.write(solid(8, 6, 0xff00ff00), "gif", gif);
             ImageImport.PackOptions opts = new ImageImport.PackOptions();
-            opts.scalePercent = ImageImport.SCALE_DESKTOP_PONIES;
+            opts.scaleDivisor = ImageImport.SCALE_DIVISOR_HALF;
             ImageImport imported = ImageImport.load(gif, opts);
             assertEq("cellW half", 4, imported.cellWidth);
             assertEq("cellH half", 3, imported.cellHeight);
