@@ -45,6 +45,11 @@ public final class ImageImportPackTest {
         failures += run("permutePacksInGivenOrder", ImageImportPackTest::testPermutePacksInGivenOrder);
         failures += run("permuteTimingsTravel", ImageImportPackTest::testPermuteTimingsTravel);
         failures += run("splitSheetRoundTrip", ImageImportPackTest::testSplitSheetRoundTrip);
+        failures += run("extractFramesUnevenAndTrim", ImageImportPackTest::testExtractFramesUnevenAndTrim);
+        failures += run("extractFramesKeepsPropInCell", ImageImportPackTest::testExtractFramesKeepsPropInCell);
+        failures += run("extractFramesRejectsOverlap", ImageImportPackTest::testExtractFramesRejectsOverlap);
+        failures += run("suggestFrameCount", ImageImportPackTest::testSuggestFrameCount);
+        failures += run("equalBordersMatchesSplitSheet", ImageImportPackTest::testEqualBordersMatchesSplitSheet);
         failures += run("frameExportFileName", ImageImportPackTest::testFrameExportFileName);
         failures += run("writeFramePngs", ImageImportPackTest::testWriteFramePngs);
         if (failures > 0) {
@@ -467,6 +472,129 @@ public final class ImageImportPackTest {
         assertEq("first cell", 0xffff0000, two.get(0).getRGB(4, 0));
         assertEq("second cell", 0xff0000ff, two.get(1).getRGB(0, 0));
         assertEq("second cell last used", 0xff0000ff, two.get(1).getRGB(4, 0));
+    }
+
+    private static void testExtractFramesUnevenAndTrim() throws IOException {
+        // Uneven frames with a 2px gutter and 1px left pad.
+        // Frame0 [1,9): 4×4 red inset; Frame1 [11,19): 4×4 blue inset.
+        BufferedImage sheet = new BufferedImage(19, 8, BufferedImage.TYPE_INT_ARGB);
+        fillRect(sheet, 1 + 2, 2, 4, 4, 0xffff0000);
+        fillRect(sheet, 11 + 2, 2, 4, 4, 0xff0000ff);
+
+        ImageImport.FrameBorders borders = new ImageImport.FrameBorders();
+        borders.starts = new int[] {1, 11};
+        borders.ends = new int[] {9, 19};
+        borders.trimMargins = true;
+
+        assertEq("unused L", 1, ImageImport.bordersUnusedLeft(borders));
+        assertEq("unused R", 0, ImageImport.bordersUnusedRight(19, borders));
+        assertEq("gaps", 2, ImageImport.bordersGapTotal(borders));
+
+        List<BufferedImage> frames = ImageImport.extractFrames(sheet, borders);
+        assertEq("count", 2, frames.size());
+        assertEq("trim W0", 4, frames.get(0).getWidth());
+        assertEq("trim H0", 4, frames.get(0).getHeight());
+        assertEq("red", 0xffff0000, frames.get(0).getRGB(0, 0));
+        assertEq("blue", 0xff0000ff, frames.get(1).getRGB(0, 0));
+
+        borders.trimMargins = false;
+        List<BufferedImage> raw = ImageImport.extractFrames(sheet, borders);
+        assertEq("raw W0", 8, raw.get(0).getWidth());
+        assertEq("raw W1", 8, raw.get(1).getWidth());
+        assertEq("raw H", 8, raw.get(0).getHeight());
+        assertEq("raw pad", 0, raw.get(0).getRGB(0, 0) >>> 24);
+    }
+
+    private static void testExtractFramesKeepsPropInCell() throws IOException {
+        // Character (left) + prop (right) in one interval with a transparent column
+        // between them — content-aware split would break them apart; borders must not.
+        BufferedImage sheet = new BufferedImage(20, 6, BufferedImage.TYPE_INT_ARGB);
+        fillRect(sheet, 1, 1, 3, 4, 0xffff00ff); // pony
+        fillRect(sheet, 6, 2, 2, 3, 0xffffff00); // prop (gap at x=4,5)
+        fillRect(sheet, 11, 1, 3, 4, 0xff00ffff); // frame 1 body
+        fillRect(sheet, 16, 2, 2, 3, 0xff00ff00); // frame 1 prop
+
+        ImageImport.FrameBorders borders = new ImageImport.FrameBorders();
+        borders.starts = new int[] {0, 10};
+        borders.ends = new int[] {9, 19};
+        borders.trimMargins = true;
+
+        List<BufferedImage> frames = ImageImport.extractFrames(sheet, borders);
+        assertEq("count", 2, frames.size());
+        boolean hasPony = false;
+        boolean hasProp = false;
+        BufferedImage f0 = frames.get(0);
+        for (int y = 0; y < f0.getHeight(); y++) {
+            for (int x = 0; x < f0.getWidth(); x++) {
+                int rgb = f0.getRGB(x, y);
+                if (rgb == 0xffff00ff) {
+                    hasPony = true;
+                }
+                if (rgb == 0xffffff00) {
+                    hasProp = true;
+                }
+            }
+        }
+        assertEq("pony kept", true, hasPony);
+        assertEq("prop kept", true, hasProp);
+    }
+
+    private static void testExtractFramesRejectsOverlap() {
+        BufferedImage sheet = new BufferedImage(20, 8, BufferedImage.TYPE_INT_ARGB);
+        ImageImport.FrameBorders borders = new ImageImport.FrameBorders();
+        borders.starts = new int[] {0, 6};
+        borders.ends = new int[] {8, 16};
+        try {
+            ImageImport.validateFrameBorders(sheet, borders);
+            throw new AssertionError("expected overlap");
+        } catch (IOException e) {
+            assertEq("mentions overlap", true, e.getMessage().contains("overlaps"));
+        }
+
+        borders.starts = new int[] {0, 8, 16};
+        borders.ends = new int[] {8, 16, 24};
+        try {
+            ImageImport.validateFrameBorders(sheet, borders);
+            throw new AssertionError("expected overflow");
+        } catch (IOException e) {
+            assertEq("mentions width", true, e.getMessage().contains("sheet width"));
+        }
+    }
+
+    private static void testSuggestFrameCount() {
+        assertEq("hint wins", 6, ImageImport.suggestFrameCount(341, 6));
+        // 64: largest n in [2,16] with cell >= 8 is 8
+        assertEq("exact divisor", 8, ImageImport.suggestFrameCount(64, 0));
+        // 341 = 11×31 → n=11, cell 31
+        assertEq("odd width divisor", 11, ImageImport.suggestFrameCount(341, 0));
+        assertEq("prime fallback", 2, ImageImport.suggestFrameCount(17, 0));
+    }
+
+    private static void testEqualBordersMatchesSplitSheet() throws IOException {
+        BufferedImage sheet = new BufferedImage(341, 64, BufferedImage.TYPE_INT_ARGB);
+        fillRect(sheet, 0, 0, 341, 64, 0xff112233);
+        ImageImport.FrameBorders eq = ImageImport.equalBorders(341, 6);
+        eq.trimMargins = false;
+        assertEq("count", 6, eq.frameCount());
+        assertEq("cell0", 56, eq.ends[0] - eq.starts[0]);
+        assertEq("start1", 56, eq.starts[1]);
+        assertEq("unused R", 341 - 6 * 56, ImageImport.bordersUnusedRight(341, eq));
+
+        List<BufferedImage> fromBorders = ImageImport.extractFrames(sheet, eq);
+        List<BufferedImage> fromSplit = ImageImport.splitSheet(sheet, 6);
+        assertEq("same count", fromSplit.size(), fromBorders.size());
+        for (int i = 0; i < fromSplit.size(); i++) {
+            assertEq("w" + i, fromSplit.get(i).getWidth(), fromBorders.get(i).getWidth());
+            assertEq("h" + i, fromSplit.get(i).getHeight(), fromBorders.get(i).getHeight());
+        }
+    }
+
+    private static void fillRect(BufferedImage img, int x, int y, int w, int h, int argb) {
+        for (int yy = y; yy < y + h; yy++) {
+            for (int xx = x; xx < x + w; xx++) {
+                img.setRGB(xx, yy, argb);
+            }
+        }
     }
 
     private static void testFrameExportFileName() {

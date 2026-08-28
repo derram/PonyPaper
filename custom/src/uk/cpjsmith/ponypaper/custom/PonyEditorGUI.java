@@ -523,7 +523,8 @@ public class PonyEditorGUI extends JPanel {
             imageLeftImport = new JButton("Import image");
             imageLeftImport.setToolTipText(
                     "Load a packed PNG strip as-is, or a GIF (coalesced and packed). "
-                            + "GIFs open the same pack dialog as Import frames (scale 100% by default).");
+                            + "GIFs open the same pack dialog as Import frames (scale 100% by default). "
+                            + "For padded / uneven sheets, Import as-is then use Export Frames.");
             imageLeftImport.addActionListener(importLeftListener);
             imageLeftImportFrames = new JButton("Import frames");
             imageLeftImportFrames.setToolTipText(
@@ -535,8 +536,8 @@ public class PonyEditorGUI extends JPanel {
             imageLeftExport.addActionListener(exportLeftListener);
             imageLeftExportFrames = new JButton("Export Frames");
             imageLeftExportFrames.setToolTipText(
-                    "Save each left cell as its own PNG (sheet width ÷ timings count). "
-                            + "Use this instead of cropping the strip by hand.");
+                    "Pick frame borders on the left sheet, then Pack… into this action "
+                            + "or Export PNGs…. Use for padded or uneven third-party strips.");
             imageLeftExportFrames.addActionListener(exportFramesLeftListener);
             styleSecondary(imageLeftExport);
             styleSecondary(imageLeftExportFrames);
@@ -578,7 +579,8 @@ public class PonyEditorGUI extends JPanel {
             imageRightImport = new JButton("Import image");
             imageRightImport.setToolTipText(
                     "Load a packed PNG strip as-is, or a GIF (coalesced and packed). "
-                            + "GIFs open the same pack dialog as Import frames (scale 100% by default).");
+                            + "GIFs open the same pack dialog as Import frames (scale 100% by default). "
+                            + "For padded / uneven sheets, Import as-is then use Export Frames.");
             imageRightImport.addActionListener(importRightListener);
             imageRightImportFrames = new JButton("Import frames");
             imageRightImportFrames.setToolTipText(
@@ -590,8 +592,8 @@ public class PonyEditorGUI extends JPanel {
             imageRightExport.addActionListener(exportRightListener);
             imageRightExportFrames = new JButton("Export Frames");
             imageRightExportFrames.setToolTipText(
-                    "Save each right cell as its own PNG (sheet width ÷ timings count). "
-                            + "Use this instead of cropping the strip by hand.");
+                    "Pick frame borders on the right sheet, then Pack… into this action "
+                            + "or Export PNGs…. Use for padded or uneven third-party strips.");
             imageRightExportFrames.addActionListener(exportFramesRightListener);
             styleSecondary(imageRightExport);
             styleSecondary(imageRightExportFrames);
@@ -1281,9 +1283,7 @@ public class PonyEditorGUI extends JPanel {
                     if (file.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".gif")) {
                         importGif(direction, file);
                     } else {
-                        editor.loadActionSprite(currentIndex, direction, file);
-                        setAction(currentIndex);
-                        setDirty(true);
+                        importPng(direction, file);
                     }
                 } catch (PonyEditor.GenericException e) {
                     JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
@@ -1296,6 +1296,16 @@ public class PonyEditorGUI extends JPanel {
                 }
             }
             fc.resetChoosableFileFilters();
+        }
+
+        /**
+         * PNG import: load a finished left-to-right strip as-is. For padded or
+         * uneven sheets, load then fix borders via {@link #exportFrames}.
+         */
+        void importPng(String direction, File file) throws IOException, PonyEditor.GenericException {
+            editor.loadActionSprite(currentIndex, direction, file);
+            setAction(currentIndex);
+            setDirty(true);
         }
 
         /**
@@ -1527,9 +1537,9 @@ public class PonyEditorGUI extends JPanel {
         }
 
         /**
-         * Splits the current action's spritesheet for {@code direction} into one
-         * PNG per timings cell (same {@code width / frameCount} as the wallpaper)
-         * and writes numbered files into a chosen folder.
+         * Opens border picking on the current action spritesheet. The user can
+         * Pack… the extracted frames back into this action, or Export PNGs… to
+         * a folder.
          */
         void exportFrames(String direction) {
             if (currentIndex < 0) {
@@ -1557,20 +1567,15 @@ public class PonyEditorGUI extends JPanel {
                 return;
             }
 
-            List<BufferedImage> frames;
-            int cellW;
-            int cellH;
+            BufferedImage sheet;
+            int timingHint;
             try {
                 Image image = ImageIO.read(new ByteArrayInputStream(rawImage));
                 if (image == null) {
                     throw new IOException("Could not decode spritesheet");
                 }
-                String timings = editor.getActionTimings(currentIndex, direction);
-                int frameCount = frameCountFromTimings(timings);
-                BufferedImage sheet = SpriteSheetPreview.toBufferedImage(image);
-                frames = ImageImport.splitSheet(sheet, frameCount);
-                cellW = frames.get(0).getWidth();
-                cellH = frames.get(0).getHeight();
+                sheet = SpriteSheetPreview.toBufferedImage(image);
+                timingHint = frameCountFromTimings(editor.getActionTimings(currentIndex, direction));
             } catch (IOException e) {
                 JOptionPane.showMessageDialog(
                         this,
@@ -1581,6 +1586,81 @@ public class PonyEditorGUI extends JPanel {
                 return;
             }
 
+            String notes = "Action \"" + editor.getActionName(currentIndex) + "\" (" + direction
+                    + ") — " + sheet.getWidth() + "×" + sheet.getHeight()
+                    + ".\n\nDrag each frame's left and right edges. Gaps between frames are gutters "
+                    + "and are discarded. Trim removes transparent pad inside each interval; "
+                    + "it does not invent borders.\n\nPack… re-packs into this action. "
+                    + "Export PNGs… writes numbered files to a folder.";
+            FrameBordersDialog.Result cut = FrameBordersDialog.showDialog(
+                    this,
+                    "Export Frames (" + direction + ")",
+                    sheet,
+                    timingHint,
+                    notes);
+            if (cut == null || cut.frames == null || cut.frames.isEmpty()) {
+                return;
+            }
+
+            if (cut.action == FrameBordersDialog.Action.PACK) {
+                packExportedFrames(direction, cut.frames);
+            } else if (cut.action == FrameBordersDialog.Action.EXPORT) {
+                writeExportedFramePngs(direction, cut.frames);
+            }
+        }
+
+        /**
+         * Opens {@link FramePackDialog} on extracted frames and replaces this
+         * action's sheet in place.
+         */
+        void packExportedFrames(String direction, List<BufferedImage> frames) {
+            try {
+                int existingCount = ImageImport.countTimings(
+                        editor.getActionTimings(currentIndex, direction));
+                String[] names = new String[frames.size()];
+                for (int i = 0; i < frames.size(); i++) {
+                    names[i] = "frame " + (i + 1);
+                }
+                StringBuilder packNotes = new StringBuilder();
+                packNotes.append("Packing ").append(frames.size()).append(" frame")
+                        .append(frames.size() == 1 ? "" : "s")
+                        .append(" cut from the current ").append(direction).append(" sheet.");
+                if (existingCount == frames.size()) {
+                    packNotes.append("\n\nExisting timings (").append(existingCount)
+                            .append(" entries) will be kept if you leave the imported order.");
+                } else {
+                    packNotes.append("\n\nTimings will be set to ").append(frames.size())
+                            .append(" × ").append(ImageImport.DEFAULT_FRAME_TIMING_CS)
+                            .append(" (hundredths of a second).");
+                }
+                packNotes.append("\n\nList order is playback order — Move up/down, Reverse, or Alt+↑/↓.");
+                packNotes.append("\n\nScale is 100% by default. Choose 50% (Desktop Ponies) if needed.");
+                packNotes.append("\n\nLift is pixels of air under a frame (0 = on the ground).");
+
+                FramePackDialog.Result packed = FramePackDialog.showDialog(
+                        this,
+                        "Pack Frames (" + direction + ")",
+                        names,
+                        frames,
+                        packNotes.toString(),
+                        ImageImport.SCALE_NATIVE);
+                if (packed == null) {
+                    return;
+                }
+                applyPackedFrames(direction, frames, null, packed);
+            } catch (PonyEditor.GenericException e) {
+                JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        e.getMessage(),
+                        "Pack Frames Failed",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        }
+
+        /** Writes extracted frames as numbered PNGs into a chosen folder. */
+        void writeExportedFramePngs(String direction, List<BufferedImage> frames) {
             String prefix = ImageImport.sanitizeExportPrefix(
                     editor.getActionName(currentIndex) + "_" + direction);
             File dir = chooseExportFramesDirectory();
@@ -1634,15 +1714,35 @@ public class PonyEditorGUI extends JPanel {
                 return;
             }
 
+            String sizeNote = frameSizeSummary(frames);
             String firstName = dest.get(0).getName();
             String lastName = dest.get(dest.size() - 1).getName();
             String range = dest.size() == 1 ? firstName : firstName + " … " + lastName;
             JOptionPane.showMessageDialog(
                     this,
                     "Wrote " + dest.size() + " frame" + (dest.size() == 1 ? "" : "s")
-                            + " (" + cellW + "×" + cellH + " px each):\n" + range,
+                            + " (" + sizeNote + "):\n" + range,
                     "Export Frames",
                     JOptionPane.INFORMATION_MESSAGE);
+        }
+
+        private static String frameSizeSummary(List<BufferedImage> frames) {
+            if (frames == null || frames.isEmpty()) {
+                return "no frames";
+            }
+            int w0 = frames.get(0).getWidth();
+            int h0 = frames.get(0).getHeight();
+            boolean same = true;
+            for (int i = 1; i < frames.size(); i++) {
+                if (frames.get(i).getWidth() != w0 || frames.get(i).getHeight() != h0) {
+                    same = false;
+                    break;
+                }
+            }
+            if (same) {
+                return w0 + "×" + h0 + " px each";
+            }
+            return "variable sizes; first " + w0 + "×" + h0 + " px";
         }
 
         /**

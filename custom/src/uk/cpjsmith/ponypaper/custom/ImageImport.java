@@ -966,6 +966,231 @@ public class ImageImport {
     }
 
     /**
+     * User-defined frame intervals on a left-to-right strip before re-packing
+     * with {@link #fromFrames} or exporting PNGs. Each frame is
+     * {@code [starts[i], ends[i])} (exclusive end). Gaps between frames and
+     * unused left/right margins are discarded. Content-aware detection is
+     * intentionally not used (props attached to a character stay in the same
+     * interval).
+     */
+    public static final class FrameBorders {
+        /** Inclusive left X of each frame; length N. */
+        public int[] starts = new int[] {0};
+        /** Exclusive right X of each frame; length N; each {@code > starts[i]}. */
+        public int[] ends = new int[] {1};
+        /**
+         * When true, each extracted cell is cropped to its opaque bounding box
+         * before packing/export (transparent pad only — does not invent borders).
+         */
+        public boolean trimMargins = true;
+
+        public int frameCount() {
+            return starts != null ? starts.length : 0;
+        }
+
+        public FrameBorders copy() {
+            FrameBorders out = new FrameBorders();
+            out.starts = starts != null ? Arrays.copyOf(starts, starts.length) : null;
+            out.ends = ends != null ? Arrays.copyOf(ends, ends.length) : null;
+            out.trimMargins = trimMargins;
+            return out;
+        }
+    }
+
+    /**
+     * Contiguous equal-split borders matching {@link #splitSheet}: cell width
+     * {@code sheetW / frameCount}, covering {@code 0 .. N * cellW} (wallpaper
+     * may drop a remainder on the right).
+     */
+    public static FrameBorders equalBorders(int sheetWidth, int frameCount) {
+        int n = Math.max(1, frameCount);
+        int cellW = Math.max(1, Math.max(1, sheetWidth) / n);
+        FrameBorders borders = new FrameBorders();
+        borders.starts = new int[n];
+        borders.ends = new int[n];
+        for (int i = 0; i < n; i++) {
+            borders.starts[i] = i * cellW;
+            borders.ends[i] = borders.starts[i] + cellW;
+        }
+        borders.trimMargins = true;
+        return borders;
+    }
+
+    /**
+     * Prefers {@code hint} when {@code > 1}; otherwise the largest exact divisor
+     * of {@code sheetWidth} in {@code [2, 16]} that yields a cell at least 8px
+     * wide, or {@code 2}.
+     */
+    public static int suggestFrameCount(int sheetWidth, int hint) {
+        if (hint > 1) {
+            return hint;
+        }
+        int best = 0;
+        int limit = Math.min(16, Math.max(1, sheetWidth));
+        for (int n = 2; n <= limit; n++) {
+            if (sheetWidth % n == 0 && sheetWidth / n >= 8) {
+                best = n;
+            }
+        }
+        return best > 0 ? best : 2;
+    }
+
+    /** Pixels left of the first frame (0 when the first frame starts at 0). */
+    public static int bordersUnusedLeft(FrameBorders borders) {
+        if (borders == null || borders.starts == null || borders.starts.length < 1) {
+            return 0;
+        }
+        return Math.max(0, borders.starts[0]);
+    }
+
+    /** Pixels right of the last frame ({@code sheetW - ends[N-1]}); may be negative if invalid. */
+    public static int bordersUnusedRight(int sheetWidth, FrameBorders borders) {
+        if (borders == null || borders.ends == null || borders.ends.length < 1) {
+            return sheetWidth;
+        }
+        return sheetWidth - borders.ends[borders.ends.length - 1];
+    }
+
+    /** Sum of gaps between consecutive frames ({@code starts[i+1] - ends[i]} when positive). */
+    public static int bordersGapTotal(FrameBorders borders) {
+        if (borders == null || borders.starts == null || borders.ends == null) {
+            return 0;
+        }
+        int n = Math.min(borders.starts.length, borders.ends.length);
+        int gaps = 0;
+        for (int i = 0; i + 1 < n; i++) {
+            int gap = borders.starts[i + 1] - borders.ends[i];
+            if (gap > 0) {
+                gaps += gap;
+            }
+        }
+        return gaps;
+    }
+
+    /**
+     * Validates ordered, non-overlapping frame intervals inside the sheet.
+     */
+    public static void validateFrameBorders(BufferedImage sheet, FrameBorders borders)
+            throws IOException {
+        if (sheet == null) {
+            throw new IOException("No sheet");
+        }
+        if (borders == null) {
+            throw new IOException("No frame borders");
+        }
+        int sheetW = sheet.getWidth();
+        int sheetH = sheet.getHeight();
+        if (sheetW < 1 || sheetH < 1) {
+            throw new IOException("Sheet has no size");
+        }
+        if (borders.starts == null || borders.ends == null) {
+            throw new IOException("Frame borders are incomplete");
+        }
+        if (borders.starts.length != borders.ends.length) {
+            throw new IOException("Frame start/end counts differ");
+        }
+        int n = borders.starts.length;
+        if (n < 1) {
+            throw new IOException("Frame count must be >= 1");
+        }
+        for (int i = 0; i < n; i++) {
+            int start = borders.starts[i];
+            int end = borders.ends[i];
+            if (start < 0) {
+                throw new IOException("Frame " + (i + 1) + " starts before the sheet");
+            }
+            if (end > sheetW) {
+                throw new IOException("Frame " + (i + 1) + " extends past the sheet width ("
+                        + end + " > " + sheetW + ")");
+            }
+            if (end <= start) {
+                throw new IOException("Frame " + (i + 1) + " has no width");
+            }
+            if (i > 0 && start < borders.ends[i - 1]) {
+                throw new IOException("Frame " + (i + 1) + " overlaps the previous frame");
+            }
+        }
+    }
+
+    /**
+     * Copies each {@code [starts[i], ends[i])} column range from {@code sheet}.
+     * When {@link FrameBorders#trimMargins} is set, crops opaque bounds inside
+     * that cell (props stay with the character).
+     */
+    public static List<BufferedImage> extractFrames(BufferedImage sheet, FrameBorders borders)
+            throws IOException {
+        validateFrameBorders(sheet, borders);
+        BufferedImage src = ensureArgb(sheet);
+        int sheetH = src.getHeight();
+        int n = borders.starts.length;
+        List<BufferedImage> frames = new ArrayList<BufferedImage>(n);
+        for (int i = 0; i < n; i++) {
+            int x0 = borders.starts[i];
+            int x1 = borders.ends[i];
+            int cellW = x1 - x0;
+            BufferedImage cell = new BufferedImage(cellW, sheetH, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = cell.createGraphics();
+            g.drawImage(src, 0, 0, cellW, sheetH, x0, 0, x1, sheetH, null);
+            g.dispose();
+            if (borders.trimMargins) {
+                cell = trimTransparentMargins(cell);
+            }
+            frames.add(cell);
+        }
+        return frames;
+    }
+
+    /**
+     * Crops to the opaque bounding box. Fully transparent cells become 1×1
+     * transparent so packing still has a frame.
+     */
+    public static BufferedImage trimTransparentMargins(BufferedImage src) {
+        if (src == null) {
+            throw new IllegalArgumentException("src");
+        }
+        BufferedImage argb = ensureArgb(src);
+        int w = argb.getWidth();
+        int h = argb.getHeight();
+        int minX = w;
+        int minY = h;
+        int maxX = -1;
+        int maxY = -1;
+        int[] row = new int[w];
+        for (int y = 0; y < h; y++) {
+            argb.getRGB(0, y, w, 1, row, 0, w);
+            for (int x = 0; x < w; x++) {
+                if (((row[x] >>> 24) & 0xff) != 0) {
+                    if (x < minX) {
+                        minX = x;
+                    }
+                    if (x > maxX) {
+                        maxX = x;
+                    }
+                    if (y < minY) {
+                        minY = y;
+                    }
+                    if (y > maxY) {
+                        maxY = y;
+                    }
+                }
+            }
+        }
+        if (maxX < minX || maxY < minY) {
+            return new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        }
+        if (minX == 0 && minY == 0 && maxX == w - 1 && maxY == h - 1) {
+            return argb;
+        }
+        int cw = maxX - minX + 1;
+        int ch = maxY - minY + 1;
+        BufferedImage out = new BufferedImage(cw, ch, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = out.createGraphics();
+        g.drawImage(argb, 0, 0, cw, ch, minX, minY, maxX + 1, maxY + 1, null);
+        g.dispose();
+        return out;
+    }
+
+    /**
      * Flops each cell of a packed strip and restacks in the same order.
      * Timings are copied when {@code timings} is non-empty; otherwise default
      * timings of length {@code frameCount} are used.
