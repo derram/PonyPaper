@@ -100,6 +100,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private static final long SHUFFLE_RETRY_MS = 2_000L;
     /** Ignore repeat mix taps while a herd rebuild is starting. */
     private static final long MIX_APPLY_DEBOUNCE_MS = 400L;
+    /** Poll the Reload herd row while it is busy so it re-enables promptly. */
+    private static final long RELOAD_HERD_UI_POLL_MS = 250L;
 
     /** Black overlay fade when the dream becomes visible. */
     private static final long FADE_IN_MS = 350;
@@ -157,6 +159,12 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             if (shuffleMixes) scheduleShuffle(SHUFFLE_INTERVAL_MS);
         }
     };
+    private final Runnable reloadHerdUiRunnable = new Runnable() {
+        @Override
+        public void run() {
+            updateReloadHerdRow();
+        }
+    };
     private final Random shuffleRandom = new Random();
     private final ArrayList<String> shuffleBag = new ArrayList<String>();
     private PonySceneController controller;
@@ -172,6 +180,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private View sheetMixPage;
     private TextView mixSummary;
     private TextView shuffleSummary;
+    private View reloadHerdRow;
+    private TextView reloadHerdSummary;
     private Switch keepScreenOnSwitch;
     private Switch disableAutoDimSwitch;
     private Switch shuffleMixesSwitch;
@@ -451,6 +461,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         cancelReDim();
         cancelMaxIdle();
         cancelShuffle();
+        handler.removeCallbacks(reloadHerdUiRunnable);
         cancelOverlayAnimations();
         getDreamPreferences().unregisterOnSharedPreferenceChangeListener(dreamPrefListener);
         if (controller != null) {
@@ -467,6 +478,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         sheetMixPage = null;
         mixSummary = null;
         shuffleSummary = null;
+        reloadHerdRow = null;
+        reloadHerdSummary = null;
         keepScreenOnSwitch = null;
         disableAutoDimSwitch = null;
         shuffleMixesSwitch = null;
@@ -720,7 +733,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         mixScroll = chromeRoot.findViewById(R.id.dream_mix_scroll);
         View mixRow = chromeRoot.findViewById(R.id.dream_mix);
         View mixBack = chromeRoot.findViewById(R.id.dream_mix_back);
-        View reloadHerdRow = chromeRoot.findViewById(R.id.dream_reload_herd);
+        reloadHerdRow = chromeRoot.findViewById(R.id.dream_reload_herd);
+        reloadHerdSummary = chromeRoot.findViewById(R.id.dream_reload_herd_summary);
         if (gearButton != null) {
             gearButton.setAlpha(0f);
             gearButton.setOnClickListener(new View.OnClickListener() {
@@ -780,8 +794,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 @Override
                 public void onClick(View v) {
                     noteChromeActivity();
-                    if (controller != null) {
-                        controller.requestHerdReload();
+                    if (controller == null) return;
+                    if (controller.requestHerdReload()) {
+                        updateReloadHerdRow();
                     }
                 }
             });
@@ -888,6 +903,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void hideChrome(boolean animate) {
         cancelChromeAutoHide();
+        handler.removeCallbacks(reloadHerdUiRunnable);
         chromeVisible = false;
         sheetExpanded = false;
         hideMixList();
@@ -978,8 +994,25 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             if (mixSummary != null) {
                 mixSummary.setText(currentMixLabel());
             }
+            updateReloadHerdRow();
         } finally {
             updatingChromeUi = false;
+        }
+    }
+
+    private void updateReloadHerdRow() {
+        if (reloadHerdRow == null) return;
+        boolean busy = controller != null && controller.isHerdReloadBusy();
+        reloadHerdRow.setEnabled(!busy);
+        reloadHerdRow.setAlpha(busy ? 0.45f : 1f);
+        if (reloadHerdSummary != null) {
+            reloadHerdSummary.setText(busy
+                    ? R.string.dream_reload_herd_busy
+                    : R.string.dream_reload_herd_summary);
+        }
+        handler.removeCallbacks(reloadHerdUiRunnable);
+        if (busy && dreaming && !exiting && sheetExpanded) {
+            handler.postDelayed(reloadHerdUiRunnable, RELOAD_HERD_UI_POLL_MS);
         }
     }
 

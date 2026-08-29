@@ -267,6 +267,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * ({@link CustomStorage#bumpGeneration}) even if files did not change.
      */
     private boolean pendingHerdReload = false;
+    /**
+     * Minimum gap between accepted {@link #requestHerdReload()} calls. Longer
+     * than mix-apply debounce: this path does disk sync plus a full herd rebuild.
+     */
+    private static final long HERD_RELOAD_COOLDOWN_MS = 3_000L;
+    /** {@link SystemClock#uptimeMillis()} of the last accepted herd reload; 0 if none. */
+    private long lastHerdReloadUptimeMs = 0;
     /** True while herd construction / background decode is running off the frame thread. */
     private boolean sceneLoadInFlight = false;
     /** Bumped by {@link #dropHerd} so a stale worker result is discarded. */
@@ -456,6 +463,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         thermalEmergency = false;
         thermalThrottle = false;
         pendingHerdReload = false;
+        lastHerdReloadUptimeMs = 0;
     }
 
     /**
@@ -866,18 +874,46 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * folder first when one is set; always bumps
      * {@link CustomStorage#PREF_LIBRARY_GENERATION} so every host reloads, even
      * when the sync finds no file changes (local edits, or no folder linked).
+     *
+     * @return true if the request was accepted (started or coalesced into an
+     *         in-flight sync); false when ignored for cooldown, an in-flight
+     *         scene load, or because the controller is stopped
      */
-    public void requestHerdReload() {
-        if (!started) return;
+    public boolean requestHerdReload() {
+        if (!started) return false;
+        long now = SystemClock.uptimeMillis();
+        if (sceneLoadInFlight || isHerdReloadCoolingDown(now)) {
+            // Keep coalescing onto an in-flight sync so a click during cooldown
+            // still forces a rebuild when that sync finishes.
+            if (librarySyncInFlight) pendingHerdReload = true;
+            return false;
+        }
+        lastHerdReloadUptimeMs = now;
         if (librarySyncInFlight) {
             pendingHerdReload = true;
-            return;
+            return true;
         }
         if (!CustomStorage.hasLibraryFolder(appContext)) {
             CustomStorage.bumpGeneration(appContext);
-            return;
+            return true;
         }
         startLibrarySync(true);
+        return true;
+    }
+
+    /**
+     * True while the chrome should treat Reload herd as unavailable: cooldown
+     * after the last accepted request, library sync running, or scene decode
+     * still in flight.
+     */
+    public boolean isHerdReloadBusy() {
+        long now = SystemClock.uptimeMillis();
+        return librarySyncInFlight || sceneLoadInFlight || isHerdReloadCoolingDown(now);
+    }
+
+    private boolean isHerdReloadCoolingDown(long nowUptimeMs) {
+        if (lastHerdReloadUptimeMs == 0) return false;
+        return nowUptimeMs - lastHerdReloadUptimeMs < HERD_RELOAD_COOLDOWN_MS;
     }
 
     /**

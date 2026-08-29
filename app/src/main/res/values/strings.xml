@@ -127,6 +127,7 @@
     <string name="dream_disable_auto_dim_summary">Stay bright after you wake the screen. Use the device brightness settings for level.</string>
     <string name="dream_reload_herd">Reload herd</string>
     <string name="dream_reload_herd_summary">Re-read custom ponies from disk and rebuild the scene.</string>
+    <string name="dream_reload_herd_busy">Reloading… try again in a moment.</string>
     <string name="dream_mix_title">Mix</string>
     <string name="dream_mix_current_herd">Current herd</string>
     <string name="dream_mix_back">Back</string>
