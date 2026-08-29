@@ -125,8 +125,8 @@
     <string name="dream_keep_screen_on_summary">Stay on until you leave. Heat protection can still turn the screen off.</string>
     <string name="dream_disable_auto_dim">Disable auto-dim</string>
     <string name="dream_disable_auto_dim_summary">Stay bright after you wake the screen. Use the device brightness settings for level.</string>
-    <string name="dream_unlock">Unlock</string>
-    <string name="dream_unlock_summary">Double-tap the scene, or press Back.</string>
+    <string name="dream_reload_herd">Reload herd</string>
+    <string name="dream_reload_herd_summary">Re-read custom ponies from disk and rebuild the scene.</string>
     <string name="dream_mix_title">Mix</string>
     <string name="dream_mix_current_herd">Current herd</string>
     <string name="dream_mix_back">Back</string>

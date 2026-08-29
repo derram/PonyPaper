@@ -262,6 +262,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private boolean thermalThrottle = false;
     /** True while a background library-folder sync is running. */
     private boolean librarySyncInFlight = false;
+    /**
+     * When true, finish the in-flight library sync with a full herd rebuild
+     * ({@link CustomStorage#bumpGeneration}) even if files did not change.
+     */
+    private boolean pendingHerdReload = false;
     /** True while herd construction / background decode is running off the frame thread. */
     private boolean sceneLoadInFlight = false;
     /** Bumped by {@link #dropHerd} so a stale worker result is discarded. */
@@ -450,6 +455,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         releaseCpuSpriteDemand();
         thermalEmergency = false;
         thermalThrottle = false;
+        pendingHerdReload = false;
     }
 
     /**
@@ -852,6 +858,38 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private void requestLibrarySync() {
         if (librarySyncInFlight) return;
         if (!CustomStorage.hasLibraryFolder(appContext)) return;
+        startLibrarySync(false);
+    }
+
+    /**
+     * Re-read custom pony files and rebuild the herd. Pulls the linked library
+     * folder first when one is set; always bumps
+     * {@link CustomStorage#PREF_LIBRARY_GENERATION} so every host reloads, even
+     * when the sync finds no file changes (local edits, or no folder linked).
+     */
+    public void requestHerdReload() {
+        if (!started) return;
+        if (librarySyncInFlight) {
+            pendingHerdReload = true;
+            return;
+        }
+        if (!CustomStorage.hasLibraryFolder(appContext)) {
+            CustomStorage.bumpGeneration(appContext);
+            return;
+        }
+        startLibrarySync(true);
+    }
+
+    /**
+     * @param forceReload when true, always {@link CustomStorage#bumpGeneration}
+     *        after the sync; when false, only drop the herd if files changed
+     */
+    private void startLibrarySync(final boolean forceReload) {
+        if (librarySyncInFlight) {
+            if (forceReload) pendingHerdReload = true;
+            return;
+        }
+        if (forceReload) pendingHerdReload = true;
         librarySyncInFlight = true;
         new Thread(new Runnable() {
             public void run() {
@@ -859,7 +897,12 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 handler.post(new Runnable() {
                     public void run() {
                         librarySyncInFlight = false;
-                        if (result.changed && started) {
+                        boolean reload = pendingHerdReload;
+                        pendingHerdReload = false;
+                        if (!started) return;
+                        if (reload) {
+                            CustomStorage.bumpGeneration(appContext);
+                        } else if (result.changed) {
                             dropHerd();
                         }
                     }

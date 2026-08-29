@@ -43,11 +43,12 @@ import java.util.Random;
  * <p>Interactive so hold-to-drag works. Starts dimmed for dock/idle power use.
  * First contact on a dim scene brightens immediately (no gear yet). A confirmed
  * single tap that is not a completed long-press drag shows or hides session
- * chrome (a gear). Double-tap on the scene, Back / Escape after the start grace
- * window, or the Unlock row on the session sheet gently wake the dream and
- * start {@link UnlockRequestActivity} so a secure keyguard can show the unlock
- * method (PIN / pattern / biometrics) without an extra lock-screen swipe.
- * Chrome and the sheet do not unlock on tap — that would fight settings use.
+ * chrome (a gear). Double-tap on the scene or Back / Escape after the start
+ * grace window gently wake the dream and start {@link UnlockRequestActivity}
+ * so a secure keyguard can show the unlock method (PIN / pattern / biometrics)
+ * without an extra lock-screen swipe. The session sheet’s Reload herd row
+ * re-reads custom ponies from disk instead. Chrome and the sheet do not unlock
+ * on tap — that would fight settings use.
  *
  * <p>Session chrome (keep-screen-on, disable-auto-dim, and mix shuffle) lives
  * only for this dream and is not written to preferences. Keep-screen-on skips
@@ -719,7 +720,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         mixScroll = chromeRoot.findViewById(R.id.dream_mix_scroll);
         View mixRow = chromeRoot.findViewById(R.id.dream_mix);
         View mixBack = chromeRoot.findViewById(R.id.dream_mix_back);
-        View unlockRow = chromeRoot.findViewById(R.id.dream_unlock);
+        View reloadHerdRow = chromeRoot.findViewById(R.id.dream_reload_herd);
         if (gearButton != null) {
             gearButton.setAlpha(0f);
             gearButton.setOnClickListener(new View.OnClickListener() {
@@ -774,11 +775,14 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 }
             });
         }
-        if (unlockRow != null) {
-            unlockRow.setOnClickListener(new View.OnClickListener() {
+        if (reloadHerdRow != null) {
+            reloadHerdRow.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    requestUserUnlock();
+                    noteChromeActivity();
+                    if (controller != null) {
+                        controller.requestHerdReload();
+                    }
                 }
             });
         }

@@ -204,11 +204,11 @@
                 android:background="#33FFFFFF" />
 
             <LinearLayout
-                android:id="@+id/dream_unlock"
+                android:id="@+id/dream_reload_herd"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="?android:attr/selectableItemBackground"
-                android:contentDescription="@string/dream_unlock"
+                android:contentDescription="@string/dream_reload_herd"
                 android:focusable="true"
                 android:gravity="center_vertical"
                 android:minHeight="48dp"
@@ -218,7 +218,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/dream_unlock"
+                    android:text="@string/dream_reload_herd"
                     android:textColor="#FFFFFFFF"
                     android:textSize="16sp" />
 
@@ -226,7 +226,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="@string/dream_unlock_summary"
+                    android:text="@string/dream_reload_herd_summary"
                     android:textColor="#B3FFFFFF"
                     android:textSize="12sp" />
             </LinearLayout>
