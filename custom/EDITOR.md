@@ -58,7 +58,7 @@ On the left side of the editor is the list of actions. Selecting an action in th
 * **Gaits**: Optional load-time bag of `speed:weight` entries (e.g. `0.5:1,0.7:3,1:1`). Use the **Ground** button for the built-in ground bag.
 * **Left/right sprite**:
     * **Import image**: Loads one already-packed PNG strip or one GIF.
-    * **Import frames**: Opens a folder of PNGs and handles packing, scaling, and per-frame **lift**.
+    * **Import frames**: Opens a folder of PNGs and handles packing, scaling, and per-frame **lift**. In the packer, **Apply to all** sets every frame to the current Lift value; **Reset lifts** clears to 0; **Apply hop** builds a parabola.
     * **Mirror to right/left**: Builds the opposite facing by flopping cells.
     * **Preview**: Displays the strip and highlights frames.
 * **Left/right timings**: Comma-separated durations for each frame (hundredths of a second).

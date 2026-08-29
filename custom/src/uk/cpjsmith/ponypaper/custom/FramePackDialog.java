@@ -52,9 +52,9 @@ import javax.swing.event.ListSelectionListener;
 /**
  * Modal dialog: review imported frames (PNG stills or coalesced GIF frames),
  * choose a dyadic pack scale (100%…6.25%, or fit-to-built-in), rearrange
- * playback order, set per-frame lift, and pack. Lift {@code 0} is the usual
- * bottom-centre alignment; positive lift bakes a hop into a taller cell.
- * Returns {@code null} on cancel.
+ * playback order, set per-frame lift (or apply one value to all frames), and
+ * pack. Lift {@code 0} is the usual bottom-centre alignment; positive lift
+ * bakes a hop into a taller cell. Returns {@code null} on cancel.
  */
 public final class FramePackDialog extends JDialog {
 
@@ -279,15 +279,23 @@ public final class FramePackDialog extends JDialog {
             }
         });
 
+        JButton applyAllButton = new JButton("Apply to all");
+        applyAllButton.setToolTipText(
+                "Set every frame to this lift (same value on all cells).");
+        applyAllButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                int value = ((Number) liftSpinner.getValue()).intValue();
+                setAllLifts(value);
+            }
+        });
+
         JButton resetButton = new JButton("Reset lifts");
         resetButton.setToolTipText("Set every frame back to 0 (bottom-aligned).");
         resetButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                for (int i = 0; i < lifts.length; i++) {
-                    lifts[i] = 0;
-                }
-                refreshAll();
+                setAllLifts(0);
             }
         });
 
@@ -413,6 +421,7 @@ public final class FramePackDialog extends JDialog {
         liftRow.add(scaleCombo);
         liftRow.add(new JLabel("Lift:"));
         liftRow.add(liftSpinner);
+        liftRow.add(applyAllButton);
         liftRow.add(resetButton);
         liftRow.add(new JLabel("Hop peak:"));
         liftRow.add(hopPeakSpinner);
@@ -648,6 +657,13 @@ public final class FramePackDialog extends JDialog {
             return;
         }
         lifts[index] = clamped;
+        refreshAll();
+    }
+
+    /** Sets every playback slot to the same clamped lift, then refreshes. */
+    private void setAllLifts(int value) {
+        int clamped = Math.max(0, Math.min(MAX_LIFT, value));
+        Arrays.fill(lifts, clamped);
         refreshAll();
     }
 
