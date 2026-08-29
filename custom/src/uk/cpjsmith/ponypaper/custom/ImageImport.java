@@ -2,7 +2,6 @@ package uk.cpjsmith.ponypaper.custom;
 
 import java.awt.AlphaComposite;
 import java.awt.Graphics2D;
-import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -28,10 +27,15 @@ import javax.imageio.ImageIO;
  * image, not a dirty-rectangle delta), and packed left-to-right into a
  * single PNG spritesheet with matching frame timings. Scale is an exact
  * dyadic divisor ({@link #SCALE_DIVISOR_NATIVE}…{@link #SCALE_DIVISOR_SIXTEENTH}):
- * nearest-neighbour successive halvings, so ÷2 / ÷4 / ÷8 / ÷16 match
- * re-running the old 50% option. {@link #SCALE_DIVISOR_HALF} is what the
+ * nearest-neighbour point samples on the even lattice ({@code src[x·D, y·D]}),
+ * equivalent to successive top-left halvings, so ÷2 / ÷4 / ÷8 / ÷16 match
+ * re-running the 50% option. {@link #SCALE_DIVISOR_HALF} is what the
  * Desktop Ponies folder importer uses so stock ponies match built-in sheet
- * size.
+ * size. Integer sampling avoids {@code Graphics2D} nearest-neighbour, which
+ * picks the odd pixel of each 2×2 and can turn isolated encoder speckles
+ * into opaque black dots after large shrinks. Divisors ≥4 also ignore an
+ * opaque sample when its block has fewer than {@code divisor} opaque pixels
+ * (encoder dirt; solid upscaled texels are far denser).
  *
  * <p>Desktop Ponies GIFs are often heavily optimised: partial frames, mixed
  * disposal methods, and occasionally a transparent colour index that lies
@@ -466,8 +470,12 @@ public class ImageImport {
 
     /**
      * Nearest-neighbour dyadic scale. {@link #SCALE_DIVISOR_NATIVE} returns
-     * {@code frames} itself. Other divisors allocate new images via successive
-     * halvings.
+     * {@code frames} itself. Other divisors allocate new images by point-sampling
+     * {@code src[x·divisor, y·divisor]} (even lattice / top-left of each block),
+     * which matches successive integer halvings. For {@link #SCALE_DIVISOR_QUARTER}
+     * and smaller scales, an opaque sample whose block has fewer than
+     * {@code divisor} opaque pixels becomes transparent so sparse encoder
+     * speckles do not survive large shrinks.
      */
     public static List<BufferedImage> scaleFrames(List<BufferedImage> frames, int scaleDivisor)
             throws IOException {
@@ -497,24 +505,62 @@ public class ImageImport {
         if (divisor == SCALE_DIVISOR_NATIVE) {
             return src;
         }
-        int halvings = scaleHalveCount(divisor);
-        BufferedImage current = src;
-        for (int i = 0; i < halvings; i++) {
-            int w = Math.max(1, current.getWidth() / 2);
-            int h = Math.max(1, current.getHeight() / 2);
-            BufferedImage next = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g = next.createGraphics();
-            g.setRenderingHint(
-                    RenderingHints.KEY_INTERPOLATION,
-                    RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-            g.setRenderingHint(
-                    RenderingHints.KEY_RENDERING,
-                    RenderingHints.VALUE_RENDER_QUALITY);
-            g.drawImage(current, 0, 0, w, h, null);
-            g.dispose();
-            current = next;
+        // Even-lattice point sample. Equivalent to successive top-left halvings;
+        // do not use Graphics2D drawImage NN — it samples the odd pixel of each
+        // 2×2 and amplifies isolated opaque speckles after ÷4 / ÷8 / ÷16.
+        // For ÷4 and larger, also drop samples whose D×D block has fewer than
+        // D opaque pixels (GIF/encoder dirt). Clean N× upscales fill the whole
+        // block; ÷2 keeps thin Desktop Ponies edge detail untouched.
+        int sw = src.getWidth();
+        int sh = src.getHeight();
+        int w = Math.max(1, sw / divisor);
+        int h = Math.max(1, sh / divisor);
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        int[] srcPixels = src.getRGB(0, 0, sw, sh, null, 0, sw);
+        int[] dstPixels = new int[w * h];
+        boolean dropSparse = divisor >= SCALE_DIVISOR_QUARTER;
+        for (int y = 0; y < h; y++) {
+            int srcY = y * divisor;
+            int srcRow = srcY * sw;
+            int dstRow = y * w;
+            for (int x = 0; x < w; x++) {
+                int srcX = x * divisor;
+                int sample = srcPixels[srcRow + srcX];
+                if (dropSparse
+                        && ((sample >>> 24) & 0xff) >= 200
+                        && !blockOpaqueEnough(srcPixels, sw, sh, srcX, srcY, divisor)) {
+                    sample = 0x00000000;
+                }
+                dstPixels[dstRow + x] = sample;
+            }
         }
-        return current;
+        out.setRGB(0, 0, w, h, dstPixels, 0, w);
+        return out;
+    }
+
+    /**
+     * True when the {@code divisor×divisor} block with origin
+     * {@code (originX, originY)} contains at least {@code divisor} opaque
+     * pixels. Sparse blocks are treated as encoder dirt on large shrinks;
+     * a solid upscaled texel is fully opaque.
+     */
+    private static boolean blockOpaqueEnough(
+            int[] srcPixels, int sw, int sh, int originX, int originY, int divisor) {
+        int x1 = Math.min(sw, originX + divisor);
+        int y1 = Math.min(sh, originY + divisor);
+        int opaque = 0;
+        for (int y = originY; y < y1; y++) {
+            int row = y * sw;
+            for (int x = originX; x < x1; x++) {
+                if (((srcPixels[row + x] >>> 24) & 0xff) >= 200) {
+                    opaque++;
+                    if (opaque >= divisor) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**

@@ -38,6 +38,10 @@ public final class ImageImportPackTest {
         failures += run("scale100IsIdentity", ImageImportPackTest::testScale100IsIdentity);
         failures += run("scale25AndSixteenth", ImageImportPackTest::testScale25AndSixteenth);
         failures += run("scaleSuccessiveHalvesMatchRepeated50", ImageImportPackTest::testScaleSuccessiveHalvesMatchRepeated50);
+        failures += run("scaleEvenPhaseIgnoresOddSpeckles", ImageImportPackTest::testScaleEvenPhaseIgnoresOddSpeckles);
+        failures += run("scaleEvenPhaseKeepsBlockOrigin", ImageImportPackTest::testScaleEvenPhaseKeepsBlockOrigin);
+        failures += run("scaleDropsLonelyEvenSpeckles", ImageImportPackTest::testScaleDropsLonelyEvenSpeckles);
+        failures += run("scaleHalfKeepsLonelyPixel", ImageImportPackTest::testScaleHalfKeepsLonelyPixel);
         failures += run("scaleInvalidRejected", ImageImportPackTest::testScaleInvalidRejected);
         failures += run("parseScaleDivisor", ImageImportPackTest::testParseScaleDivisor);
         failures += run("fitBuiltinScaleDivisor", ImageImportPackTest::testFitBuiltinScaleDivisor);
@@ -347,7 +351,73 @@ public final class ImageImportPackTest {
         }
         assertEq("w", step.getWidth(), once.getWidth());
         assertEq("h", step.getHeight(), once.getHeight());
-        assertEq("px", step.getRGB(0, 0), once.getRGB(0, 0));
+        for (int y = 0; y < step.getHeight(); y++) {
+            for (int x = 0; x < step.getWidth(); x++) {
+                assertEq("px " + x + "," + y, step.getRGB(x, y), once.getRGB(x, y));
+            }
+        }
+    }
+
+    /**
+     * Graphics2D nearest-neighbour halves sample the odd pixel of each 2×2, so
+     * an opaque speck in the bottom-right of an 8×8 empty block became a full
+     * black pixel after fit/÷8. Even-lattice sampling must discard it.
+     */
+    private static void testScaleEvenPhaseIgnoresOddSpeckles() throws IOException {
+        BufferedImage src = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        src.setRGB(7, 7, 0xff000000);
+        src.setRGB(15, 15, 0xff000000);
+        BufferedImage scaled = ImageImport.scaleImage(src, ImageImport.SCALE_DIVISOR_EIGHTH);
+        assertEq("w", 2, scaled.getWidth());
+        assertEq("h", 2, scaled.getHeight());
+        assertEq("top-left block", 0x00000000, scaled.getRGB(0, 0));
+        assertEq("bottom-right block", 0x00000000, scaled.getRGB(1, 1));
+    }
+
+    /** Top-left of each D×D block is the sample kept through a large shrink. */
+    private static void testScaleEvenPhaseKeepsBlockOrigin() throws IOException {
+        BufferedImage src = new BufferedImage(16, 8, BufferedImage.TYPE_INT_ARGB);
+        // Fill each 8×8 texel so ÷8 density check keeps the even-lattice sample.
+        fillRect(src, 0, 0, 8, 8, 0xffff0000);
+        fillRect(src, 8, 0, 8, 8, 0xff00ff00);
+        src.setRGB(1, 1, 0xff0000ff); // odd-phase neighbour must not win
+        BufferedImage scaled = ImageImport.scaleImage(src, ImageImport.SCALE_DIVISOR_EIGHTH);
+        assertEq("w", 2, scaled.getWidth());
+        assertEq("h", 1, scaled.getHeight());
+        assertEq("left", 0xffff0000, scaled.getRGB(0, 0));
+        assertEq("right", 0xff00ff00, scaled.getRGB(1, 0));
+    }
+
+    /** Sparse even-lattice speckles must die on ÷4 and larger. */
+    private static void testScaleDropsLonelyEvenSpeckles() throws IOException {
+        BufferedImage src = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        src.setRGB(0, 0, 0xff000000);
+        src.setRGB(1, 1, 0xff000000); // still only 2 opaque in the 8×8 (< 8)
+        src.setRGB(8, 8, 0xff000000);
+        BufferedImage eighth = ImageImport.scaleImage(src, ImageImport.SCALE_DIVISOR_EIGHTH);
+        assertEq("eighth sparse TL", 0x00000000, eighth.getRGB(0, 0));
+        assertEq("eighth sparse BR", 0x00000000, eighth.getRGB(1, 1));
+
+        BufferedImage quarterSrc = new BufferedImage(8, 8, BufferedImage.TYPE_INT_ARGB);
+        quarterSrc.setRGB(0, 0, 0xff000000);
+        quarterSrc.setRGB(1, 0, 0xff000000);
+        quarterSrc.setRGB(0, 1, 0xff000000); // 3 opaque in 4×4 (< 4)
+        BufferedImage quarter = ImageImport.scaleImage(quarterSrc, ImageImport.SCALE_DIVISOR_QUARTER);
+        assertEq("quarter sparse", 0x00000000, quarter.getRGB(0, 0));
+
+        // A dense enough block keeps the even-lattice sample.
+        BufferedImage solidish = new BufferedImage(8, 8, BufferedImage.TYPE_INT_ARGB);
+        fillRect(solidish, 0, 0, 8, 1, 0xffff0000); // 8 opaque (== divisor)
+        BufferedImage kept = ImageImport.scaleImage(solidish, ImageImport.SCALE_DIVISOR_EIGHTH);
+        assertEq("dense keeps sample", 0xffff0000, kept.getRGB(0, 0));
+    }
+
+    /** ÷2 must not strip thin Desktop Ponies edge detail. */
+    private static void testScaleHalfKeepsLonelyPixel() throws IOException {
+        BufferedImage src = new BufferedImage(4, 4, BufferedImage.TYPE_INT_ARGB);
+        src.setRGB(0, 0, 0xff00ff00);
+        BufferedImage half = ImageImport.scaleImage(src, ImageImport.SCALE_DIVISOR_HALF);
+        assertEq("half keeps lonely", 0xff00ff00, half.getRGB(0, 0));
     }
 
     private static void testScaleInvalidRejected() throws IOException {
