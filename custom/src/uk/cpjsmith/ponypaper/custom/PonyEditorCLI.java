@@ -120,6 +120,9 @@ public class PonyEditorCLI {
                         } catch (PonyEditor.GenericException e) {
                             for (String s : e.detail) System.err.println(s);
                         }
+                        for (String w : editor.collectWarnings()) {
+                            System.err.println("Warning: " + w);
+                        }
                         editor.save(new File(args[++i]));
                         usedSave = true;
                         break;

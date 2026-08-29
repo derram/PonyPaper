@@ -2291,6 +2291,20 @@ public class PonyEditorGUI extends JPanel {
             messages[len + 1] = "Save anyway?";
             if (JOptionPane.showConfirmDialog(this, messages, "Invalid Pony", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) != JOptionPane.YES_OPTION) return false;
         }
+        List<String> warnings = editor.collectWarnings();
+        if (!warnings.isEmpty()) {
+            String[] messages = new String[warnings.size() + 3];
+            messages[0] = "The current pony has the following warnings:";
+            for (int i = 0; i < warnings.size(); i++) {
+                messages[i + 1] = warnings.get(i);
+            }
+            messages[warnings.size() + 1] = "";
+            messages[warnings.size() + 2] = "Save anyway?";
+            if (JOptionPane.showConfirmDialog(this, messages, "Pony Warnings",
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) != JOptionPane.YES_OPTION) {
+                return false;
+            }
+        }
         try {
             editor.save(file);
         } catch (PonyEditor.GenericException e) {

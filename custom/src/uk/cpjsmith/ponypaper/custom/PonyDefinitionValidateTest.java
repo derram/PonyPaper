@@ -5,7 +5,8 @@ import java.util.List;
 import uk.cpjsmith.ponypaper.PonyDefinition;
 
 /**
- * Checks action-graph validation (looping wait-only idles, one-shot none lists).
+ * Checks action-graph validation (looping wait-only idles, one-shot none lists,
+ * unused-action warnings).
  * Run via {@code ./gradlew :custom:testDefinition} or {@code java … PonyDefinitionValidateTest}.
  */
 public final class PonyDefinitionValidateTest {
@@ -41,6 +42,14 @@ public final class PonyDefinitionValidateTest {
                 PonyDefinitionValidateTest::testColonInActionNameInvalid);
         failures += run("weightedMovingCanLeave",
                 PonyDefinitionValidateTest::testWeightedMovingCanLeave);
+        failures += run("unusedActionWarns",
+                PonyDefinitionValidateTest::testUnusedActionWarns);
+        failures += run("dragOnlyReachableIsUsed",
+                PonyDefinitionValidateTest::testDragOnlyReachableIsUsed);
+        failures += run("spritesfromAloneDoesNotCountAsUsed",
+                PonyDefinitionValidateTest::testSpritesfromAloneDoesNotCountAsUsed);
+        failures += run("allReachableHasNoWarnings",
+                PonyDefinitionValidateTest::testAllReachableHasNoWarnings);
         if (failures > 0) {
             System.err.println(failures + " definition check(s) failed.");
             System.exit(1);
@@ -218,6 +227,53 @@ public final class PonyDefinitionValidateTest {
         def.validate();
     }
 
+    private static void testUnusedActionWarns() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"),
+                action("orphan", true, "orphan", "trot"));
+        def.validate();
+        assertWarning(def, "Action orphan is defined but not used");
+    }
+
+    private static void testDragOnlyReachableIsUsed() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"),
+                action("dragged", true, "stand", "trot"));
+        def.defaultDrag = "dragged";
+        def.validate();
+        List<String> warnings = def.collectWarnings();
+        if (!warnings.isEmpty()) {
+            throw new AssertionError("expected no unused-action warnings but got " + warnings);
+        }
+    }
+
+    private static void testSpritesfromAloneDoesNotCountAsUsed() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"),
+                action("sheet", true, "sheet", "trot"));
+        def.actions[0].spritesFrom = "sheet";
+        def.actions[0].images.put("left", "");
+        def.actions[0].images.put("right", "");
+        def.actions[0].timings.put("left", "");
+        def.actions[0].timings.put("right", "");
+        def.validate();
+        assertWarning(def, "Action sheet is defined but not used");
+    }
+
+    private static void testAllReachableHasNoWarnings() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        def.validate();
+        List<String> warnings = def.collectWarnings();
+        if (!warnings.isEmpty()) {
+            throw new AssertionError("expected no warnings but got " + warnings);
+        }
+    }
+
     private static PonyDefinition pony(PonyDefinition.Action... actions) {
         PonyDefinition def = new PonyDefinition();
         def.actions = actions;
@@ -261,5 +317,16 @@ public final class PonyDefinitionValidateTest {
             throw new AssertionError("expected an error containing \"" + mustContain
                     + "\" but got " + errors);
         }
+    }
+
+    private static void assertWarning(PonyDefinition def, String mustContain) {
+        List<String> warnings = def.collectWarnings();
+        for (int i = 0; i < warnings.size(); i++) {
+            if (warnings.get(i).contains(mustContain)) {
+                return;
+            }
+        }
+        throw new AssertionError("expected a warning containing \"" + mustContain
+                + "\" but got " + warnings);
     }
 }

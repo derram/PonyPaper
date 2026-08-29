@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Base64;
+import java.util.List;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
@@ -125,6 +126,16 @@ public class PonyEditor {
             for (int i = 0; i < e.errors.size(); i++) messages[i + 1] = e.errors.get(i);
             throw new GenericException("Invalid Pony", messages);
         }
+    }
+
+    /**
+     * Soft issues that do not make the pony unusable (for example defined
+     * actions that are unreachable from start). Empty when there are none.
+     *
+     * @return warning lines; never {@code null}
+     */
+    public List<String> collectWarnings() {
+        return ponyDefinition.collectWarnings();
     }
     
     /**

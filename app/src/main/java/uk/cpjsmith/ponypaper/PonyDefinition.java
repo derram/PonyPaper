@@ -1160,10 +1160,37 @@ public class PonyDefinition {
     }
 
     /**
+     * Soft issues that do not make the pony unusable. Currently reports
+     * actions that are defined but never reachable from {@link #startActions}
+     * via waiting, moving, or effective drag lists.
+     *
+     * @return warning messages (empty when none); never {@code null}
+     */
+    public List<String> collectWarnings() {
+        List<String> warnings = new ArrayList<String>();
+        if (actions == null || actions.length == 0) {
+            return warnings;
+        }
+        List<String> reachable = reachableViaWaitMoveDrag();
+        for (int i = 0; i < actions.length; i++) {
+            String name = actions[i].name;
+            if (name == null || name.isEmpty()) {
+                continue;
+            }
+            if (!reachable.contains(name)) {
+                warnings.add("Action " + name
+                        + " is defined but not used (unreachable from start via waiting, moving, or drag).");
+            }
+        }
+        return warnings;
+    }
+
+    /**
      * True when some action reachable from {@link #startActions} via waiting
      * and moving lists can start a leave (walk, teleport-out, or screen-out).
      * Sit/sleep with {@code moving=none} do not count; they must reach a pose
-     * that is allowed to leave.
+     * that is allowed to leave. Drag is ignored here — dragging is not how
+     * the wallpaper rotates the herd off-screen.
      */
     private boolean canReachSceneExit() {
         if (actions == null || !actionListHasReal(startActions)) {
@@ -1184,6 +1211,30 @@ public class PonyDefinition {
             addReachableNames(action.nextActions.get("moving"), seen, queue);
         }
         return false;
+    }
+
+    /**
+     * Action names reachable from {@link #startActions} by following waiting,
+     * moving, and {@link #effectiveDragActions(Action) effective drag} lists.
+     * Used for unused-action warnings; does not follow {@code spritesfrom}.
+     */
+    private List<String> reachableViaWaitMoveDrag() {
+        List<String> seen = new ArrayList<String>();
+        if (actions == null || !actionListHasReal(startActions)) {
+            return seen;
+        }
+        List<String> queue = new ArrayList<String>();
+        addReachableNames(startActions, seen, queue);
+        for (int i = 0; i < queue.size(); i++) {
+            Action action = findAction(queue.get(i));
+            if (action == null) {
+                continue;
+            }
+            addReachableNames(action.nextActions.get("waiting"), seen, queue);
+            addReachableNames(action.nextActions.get("moving"), seen, queue);
+            addReachableNames(effectiveDragActions(action), seen, queue);
+        }
+        return seen;
     }
 
     private boolean actionCanStartLeave(Action action) {
