@@ -218,6 +218,20 @@ public class Pony {
                 if (currentAction.type == PonyAction.SCREEN_OUT) {
                     leavingMode = LM_GOING;
                 }
+            } else if (currentAction.type == PonyAction.PORT_O
+                    || currentAction.type == PonyAction.PORT_I) {
+                // Scene enter via teleport: only the visible half. Spawning
+                // off-screen to play teleport-out lets VFX bleed at the gutter;
+                // land on-screen and play teleport-in (or keep in if that was
+                // the start pick). Mid-scene teleports still use the full pair.
+                if (currentAction.type == PonyAction.PORT_O) {
+                    setMoving();
+                }
+                Point startOn = randomOnScreen();
+                posX = startOn.x;
+                posY = startOn.y;
+                motion = MOTION_SPECIAL;
+                targetPos = null;
             } else {
                 Point startOff = randomOffScreen();
                 posX = startOff.x;
@@ -242,6 +256,23 @@ public class Pony {
                 frameTime -= animTime;
                 switch (currentAction.type) {
                     case PonyAction.PORT_O:
+                        if (leavingMode == LM_GOING) {
+                            // Scene leave: only the visible half — vanish in
+                            // place. Skip off-screen teleport-in so VFX does
+                            // not bleed at the gutter.
+                            leavingMode = LM_GONE;
+                            animTime = currentAction.getAnimationTime(direction);
+                            break;
+                        }
+                        if (targetPos == null) {
+                            // No destination (e.g. teleport-out start with no
+                            // teleport-in successor). Idle here rather than NPE.
+                            if (!tryLandAndWait()) {
+                                arriveTarget();
+                            }
+                            animTime = currentAction.getAnimationTime(direction);
+                            break;
+                        }
                         moveTo(targetPos);
                         // Teleport-out always continues via next moving (atomic).
                         if (setMoving()) {

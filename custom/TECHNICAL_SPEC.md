@@ -68,6 +68,8 @@ Teleporting requires a pair of actions with special types `teleport-out` and `te
 2.  The pony instantly moves to the destination.
 3.  The `teleport-in` action plays at the new location.
 
+**Scene enter / leave:** only the on-screen half of the pair runs. Entering with a teleport start plays `teleport-in` on-screen (skipping an off-screen `teleport-out`). Leaving via teleport plays `teleport-out` in place and then removes the pony (skipping an off-screen `teleport-in`). This avoids VFX bleeding in from just past the viewport edge. Mid-scene teleports still use the full out → jump → in chain.
+
 Use `<anchory>` to ensure the body doesn't "jump" if the teleport VFX makes the sheet taller than standard poses.
 
 ### Stationary enter / exit
