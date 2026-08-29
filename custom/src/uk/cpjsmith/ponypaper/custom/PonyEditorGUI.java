@@ -2012,7 +2012,7 @@ public class PonyEditorGUI extends JPanel {
         
         this.parentFrame = parentFrame;
         
-        fc = new JFileChooser(".");
+        fc = EditorFileChoosers.create(".");
         fc.setAcceptAllFileFilterUsed(false);
 
         add(createToolBar(), BorderLayout.NORTH);
@@ -2206,7 +2206,7 @@ public class PonyEditorGUI extends JPanel {
      */
     private void importDesktopPonies() {
         File startDir = DesktopPoniesImport.defaultPoniesRoot();
-        JFileChooser dirChooser = new JFileChooser(startDir);
+        JFileChooser dirChooser = EditorFileChoosers.create(startDir);
         dirChooser.setDialogTitle("Import from Desktop-Ponies");
         dirChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         dirChooser.setAcceptAllFileFilterUsed(false);

@@ -111,6 +111,13 @@ tasks.register<JavaExec>("testSpritePreview") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.SpriteSheetPreviewTest")
 }
 
+tasks.register<JavaExec>("testFileChooserScroll") {
+    group = "verification"
+    description = "Run FlatLaf file-chooser directory scroll-home checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.EditorFileChoosersTest")
+}
+
 tasks.named("check") {
     dependsOn("testPacker")
     dependsOn("testDefinition")
@@ -118,4 +125,5 @@ tasks.named("check") {
     dependsOn("testWaitExpiry")
     dependsOn("testSceneExit")
     dependsOn("testSpritePreview")
+    dependsOn("testFileChooserScroll")
 }
