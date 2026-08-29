@@ -88,8 +88,8 @@ public class ImageImport {
     public static final int SCALE_DESKTOP_PONIES = 50;
 
     /**
-     * Built-in sheets top out around this height. Taller packed cells will
-     * draw roughly 2× a stock pony on the wallpaper. Also the target for
+     * Built-in sheets top out around this height. Taller packed cells draw
+     * larger than a stock pony on the wallpaper. Also the target for
      * {@link #fitBuiltinScaleDivisor(int)}.
      */
     public static final int LARGE_CELL_HEIGHT_PX = 80;
@@ -461,7 +461,7 @@ public class ImageImport {
     }
 
     public static String largeCellWarning() {
-        return "This will draw about 2× a built-in pony.";
+        return "This will draw larger than a built-in pony.";
     }
 
     /**
