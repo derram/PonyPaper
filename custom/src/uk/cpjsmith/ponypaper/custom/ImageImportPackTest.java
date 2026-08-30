@@ -45,6 +45,8 @@ public final class ImageImportPackTest {
         failures += run("scaleInvalidRejected", ImageImportPackTest::testScaleInvalidRejected);
         failures += run("parseScaleDivisor", ImageImportPackTest::testParseScaleDivisor);
         failures += run("fitBuiltinScaleDivisor", ImageImportPackTest::testFitBuiltinScaleDivisor);
+        failures += run("defaultScaleForOversizedFrames", ImageImportPackTest::testDefaultScaleForOversizedFrames);
+        failures += run("sheetPixelBudget", ImageImportPackTest::testSheetPixelBudget);
         failures += run("explicitTimingsCs", ImageImportPackTest::testExplicitTimingsCs);
         failures += run("gifLoadIsNativeSize", ImageImportPackTest::testGifLoadIsNativeSize);
         failures += run("gifLoadHalfScale", ImageImportPackTest::testGifLoadHalfScale);
@@ -473,6 +475,52 @@ public final class ImageImportPackTest {
         assertEq("fit cellW", 25, packed.cellWidth);
         assertEq("fit cellH", 50, packed.cellHeight);
         assertEq("fit under limit", true, packed.cellHeight <= ImageImport.LARGE_CELL_HEIGHT_PX);
+    }
+
+    private static void testDefaultScaleForOversizedFrames() throws IOException {
+        BufferedImage small = solid(40, 40, 0xff112233);
+        BufferedImage tall = solid(64, 864, 0xff445566);
+        List<BufferedImage> smallFrames = Arrays.asList(small, small);
+        List<BufferedImage> tallFrames = Arrays.asList(tall, tall);
+
+        assertEq("small stays native", ImageImport.SCALE_DIVISOR_NATIVE,
+                ImageImport.defaultScaleDivisorForFrames(
+                        smallFrames, ImageImport.SCALE_DIVISOR_NATIVE));
+        assertEq("small not fit", false,
+                ImageImport.shouldDefaultToFitBuiltin(
+                        smallFrames, ImageImport.SCALE_DIVISOR_NATIVE));
+
+        assertEq("864px → sixteenth", ImageImport.SCALE_DIVISOR_SIXTEENTH,
+                ImageImport.defaultScaleDivisorForFrames(
+                        tallFrames, ImageImport.SCALE_DIVISOR_NATIVE));
+        assertEq("tall prefers fit", true,
+                ImageImport.shouldDefaultToFitBuiltin(
+                        tallFrames, ImageImport.SCALE_DIVISOR_NATIVE));
+        assertEq("legacy percent 100 also fits", ImageImport.SCALE_DIVISOR_SIXTEENTH,
+                ImageImport.defaultScaleDivisorForFrames(tallFrames, 100));
+
+        // Explicit half on mid-size art that already fits after ÷2 stays half.
+        BufferedImage mid = solid(80, 100, 0xff778899);
+        assertEq("requested half kept when under limit", ImageImport.SCALE_DIVISOR_HALF,
+                ImageImport.defaultScaleDivisorForFrames(
+                        Arrays.asList(mid), ImageImport.SCALE_DIVISOR_HALF));
+    }
+
+    private static void testSheetPixelBudget() throws IOException {
+        assertEq("under budget", false,
+                ImageImport.exceedsSheetPixelBudget(1000, 80));
+        assertEq("over budget", true,
+                ImageImport.exceedsSheetPixelBudget(90112, 864));
+        assertEq("pixel count", 90112L * 864L,
+                ImageImport.sheetPixelCount(90112, 864));
+        assertEq("argb bytes", 90112L * 864L * 4L,
+                ImageImport.sheetArgbBytes(90112, 864));
+        String sized = ImageImport.formatByteSize(ImageImport.sheetArgbBytes(90112, 864));
+        if (!sized.endsWith("MB") && !sized.endsWith("GB")) {
+            throw new AssertionError("expected MB/GB label, got " + sized);
+        }
+        assertEq("notes mention fit", true,
+                ImageImport.packerScaleNotes().contains("Fit to built-in"));
     }
 
     private static void testExplicitTimingsCs() throws IOException {

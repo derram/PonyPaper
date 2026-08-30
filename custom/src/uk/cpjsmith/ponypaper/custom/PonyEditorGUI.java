@@ -523,13 +523,15 @@ public class PonyEditorGUI extends JPanel {
             imageLeftImport = new JButton("Import image");
             imageLeftImport.setToolTipText(
                     "Load a packed PNG strip as-is, or a GIF (coalesced and packed). "
-                            + "GIFs open the same pack dialog as Import frames (scale 100% by default). "
+                            + "GIFs open the same pack dialog as Import frames "
+                            + "(Fit to built-in when frames are oversized). "
                             + "For padded / uneven sheets, Import as-is then use Export Frames.");
             imageLeftImport.addActionListener(importLeftListener);
             imageLeftImportFrames = new JButton("Import frames");
             imageLeftImportFrames.setToolTipText(
                     "Build a spritesheet from a folder or several PNG frames. "
-                            + "Optional dyadic scale (100%…6.25% or fit-to-built-in) and per-frame lift for hops.");
+                            + "Dyadic scale (100%…6.25% or fit-to-built-in; Fit auto-selected when oversized) "
+                            + "and per-frame lift for hops.");
             imageLeftImportFrames.addActionListener(importFramesLeftListener);
             imageLeftExport = new JButton("Export Spritesheet");
             imageLeftExport.setToolTipText("Save the left spritesheet as a PNG file.");
@@ -579,13 +581,15 @@ public class PonyEditorGUI extends JPanel {
             imageRightImport = new JButton("Import image");
             imageRightImport.setToolTipText(
                     "Load a packed PNG strip as-is, or a GIF (coalesced and packed). "
-                            + "GIFs open the same pack dialog as Import frames (scale 100% by default). "
+                            + "GIFs open the same pack dialog as Import frames "
+                            + "(Fit to built-in when frames are oversized). "
                             + "For padded / uneven sheets, Import as-is then use Export Frames.");
             imageRightImport.addActionListener(importRightListener);
             imageRightImportFrames = new JButton("Import frames");
             imageRightImportFrames.setToolTipText(
                     "Build a spritesheet from a folder or several PNG frames. "
-                            + "Optional dyadic scale (100%…6.25% or fit-to-built-in) and per-frame lift for hops.");
+                            + "Dyadic scale (100%…6.25% or fit-to-built-in; Fit auto-selected when oversized) "
+                            + "and per-frame lift for hops.");
             imageRightImportFrames.addActionListener(importFramesRightListener);
             imageRightExport = new JButton("Export Spritesheet");
             imageRightExport.setToolTipText("Save the right spritesheet as a PNG file.");
@@ -1049,8 +1053,7 @@ public class PonyEditorGUI extends JPanel {
                             .append(" (hundredths of a second).");
                 }
                 notes.append("\n\nList order is playback order — Move up/down, Reverse, or Alt+↑/↓.");
-                notes.append("\n\nScale is 100% by default (cells are already packed). ")
-                        .append("Choose 50%/25%/12.5%/6.25% or Fit to built-in only if you want to shrink this sheet.");
+                notes.append("\n\n").append(ImageImport.packerScaleNotes());
                 notes.append("\n\nLift is pixels of air under a cell (0 = keep the sprite grounded). ");
 
                 String[] names = new String[frames.size()];
@@ -1310,7 +1313,7 @@ public class PonyEditorGUI extends JPanel {
 
         /**
          * Coalesces a GIF and opens the same pack dialog as Import frames.
-         * Default scale is native; dyadic shrinks and fit-to-built-in are choices.
+         * Oversized frames open on Fit to built-in; otherwise native scale.
          */
         void importGif(String direction, File file) throws IOException, PonyEditor.GenericException {
             ImageImport.GifFrames gif = ImageImport.loadGifFrames(file);
@@ -1326,7 +1329,7 @@ public class PonyEditorGUI extends JPanel {
             }
             notes.append(".");
             notes.append("\n\nList order is playback order — Move up/down, Reverse, or Alt+↑/↓.");
-            notes.append("\n\nScale is 100% by default. Choose 50% (Desktop Ponies), a smaller ÷4/÷8/÷16, or Fit to built-in.");
+            notes.append("\n\n").append(ImageImport.packerScaleNotes());
             notes.append("\n\nLift is pixels of air under a frame (0 = on the ground). ");
 
             String[] names = new String[gif.frames.size()];
@@ -1434,7 +1437,7 @@ public class PonyEditorGUI extends JPanel {
                             .append(" (hundredths of a second).");
                 }
                 notes.append("\n\nList order is playback order — Move up/down, Reverse, or Alt+↑/↓.");
-                notes.append("\n\nScale is 100% by default. Choose 50% (Desktop Ponies), ÷4/÷8/÷16, or Fit to built-in if these frames are oversized.");
+                notes.append("\n\n").append(ImageImport.packerScaleNotes());
                 notes.append("\n\nLift is pixels of air under a frame (0 = on the ground). ")
                         .append("It is baked into the sheet — leave <anchory> empty so feet stay on the ground line.");
 
@@ -1634,7 +1637,7 @@ public class PonyEditorGUI extends JPanel {
                             .append(" (hundredths of a second).");
                 }
                 packNotes.append("\n\nList order is playback order — Move up/down, Reverse, or Alt+↑/↓.");
-                packNotes.append("\n\nScale is 100% by default. Choose 50%/25%/12.5%/6.25% or Fit to built-in if needed.");
+                packNotes.append("\n\n").append(ImageImport.packerScaleNotes());
                 packNotes.append("\n\nLift is pixels of air under a frame (0 = on the ground).");
 
                 FramePackDialog.Result packed = FramePackDialog.showDialog(

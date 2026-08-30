@@ -98,6 +98,13 @@ public class ImageImport {
      */
     public static final int LARGE_CELL_HEIGHT_PX = 80;
 
+    /**
+     * Soft cap for allocating a live packer strip preview (width×height).
+     * Above this the packer dialog defers the strip and asks before Pack.
+     * ~8 Mpx ≈ 32 MB as ARGB.
+     */
+    public static final int SHEET_PIXEL_BUDGET = 8_000_000;
+
     public final byte[] loadedImage;
     public final String timings;
     /**
@@ -466,6 +473,99 @@ public class ImageImport {
 
     public static String largeCellWarning() {
         return "This will draw larger than a built-in pony.";
+    }
+
+    /** {@code (long) width * height}, clamped to non-negative dimensions. */
+    public static long sheetPixelCount(int width, int height) {
+        long w = Math.max(0, width);
+        long h = Math.max(0, height);
+        return w * h;
+    }
+
+    /**
+     * True when allocating a full ARGB strip of this size is likely to stall
+     * or OOM the packer UI (see {@link #SHEET_PIXEL_BUDGET}).
+     */
+    public static boolean exceedsSheetPixelBudget(int width, int height) {
+        return sheetPixelCount(width, height) > SHEET_PIXEL_BUDGET;
+    }
+
+    /**
+     * Rough ARGB byte size for a sheet ({@code width × height × 4}).
+     */
+    public static long sheetArgbBytes(int width, int height) {
+        return sheetPixelCount(width, height) * 4L;
+    }
+
+    /**
+     * Human-readable size for confirm dialogs, e.g. {@code 32 MB} or
+     * {@code 512 KB}.
+     */
+    public static String formatByteSize(long bytes) {
+        if (bytes < 0) {
+            bytes = 0;
+        }
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+        if (bytes < 1024L * 1024L) {
+            return String.format(Locale.ROOT, "%.0f KB", bytes / 1024.0);
+        }
+        if (bytes < 1024L * 1024L * 1024L) {
+            return String.format(Locale.ROOT, "%.0f MB", bytes / (1024.0 * 1024.0));
+        }
+        return String.format(Locale.ROOT, "%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0));
+    }
+
+    /**
+     * Resolves a pack-dialog scale argument (dyadic divisor or legacy percent
+     * 100/50/25) to a normalised divisor. {@code <= 0} means native.
+     */
+    public static int resolveRequestedScaleDivisor(int requested) throws IOException {
+        if (requested <= 0 || requested == SCALE_NATIVE || requested == 100) {
+            return SCALE_DIVISOR_NATIVE;
+        }
+        if (requested == SCALE_DESKTOP_PONIES || requested == 50) {
+            return SCALE_DIVISOR_HALF;
+        }
+        if (requested == 25) {
+            return SCALE_DIVISOR_QUARTER;
+        }
+        return normalizeScaleDivisor(requested);
+    }
+
+    /**
+     * Default pack scale for the GUI: keep {@code requested} when the tallest
+     * frame already fits under {@link #LARGE_CELL_HEIGHT_PX} at that scale;
+     * otherwise {@link #fitBuiltinScaleDivisor(int)}.
+     */
+    public static int defaultScaleDivisorForFrames(List<BufferedImage> frames, int requested)
+            throws IOException {
+        int divisor = resolveRequestedScaleDivisor(requested);
+        int maxH = maxFrameHeight(frames);
+        if (scaleDimension(maxH, divisor) > LARGE_CELL_HEIGHT_PX) {
+            return fitBuiltinScaleDivisor(maxH);
+        }
+        return divisor;
+    }
+
+    /**
+     * True when {@link #defaultScaleDivisorForFrames} would pick Fit because
+     * the requested scale leaves cells taller than built-in.
+     */
+    public static boolean shouldDefaultToFitBuiltin(List<BufferedImage> frames, int requested)
+            throws IOException {
+        int divisor = resolveRequestedScaleDivisor(requested);
+        return scaleDimension(maxFrameHeight(frames), divisor) > LARGE_CELL_HEIGHT_PX;
+    }
+
+    /**
+     * Short note for packer dialogs: Fit is auto-selected when frames are
+     * taller than built-in; otherwise 100% is the default.
+     */
+    public static String packerScaleNotes() {
+        return "Scale defaults to 100%, or Fit to built-in when frames are taller than "
+                + LARGE_CELL_HEIGHT_PX + "px. Choose 50%/25%/12.5%/6.25% or Fit to shrink further.";
     }
 
     /**

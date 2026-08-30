@@ -36,6 +36,7 @@ import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JList;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
@@ -53,8 +54,10 @@ import javax.swing.event.ListSelectionListener;
  * Modal dialog: review imported frames (PNG stills or coalesced GIF frames),
  * choose a dyadic pack scale (100%…6.25%, or fit-to-built-in), rearrange
  * playback order, set per-frame lift (or apply one value to all frames), and
- * pack. Lift {@code 0} is the usual bottom-centre alignment; positive lift
- * bakes a hop into a taller cell. Returns {@code null} on cancel.
+ * pack. Frames taller than built-in open on Fit. Sheets over
+ * {@link ImageImport#SHEET_PIXEL_BUDGET} defer the strip preview and require
+ * a Pack confirmation. Lift {@code 0} is the usual bottom-centre alignment;
+ * positive lift bakes a hop into a taller cell. Returns {@code null} on cancel.
  */
 public final class FramePackDialog extends JDialog {
 
@@ -145,18 +148,18 @@ public final class FramePackDialog extends JDialog {
         for (int i = 0; i < frames.size(); i++) {
             this.order[i] = i;
         }
-        int initialDivisor;
+        int initialDivisor = ImageImport.SCALE_DIVISOR_NATIVE;
+        boolean preferFit = false;
         try {
-            initialDivisor = ImageImport.normalizeScaleDivisor(
-                    defaultScaleDivisor <= 0
-                            ? ImageImport.SCALE_DIVISOR_NATIVE
-                            : (defaultScaleDivisor == ImageImport.SCALE_NATIVE
-                                    ? ImageImport.SCALE_DIVISOR_NATIVE
-                                    : (defaultScaleDivisor == ImageImport.SCALE_DESKTOP_PONIES
-                                            ? ImageImport.SCALE_DIVISOR_HALF
-                                            : defaultScaleDivisor)));
+            preferFit = ImageImport.shouldDefaultToFitBuiltin(frames, defaultScaleDivisor);
+            initialDivisor = ImageImport.defaultScaleDivisorForFrames(
+                    frames, defaultScaleDivisor);
         } catch (IOException e) {
-            initialDivisor = ImageImport.SCALE_DIVISOR_NATIVE;
+            try {
+                initialDivisor = ImageImport.resolveRequestedScaleDivisor(defaultScaleDivisor);
+            } catch (IOException ignored) {
+                initialDivisor = ImageImport.SCALE_DIVISOR_NATIVE;
+            }
         }
         this.scaleDivisor = initialDivisor;
 
@@ -178,6 +181,7 @@ public final class FramePackDialog extends JDialog {
         }
         this.fitScaleDivisor = computedFitDivisor;
         this.fitScaleItem = new ScaleItem(true, computedFitDivisor, fitLabel);
+        final boolean selectFitByDefault = preferFit;
 
         for (int i = 0; i < frames.size(); i++) {
             if (frameNames != null && i < frameNames.size() && frameNames.get(i) != null) {
@@ -233,12 +237,13 @@ public final class FramePackDialog extends JDialog {
             };
         }
         scaleCombo = new JComboBox<ScaleItem>(scaleItems);
-        selectScaleItem(initialDivisor, false);
+        selectScaleItem(initialDivisor, selectFitByDefault);
         scaleCombo.setToolTipText(
                 "Nearest-neighbour dyadic shrink before packing. "
                         + "Prefer ÷2 / ÷4 / ÷8 / ÷16 for crisp sprites. "
                         + "Fit picks the largest scale whose tallest frame is ≤ "
-                        + ImageImport.LARGE_CELL_HEIGHT_PX + "px.");
+                        + ImageImport.LARGE_CELL_HEIGHT_PX + "px. "
+                        + "Oversized imports open on Fit automatically.");
         scaleCombo.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -316,6 +321,9 @@ public final class FramePackDialog extends JDialog {
         packButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                if (!confirmPackIfHuge()) {
+                    return;
+                }
                 packed = true;
                 result = new Result(lifts.clone(), scaleDivisor, order.clone());
                 dispose();
@@ -490,8 +498,9 @@ public final class FramePackDialog extends JDialog {
     }
 
     /**
-     * Opens the pack dialog at native scale. Returns lifts + scale if the user
-     * chose Pack, or {@code null} if cancelled.
+     * Opens the pack dialog. Oversized frames (taller than built-in) default
+     * to Fit; otherwise native scale. Returns lifts + scale if the user chose
+     * Pack, or {@code null} if cancelled.
      */
     public static Result showDialog(Component parent, String title,
             List<File> files, List<BufferedImage> frames, String notes) {
@@ -683,6 +692,43 @@ public final class FramePackDialog extends JDialog {
         updateOrderButtons();
     }
 
+    /**
+     * Asks before allocating a sheet over {@link ImageImport#SHEET_PIXEL_BUDGET}.
+     * Returns {@code false} when the user cancels.
+     */
+    private boolean confirmPackIfHuge() {
+        try {
+            List<BufferedImage> toPack = playbackFrames();
+            ImageImport.PackPreview preview = ImageImport.inspectFrames(toPack, lifts);
+            int sheetW = preview.sheetWidth();
+            int sheetH = preview.cellHeight;
+            if (!ImageImport.exceedsSheetPixelBudget(sheetW, sheetH)) {
+                return true;
+            }
+            String message = String.format(
+                    "This sheet would be %d×%d (~%s as ARGB), which is very large.%n%n"
+                            + "Prefer Fit to built-in or a smaller scale unless you need "
+                            + "the full resolution.%n%nPack anyway?",
+                    sheetW,
+                    sheetH,
+                    ImageImport.formatByteSize(ImageImport.sheetArgbBytes(sheetW, sheetH)));
+            int choice = JOptionPane.showConfirmDialog(
+                    this,
+                    message,
+                    "Large spritesheet",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            return choice == JOptionPane.YES_OPTION;
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    e.getMessage(),
+                    "Cannot pack",
+                    JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+    }
+
     private void refreshAll() {
         try {
             List<BufferedImage> toPack = playbackFrames();
@@ -698,29 +744,45 @@ public final class FramePackDialog extends JDialog {
             if (selectedScale != null && selectedScale.fit) {
                 scaleLabel = "fit → " + scaleLabel;
             }
+            int sheetW = preview.sheetWidth();
+            int sheetH = preview.cellHeight;
             headerLabel.setText(String.format(
                     "Pack %d frame%s into %d×%d cells (sheet %d×%d) at %s.",
                     preview.frameCount,
                     preview.frameCount == 1 ? "" : "s",
                     preview.cellWidth,
                     preview.cellHeight,
-                    preview.sheetWidth(),
-                    preview.cellHeight,
+                    sheetW,
+                    sheetH,
                     scaleLabel));
-            if (ImageImport.isLargeCell(preview.cellHeight)) {
+            boolean hugeSheet = ImageImport.exceedsSheetPixelBudget(sheetW, sheetH);
+            if (hugeSheet) {
+                warningLabel.setText(String.format(
+                        "Sheet preview deferred (%d×%d, ~%s) — choose a smaller scale, "
+                                + "or Pack with confirmation.",
+                        sheetW,
+                        sheetH,
+                        ImageImport.formatByteSize(ImageImport.sheetArgbBytes(sheetW, sheetH))));
+                warningLabel.setVisible(true);
+                stripPreview.setDeferred(preview.frameCount, sheetH);
+            } else if (ImageImport.isLargeCell(preview.cellHeight)) {
                 warningLabel.setText(ImageImport.largeCellWarning());
                 warningLabel.setVisible(true);
+                stripPreview.setSheet(ImageImport.packSheetImage(
+                        toPack, preview.cellWidth, preview.cellHeight, lifts),
+                        preview.frameCount, preview.cellHeight);
             } else {
                 warningLabel.setText(" ");
                 warningLabel.setVisible(false);
+                stripPreview.setSheet(ImageImport.packSheetImage(
+                        toPack, preview.cellWidth, preview.cellHeight, lifts),
+                        preview.frameCount, preview.cellHeight);
             }
             cellPreview.setCell(preview.cellWidth, preview.cellHeight);
-            stripPreview.setSheet(ImageImport.packSheetImage(
-                    toPack, preview.cellWidth, preview.cellHeight, lifts),
-                    preview.frameCount, preview.cellHeight);
         } catch (IOException e) {
             headerLabel.setText("Cannot pack: " + e.getMessage());
             warningLabel.setVisible(false);
+            stripPreview.setDeferred(frames.size(), 1);
         }
         syncSelection();
         frameList.repaint();
@@ -929,11 +991,14 @@ public final class FramePackDialog extends JDialog {
     }
 
     /**
-     * Live packed strip. Click a cell to select that frame.
+     * Live packed strip. Click a cell to select that frame. When the sheet
+     * would exceed {@link ImageImport#SHEET_PIXEL_BUDGET}, the bitmap is
+     * deferred and a placeholder is shown instead.
      */
     private final class StripPreview extends JComponent {
         private BufferedImage sheet;
         private int frameCount = 1;
+        private boolean deferred;
 
         StripPreview() {
             setOpaque(true);
@@ -941,7 +1006,7 @@ public final class FramePackDialog extends JDialog {
             addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent e) {
-                    if (sheet == null || frameCount < 1) {
+                    if (deferred || sheet == null || frameCount < 1) {
                         return;
                     }
                     Rectangle bounds = imageBounds();
@@ -961,13 +1026,30 @@ public final class FramePackDialog extends JDialog {
             });
         }
 
+        void setDeferred(int frameCount, int cellH) {
+            this.sheet = null;
+            this.deferred = true;
+            this.frameCount = Math.max(1, frameCount);
+            int prefH = Math.min(96, Math.max(48, cellH > 1 ? Math.min(96, cellH * 2) : 64));
+            Dimension next = new Dimension(640, prefH);
+            if (!next.equals(getPreferredSize())) {
+                setPreferredSize(next);
+                revalidate();
+            }
+            repaint();
+        }
+
         void setSheet(BufferedImage sheet, int frameCount, int cellH) {
             this.sheet = sheet;
+            this.deferred = false;
             this.frameCount = Math.max(1, frameCount);
             int prefH = Math.min(96, Math.max(48, cellH * 2));
-            int prefW = sheet != null
+            int rawW = sheet != null
                     ? Math.max(200, sheet.getWidth() * prefH / Math.max(1, sheet.getHeight()))
                     : 200;
+            // Cap preferred width so a wide-but-under-budget strip does not
+            // force the dialog to pack to tens of thousands of pixels.
+            int prefW = Math.min(rawW, 2048);
             Dimension next = new Dimension(prefW, prefH);
             if (!next.equals(getPreferredSize())) {
                 setPreferredSize(next);
@@ -999,7 +1081,15 @@ public final class FramePackDialog extends JDialog {
             try {
                 g2.setColor(getBackground());
                 g2.fillRect(0, 0, getWidth(), getHeight());
-                if (sheet == null) {
+                if (deferred || sheet == null) {
+                    if (deferred) {
+                        g2.setColor(EditorTheme.WARNING);
+                        String line1 = "Sheet preview deferred — sheet too large to allocate.";
+                        String line2 = "Select frames in the list; Pack will ask for confirmation.";
+                        int y = getHeight() / 2;
+                        g2.drawString(line1, 12, y - 6);
+                        g2.drawString(line2, 12, y + 12);
+                    }
                     return;
                 }
                 Rectangle bounds = imageBounds();
