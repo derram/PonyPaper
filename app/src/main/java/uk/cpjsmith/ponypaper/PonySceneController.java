@@ -210,6 +210,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     private Ponies ponies = null;
     private Bitmap background = null;
+    private RenderNodeSupport backgroundNode = RenderNodeSupport.create();
     private boolean drunkMode = false;
     private final Paint paint = new Paint();
     private final Rect tmpSrc = new Rect();
@@ -386,10 +387,6 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Registers preference, power, and thermal listeners. Safe to call once per
-     * controller lifetime.
-     */
-    /**
      * Wallpaper picker vs live instance. Call from {@code Engine.onCreate} after
      * {@code super.onCreate}, never from the engine constructor.
      */
@@ -508,13 +505,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     /** Recycle and null {@link #background}. Handler thread only. */
     private void recycleDisplayedBackground() {
-        if (background != null) {
-            if (!background.isRecycled()) {
-                background.recycle();
-            }
-            background = null;
-        }
-        forceSceneRedraw = true;
+        replaceBackground(null);
     }
 
     /**
@@ -526,6 +517,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         background = next;
         if (old != null && old != next && !old.isRecycled()) {
             old.recycle();
+        }
+        if (backgroundNode != null && background == null) {
+            backgroundNode.discard();
         }
         forceSceneRedraw = true;
     }
@@ -1755,17 +1749,32 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 if (drawBg != null && !c.isHardwareAccelerated() && GpuBitmaps.isHardware(drawBg)) {
                     drawBg = null;
                 }
-                if (drawBg == null || paint.getAlpha() != 0xff) {
-                    c.drawColor(backgroundColour);
-                }
-                if (drawBg != null) {
-                    tmpSrc.set(0, 0, drawBg.getWidth(), drawBg.getHeight());
+
+                if (backgroundNode != null && c.isHardwareAccelerated() && drawBg != null) {
+                    if (paint.getAlpha() != 0xff) {
+                        c.drawColor(backgroundColour);
+                    }
                     coverDestRect(drawBg.getWidth(), drawBg.getHeight(),
                             canvasW, canvasH, xOffset, yOffset, tmpDst);
-                    c.drawBitmap(drawBg, tmpSrc, tmpDst, paint);
+                    backgroundNode.update(drawBg, tmpDst.width(), tmpDst.height(), paint);
+                    backgroundNode.setTranslation(tmpDst.left, tmpDst.top);
+                    backgroundNode.draw(c);
                     lastBgDestLeft = tmpDst.left;
                     lastBgDestTop = tmpDst.top;
+                } else {
+                    if (drawBg == null || paint.getAlpha() != 0xff) {
+                        c.drawColor(backgroundColour);
+                    }
+                    if (drawBg != null) {
+                        tmpSrc.set(0, 0, drawBg.getWidth(), drawBg.getHeight());
+                        coverDestRect(drawBg.getWidth(), drawBg.getHeight(),
+                                canvasW, canvasH, xOffset, yOffset, tmpDst);
+                        c.drawBitmap(drawBg, tmpSrc, tmpDst, paint);
+                        lastBgDestLeft = tmpDst.left;
+                        lastBgDestTop = tmpDst.top;
+                    }
                 }
+
                 if (ponies != null) {
                     ponies.draw(c);
                 }
