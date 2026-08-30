@@ -58,6 +58,8 @@ public class Ponies {
      * leaving. At most one extra character is decoded this way.
      */
     private Pony prefetched;
+    /** When true, each enter from the inactive pool rolls a ladder size. */
+    private final boolean randomSizeMode;
     
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final int touchSlop;
@@ -109,7 +111,7 @@ public class Ponies {
      */
     public Ponies(Context context, SharedPreferences prefs, int desiredCount) {
         inactivePonies = AllPonies.getPonies(context, prefs);
-        applySizeFactor(PonySize.factor(prefs));
+        randomSizeMode = SceneMode.isRandomSize(prefs);
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         String rawWaifu = prefs.getString("pref_waifu", "");
         waifuKey = rawWaifu != null ? rawWaifu : "";
@@ -118,6 +120,9 @@ public class Ponies {
         activeCount = Math.min(inactivePonies.size(), desiredCount);
 
         random = new Random();
+        if (!randomSizeMode) {
+            applySizeFactor(PonySize.factor(prefs));
+        }
         activePonies = new Pony[activeCount];
         for (int i = 0; i < activeCount; i++) {
             activePonies[i] = takeFromInactive();
@@ -217,6 +222,9 @@ public class Ponies {
                 if (inactivePonies.size() != 0) {
                     activePonies[i] = takeFromInactive();
                     inactivePonies.add(temp);
+                } else if (randomSizeMode) {
+                    // Full pool is on-screen; re-roll size on the same pony.
+                    temp.setSizeFactor(PonySize.randomFactor(random));
                 }
                 activePonies[i].doUpdate(clipBounds, 0);
             }
@@ -397,15 +405,23 @@ public class Ponies {
         if (inactivePonies.isEmpty()) {
             throw new IllegalStateException("inactive pool is empty");
         }
+        Pony pony;
         if (prefetched != null) {
             int prefIdx = inactivePonies.indexOf(prefetched);
             if (prefIdx >= 0) {
                 prefetched = null;
-                return inactivePonies.remove(prefIdx);
+                pony = inactivePonies.remove(prefIdx);
+            } else {
+                prefetched = null;
+                pony = inactivePonies.remove(indexToTakeFromInactive());
             }
-            prefetched = null;
+        } else {
+            pony = inactivePonies.remove(indexToTakeFromInactive());
         }
-        return inactivePonies.remove(indexToTakeFromInactive());
+        if (randomSizeMode) {
+            pony.setSizeFactor(PonySize.randomFactor(random));
+        }
+        return pony;
     }
 
     private int indexToTakeFromInactive() {

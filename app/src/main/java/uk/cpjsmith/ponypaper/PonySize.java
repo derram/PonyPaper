@@ -3,6 +3,7 @@ package uk.cpjsmith.ponypaper;
 import android.content.Context;
 import android.content.SharedPreferences;
 import androidx.preference.PreferenceManager;
+import java.util.Random;
 
 /**
  * Runtime character-size preference. Multiplies {@link Pony}'s short-side scale
@@ -28,6 +29,12 @@ final class PonySize {
     private static final int[] ALLOWED = {25, 50, 75, 100, 125, 150};
 
     private PonySize() {}
+
+    /** Uniform pick from the Character size ladder, as a linear multiplier. */
+    static float randomFactor(Random random) {
+        if (random == null) return DEFAULT_PERCENT / 100.0f;
+        return ALLOWED[random.nextInt(ALLOWED.length)] / 100.0f;
+    }
 
     /**
      * Writes the first-run default if the user has never chosen a size.

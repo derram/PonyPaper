@@ -364,6 +364,17 @@ public class Settings extends AppCompatActivity
             });
         }
 
+        Preference sceneMode = findPreference(SceneMode.PREF_KEY);
+        if (sceneMode != null) {
+            sceneMode.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
+                public boolean onPreferenceChange(Preference preference, Object newValue) {
+                    refreshCharacterSizeAvailability(
+                            newValue != null ? newValue.toString() : SceneMode.WANDER);
+                    return true;
+                }
+            });
+        }
+
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         if (prefs.getBoolean(PonySceneController.PREF_DREAM_CUSTOM_DISPLAY, false)) {
             seedDreamDisplayOverridesIfNeeded();
@@ -374,6 +385,25 @@ public class Settings extends AppCompatActivity
         refreshTargetFpsList();
         refreshSharedBackgroundControls();
         refreshDreamIdleSettings();
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        refreshCharacterSizeAvailability(SceneMode.mode(prefs));
+    }
+
+    /**
+     * Character size is unused under My ??? Pony; disable it and explain why.
+     * {@code mode} is the scene-mode value that will apply (may be the pending
+     * preference change before SharedPreferences has stored it).
+     */
+    private void refreshCharacterSizeAvailability(String mode) {
+        ListPreference size = (ListPreference) findPreference(PonySize.PREF_KEY);
+        if (size == null) return;
+        boolean random = SceneMode.MY_QUESTION.equals(mode);
+        size.setEnabled(!random);
+        if (random) {
+            size.setSummary(R.string.pref_pony_size_randomized_summary);
+        } else {
+            size.setSummary("%s");
+        }
     }
 
     void bindPoniesPreferences(PreferenceFragmentCompat fragment) {

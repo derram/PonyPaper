@@ -1574,7 +1574,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             return;
         }
         if (PonySize.PREF_KEY.equals(key)) {
-            if (ponies != null) {
+            // My ??? Pony ignores Character size; keep rolled sizes until herd rebuild.
+            if (ponies != null && !SceneMode.isRandomSize(prefs)) {
                 ponies.setSizeFactor(PonySize.factor(prefs));
             }
             redrawIfActive();

@@ -20,6 +20,8 @@ final class SceneMode {
 
     static final String WANDER = "wander";
     static final String BERRY_PUNCH = "berry_punch";
+    /** Each pony rolls a random size from the Character size ladder on enter. */
+    static final String MY_QUESTION = "my_question";
 
     private SceneMode() {}
 
@@ -64,11 +66,17 @@ final class SceneMode {
             return WANDER;
         }
         if (BERRY_PUNCH.equals(raw)) return BERRY_PUNCH;
+        if (MY_QUESTION.equals(raw)) return MY_QUESTION;
         return WANDER;
     }
 
     /** True when Berry Punch translucent / fade rendering is active. */
     static boolean isBerryPunch(SharedPreferences prefs) {
         return BERRY_PUNCH.equals(mode(prefs));
+    }
+
+    /** True when each pony gets a random Character-size ladder step on enter. */
+    static boolean isRandomSize(SharedPreferences prefs) {
+        return MY_QUESTION.equals(mode(prefs));
     }
 }
