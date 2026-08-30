@@ -8,6 +8,7 @@ import java.awt.FlowLayout;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Image;
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
@@ -41,6 +42,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
+import javax.swing.JViewport;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.SpinnerNumberModel;
@@ -418,7 +420,9 @@ public final class FramePackDialog extends JDialog {
 
         JPanel stripPane = new JPanel(new BorderLayout());
         stripPane.setBorder(BorderFactory.createEmptyBorder(4, 8, 0, 8));
-        stripPane.add(new JLabel("Sheet preview (click a cell to select)"), BorderLayout.NORTH);
+        stripPane.add(new JLabel(
+                "Sheet preview (click a cell to select; Ctrl+scroll zooms)"),
+                BorderLayout.NORTH);
         JScrollPane stripScroll = new JScrollPane(stripPreview);
         stripScroll.setPreferredSize(new Dimension(640, 120));
         stripScroll.getHorizontalScrollBar().setUnitIncrement(16);
@@ -991,14 +995,24 @@ public final class FramePackDialog extends JDialog {
     }
 
     /**
-     * Live packed strip. Click a cell to select that frame. When the sheet
-     * would exceed {@link ImageImport#SHEET_PIXEL_BUDGET}, the bitmap is
-     * deferred and a placeholder is shown instead.
+     * Live packed strip. Click a cell to select that frame. Drawn at a fixed
+     * zoom (readable cell size by default) with scrollbars when the strip is
+     * wider than the viewport — never shrunk to fit dozens of frames into
+     * view. Ctrl+scroll (Meta+scroll on macOS) zooms toward the cursor. When
+     * the sheet would exceed {@link ImageImport#SHEET_PIXEL_BUDGET}, the
+     * bitmap is deferred and a placeholder is shown instead.
      */
     private final class StripPreview extends JComponent {
+        private static final int STRIP_PAD = 4;
+        private static final float MIN_ZOOM = 0.25f;
+        private static final float MAX_ZOOM = 16f;
+
         private BufferedImage sheet;
         private int frameCount = 1;
+        private int cellH = 1;
         private boolean deferred;
+        /** Screen pixels per sheet pixel. */
+        private float zoom = 2f;
 
         StripPreview() {
             setOpaque(true);
@@ -1024,18 +1038,38 @@ public final class FramePackDialog extends JDialog {
                     frameList.ensureIndexIsVisible(index);
                 }
             });
+            addMouseWheelListener(new MouseWheelListener() {
+                @Override
+                public void mouseWheelMoved(MouseWheelEvent e) {
+                    // Ctrl/Meta+wheel zooms; plain wheel must be forwarded so the
+                    // enclosing JScrollPane can still scroll (a wheel listener on
+                    // the view suppresses default scroll-pane delivery).
+                    if (deferred || sheet == null) {
+                        forwardWheelToScrollPane(e);
+                        return;
+                    }
+                    if (e.isControlDown() || e.isMetaDown()) {
+                        int notches = e.getWheelRotation();
+                        if (notches != 0) {
+                            float next = notches < 0
+                                    ? Math.min(MAX_ZOOM, zoom * 1.25f)
+                                    : Math.max(MIN_ZOOM, zoom / 1.25f);
+                            zoomToward(e.getPoint(), next);
+                        }
+                        e.consume();
+                        return;
+                    }
+                    forwardWheelToScrollPane(e);
+                }
+            });
         }
 
         void setDeferred(int frameCount, int cellH) {
             this.sheet = null;
             this.deferred = true;
             this.frameCount = Math.max(1, frameCount);
-            int prefH = Math.min(96, Math.max(48, cellH > 1 ? Math.min(96, cellH * 2) : 64));
-            Dimension next = new Dimension(640, prefH);
-            if (!next.equals(getPreferredSize())) {
-                setPreferredSize(next);
-                revalidate();
-            }
+            this.cellH = Math.max(1, cellH);
+            applyPreferredSize();
             repaint();
         }
 
@@ -1043,36 +1077,138 @@ public final class FramePackDialog extends JDialog {
             this.sheet = sheet;
             this.deferred = false;
             this.frameCount = Math.max(1, frameCount);
-            int prefH = Math.min(96, Math.max(48, cellH * 2));
-            int rawW = sheet != null
-                    ? Math.max(200, sheet.getWidth() * prefH / Math.max(1, sheet.getHeight()))
-                    : 200;
-            // Cap preferred width so a wide-but-under-budget strip does not
-            // force the dialog to pack to tens of thousands of pixels.
-            int prefW = Math.min(rawW, 2048);
-            Dimension next = new Dimension(prefW, prefH);
+            this.cellH = Math.max(1, cellH);
+            // Readable default: roughly 2× cell height, clamped to 48–96 px.
+            float targetH = Math.min(96f, Math.max(48f, this.cellH * 2f));
+            this.zoom = clampZoom(targetH / this.cellH);
+            applyPreferredSize();
+            repaint();
+        }
+
+        private float clampZoom(float z) {
+            if (z < MIN_ZOOM) {
+                return MIN_ZOOM;
+            }
+            if (z > MAX_ZOOM) {
+                return MAX_ZOOM;
+            }
+            return z;
+        }
+
+        private void applyPreferredSize() {
+            Dimension next;
+            if (deferred || sheet == null) {
+                int prefH = Math.min(96, Math.max(48, cellH > 1 ? Math.min(96, cellH * 2) : 64));
+                next = new Dimension(640, prefH);
+            } else {
+                int w = Math.max(200, Math.round(sheet.getWidth() * zoom) + STRIP_PAD * 2);
+                int h = Math.max(48, Math.round(sheet.getHeight() * zoom) + STRIP_PAD * 2);
+                next = new Dimension(w, h);
+            }
             if (!next.equals(getPreferredSize())) {
                 setPreferredSize(next);
                 revalidate();
             }
+        }
+
+        /**
+         * Changes zoom while keeping the sheet pixel under {@code mouseInPreview}
+         * fixed in the enclosing scroll viewport (cursor-centered zoom).
+         */
+        private void zoomToward(Point mouseInPreview, float newZoom) {
+            float z = clampZoom(newZoom);
+            if (Math.abs(z - zoom) < 1e-4f || sheet == null || mouseInPreview == null) {
+                if (Math.abs(z - zoom) >= 1e-4f) {
+                    zoom = z;
+                    applyPreferredSize();
+                    repaint();
+                }
+                return;
+            }
+
+            Rectangle bounds = imageBounds();
+            float srcX;
+            float srcY;
+            if (bounds.width > 0 && bounds.height > 0 && bounds.contains(mouseInPreview)) {
+                srcX = (mouseInPreview.x - bounds.x) * (float) sheet.getWidth() / bounds.width;
+                srcY = (mouseInPreview.y - bounds.y) * (float) sheet.getHeight() / bounds.height;
+            } else {
+                srcX = sheet.getWidth() / 2f;
+                srcY = sheet.getHeight() / 2f;
+            }
+
+            JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(
+                    JScrollPane.class, this);
+            JViewport viewport = scroll != null ? scroll.getViewport() : null;
+            Point mouseInViewport = viewport != null
+                    ? SwingUtilities.convertPoint(this, mouseInPreview, viewport)
+                    : null;
+
+            zoom = z;
+            applyPreferredSize();
+
+            if (viewport == null || mouseInViewport == null) {
+                repaint();
+                return;
+            }
+
+            Dimension pref = getPreferredSize();
+            setSize(pref);
+            viewport.setViewSize(pref);
+
+            Rectangle newBounds = imageBounds();
+            int contentX = newBounds.x
+                    + Math.round(srcX * newBounds.width / (float) sheet.getWidth());
+            int contentY = newBounds.y
+                    + Math.round(srcY * newBounds.height / (float) sheet.getHeight());
+
+            int viewX = contentX - mouseInViewport.x;
+            int viewY = contentY - mouseInViewport.y;
+
+            Dimension extent = viewport.getExtentSize();
+            int maxX = Math.max(0, pref.width - extent.width);
+            int maxY = Math.max(0, pref.height - extent.height);
+            viewX = Math.max(0, Math.min(maxX, viewX));
+            viewY = Math.max(0, Math.min(maxY, viewY));
+
+            viewport.setViewPosition(new Point(viewX, viewY));
             repaint();
+        }
+
+        private void forwardWheelToScrollPane(MouseWheelEvent e) {
+            JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(
+                    JScrollPane.class, this);
+            if (scroll == null) {
+                return;
+            }
+            Point p = SwingUtilities.convertPoint(this, e.getPoint(), scroll);
+            MouseWheelEvent copy = new MouseWheelEvent(
+                    scroll,
+                    e.getID(),
+                    e.getWhen(),
+                    e.getModifiersEx(),
+                    p.x,
+                    p.y,
+                    e.getXOnScreen(),
+                    e.getYOnScreen(),
+                    e.getClickCount(),
+                    e.isPopupTrigger(),
+                    e.getScrollType(),
+                    e.getScrollAmount(),
+                    e.getWheelRotation(),
+                    e.getPreciseWheelRotation());
+            scroll.dispatchEvent(copy);
         }
 
         private Rectangle imageBounds() {
             if (sheet == null) {
                 return new Rectangle(0, 0, 0, 0);
             }
-            int pad = 4;
-            int availW = Math.max(1, getWidth() - pad * 2);
-            int availH = Math.max(1, getHeight() - pad * 2);
-            float scale = Math.min(availW / (float) sheet.getWidth(), availH / (float) sheet.getHeight());
-            // Prefer integer-ish scale when the strip is small; never downscale below 1 if it fits.
-            if (sheet.getWidth() <= availW && sheet.getHeight() <= availH) {
-                scale = Math.max(1f, (float) Math.floor(scale));
-            }
-            int w = Math.max(1, Math.round(sheet.getWidth() * scale));
-            int h = Math.max(1, Math.round(sheet.getHeight() * scale));
-            return new Rectangle((getWidth() - w) / 2, (getHeight() - h) / 2, w, h);
+            int w = Math.max(1, Math.round(sheet.getWidth() * zoom));
+            int h = Math.max(1, Math.round(sheet.getHeight() * zoom));
+            int x = Math.max(STRIP_PAD, (getWidth() - w) / 2);
+            int y = Math.max(STRIP_PAD, (getHeight() - h) / 2);
+            return new Rectangle(x, y, w, h);
         }
 
         @Override
