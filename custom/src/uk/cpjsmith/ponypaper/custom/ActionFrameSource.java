@@ -1,7 +1,10 @@
 package uk.cpjsmith.ponypaper.custom;
 
+import java.awt.AlphaComposite;
+import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.Rectangle;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Base64;
@@ -34,6 +37,14 @@ public final class ActionFrameSource {
     public final boolean loops;
     public final float speed;
     public final String specialType;
+
+    /**
+     * Lazily isolated cell rasters. On-screen (VolatileImage) scaled blits from a
+     * wide parent strip silently draw nothing once source X crosses ~11k; painting
+     * from these copies keeps source coords small. Same idea as
+     * {@link SpriteSheetPreview}'s place-mode isolation.
+     */
+    private BufferedImage[] isolatedFrames;
 
     private ActionFrameSource(
             String actionName,
@@ -142,6 +153,46 @@ public final class ActionFrameSource {
     }
 
     /**
+     * Single-cell copy of {@code frameIndex} for safe on-screen blits. Prefer this
+     * over {@link #sourceRect} + scaled {@code drawImage} from {@link #image} when
+     * painting to a Swing component / VolatileImage.
+     */
+    public BufferedImage frameImage(int frameIndex) {
+        int fi = Math.max(0, Math.min(frameCount - 1, frameIndex));
+        if (isolatedFrames == null) {
+            isolatedFrames = new BufferedImage[frameCount];
+        }
+        if (isolatedFrames[fi] != null) {
+            return isolatedFrames[fi];
+        }
+        Rectangle srcR = sourceRect(fi);
+        BufferedImage copy = new BufferedImage(frameWidth, frameHeight, BufferedImage.TYPE_INT_ARGB);
+        if (srcR.width > 0 && frameHeight > 0) {
+            Graphics2D g = copy.createGraphics();
+            try {
+                // Src (not SrcOver): keep fully transparent padding when the last
+                // cell is narrower than frameWidth.
+                g.setComposite(AlphaComposite.Src);
+                g.drawImage(
+                        image,
+                        0,
+                        0,
+                        srcR.width,
+                        frameHeight,
+                        srcR.x,
+                        0,
+                        srcR.x + srcR.width,
+                        frameHeight,
+                        null);
+            } finally {
+                g.dispose();
+            }
+        }
+        isolatedFrames[fi] = copy;
+        return copy;
+    }
+
+    /**
      * Destination rectangle with feet at {@code (feetX, feetY)} and the given
      * scale — same placement model as {@code PonyAction#getDrawBounds}.
      */
@@ -153,6 +204,35 @@ public final class ActionFrameSource {
         int x = Math.round(feetX - ax);
         int y = Math.round(feetY - ay);
         return new Rectangle(x, y, Math.round(dW), Math.round(dH));
+    }
+
+    /**
+     * Test / tool helper: wrap an already-decoded strip. {@code frameTimesCs}
+     * length is the frame count (same rule as XML timings).
+     */
+    static ActionFrameSource fromImage(
+            Image image,
+            int[] frameTimesCs,
+            float explicitAnchorX,
+            float explicitAnchorY) {
+        if (image == null) {
+            throw new IllegalArgumentException("image");
+        }
+        int[] times = frameTimesCs != null && frameTimesCs.length > 0
+                ? frameTimesCs.clone()
+                : new int[] { 100 };
+        return new ActionFrameSource(
+                "test",
+                0,
+                "left",
+                image,
+                times.length,
+                times,
+                explicitAnchorX,
+                explicitAnchorY,
+                false,
+                1f,
+                "");
     }
 
     /**

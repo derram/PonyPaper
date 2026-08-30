@@ -18,6 +18,7 @@ import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -934,21 +935,24 @@ public final class TransitionPreviewDialog extends JDialog {
                 float feetY,
                 float scale,
                 float alpha) {
-            Rectangle srcR = src.sourceRect(frameIndex);
+            // Blit from an isolated cell, not the parent strip: VolatileImage scaled
+            // drawImage silently no-ops once sheet source X is past ~11k (long
+            // drama/fashion sheets), which made mid-action previews vanish.
+            BufferedImage frame = src.frameImage(frameIndex);
             Rectangle dst = src.destinationRect(feetX, feetY, scale);
             if (alpha < 1f) {
                 g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
             }
             g2.drawImage(
-                    src.image,
+                    frame,
                     dst.x,
                     dst.y,
                     dst.x + dst.width,
                     dst.y + dst.height,
-                    srcR.x,
-                    srcR.y,
-                    srcR.x + srcR.width,
-                    srcR.y + srcR.height,
+                    0,
+                    0,
+                    src.frameWidth,
+                    src.frameHeight,
                     null);
             if (alpha < 1f) {
                 g2.setComposite(AlphaComposite.SrcOver);
