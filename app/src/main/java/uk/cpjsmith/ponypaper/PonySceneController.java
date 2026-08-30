@@ -93,10 +93,18 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /** Fill/sprite alpha after the Berry Punch fade. */
     private static final int DRUNK_FILL_ALPHA = 0x33;
     /**
-     * Cap while every on-screen pony is idle. Sprite timings are centiseconds,
-     * so 15 FPS still catches frame changes; moving ponies keep {@link #targetFps}.
+     * Idle redraw floor on a software canvas. Sprite timings are centiseconds;
+     * 15 FPS still catches most frame changes. Moving ponies keep
+     * {@link #targetFps}.
      */
-    private static final int IDLE_MAX_FPS = 15;
+    private static final int IDLE_MAX_FPS_SOFTWARE = 15;
+    /**
+     * Idle redraw floor on the hardware-canvas path. Matches the historical
+     * 25 FPS default and {@link #BATTERY_SAVER_MAX_FPS}; HW composition is
+     * cheap enough to keep idle stand animations smoother than the software
+     * floor.
+     */
+    private static final int IDLE_MAX_FPS_HARDWARE = 25;
     /** Maximum FPS while system Battery Saver is active. */
     private static final int BATTERY_SAVER_MAX_FPS = 25;
     /** Maximum on-screen ponies while system Battery Saver is active. */
@@ -1809,12 +1817,22 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private int currentSchedulePeriodMs() {
         int period = framePeriodMs;
         if (ponies != null && ponies.allIdle()) {
-            int idlePeriod = Math.max(1, 1000 / IDLE_MAX_FPS);
+            int idlePeriod = Math.max(1, 1000 / idleMaxFps());
             if (idlePeriod > period) {
                 period = idlePeriod;
             }
         }
         return period;
+    }
+
+    /**
+     * Idle redraw floor for the path the next frame will attempt: hardware
+     * when {@link #wantsHardwareCanvasUpload()} is true, otherwise software.
+     */
+    private int idleMaxFps() {
+        return wantsHardwareCanvasUpload()
+                ? IDLE_MAX_FPS_HARDWARE
+                : IDLE_MAX_FPS_SOFTWARE;
     }
 
     /**
