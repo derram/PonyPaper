@@ -418,6 +418,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         PonySize.ensureDefault(appContext);
         TargetFps.ensureDefault(appContext);
         ensureIdleTimeoutDefault(appContext);
+        SceneMode.migrate(appContext);
         getPreferences().registerOnSharedPreferenceChangeListener(this);
         powerSaveMode = isSystemPowerSaveMode();
         onBattery = isOnBattery(null);
@@ -543,7 +544,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         final SharedPreferences prefs = getPreferences();
         applyTargetFps(prefs);
-        drunkMode = prefs.getBoolean("pref_drunk_mode", false);
+        drunkMode = SceneMode.isBerryPunch(prefs);
         applyBackgroundColour(prefs, true);
 
         final int ponyCount = getEffectivePonyCount(prefs);

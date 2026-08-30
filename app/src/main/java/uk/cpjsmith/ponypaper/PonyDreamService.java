@@ -250,6 +250,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         PonySize.ensureDefault(this);
         TargetFps.ensureDefault(this);
         PonySceneController.ensureIdleTimeoutDefault(this);
+        SceneMode.migrate(this);
         PrefDefaults.apply(this);
         PonySceneController.syncIdleTimeoutWithCapability(this);
 

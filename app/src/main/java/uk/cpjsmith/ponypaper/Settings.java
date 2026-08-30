@@ -207,6 +207,7 @@ public class Settings extends AppCompatActivity
         PonySize.ensureDefault(this);
         TargetFps.ensureDefault(this);
         PonySceneController.ensureIdleTimeoutDefault(this);
+        SceneMode.migrate(this);
         PrefDefaults.apply(this);
 
         PreferenceManager.getDefaultSharedPreferences(this)

@@ -54,9 +54,19 @@
             custom:maxValue="24"
             custom:wrap="false"
             android:defaultValue="4" />
-        <CheckBoxPreference
-            android:key="pref_drunk_mode"
-            android:title="Berry Punch mode" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="pref_scene_mode_category"
+        android:title="@string/pref_scene_mode_category">
+        <ListPreference
+            android:key="pref_scene_mode"
+            android:title="@string/pref_scene_mode_title"
+            android:summary="%s"
+            android:dialogTitle="@string/pref_scene_mode_dialog"
+            android:entries="@array/pref_scene_mode_entries"
+            android:entryValues="@array/pref_scene_mode_values"
+            android:defaultValue="wander" />
     </PreferenceCategory>
 
     <PreferenceCategory

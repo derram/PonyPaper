@@ -64,6 +64,11 @@
     <string name="pref_debug_render_path_hardware">Force hardware canvas</string>
     <string name="pref_debug_render_path_software">Force software canvas</string>
     <string name="pref_appearance_category">Appearance</string>
+    <string name="pref_scene_mode_category">Scene mode</string>
+    <string name="pref_scene_mode_title">Scene mode</string>
+    <string name="pref_scene_mode_dialog">Scene mode</string>
+    <string name="pref_scene_mode_wander">World wander mode</string>
+    <string name="pref_scene_mode_berry_punch">Berry Punch mode</string>
     <string name="pref_select_background_summary">Same image for the live wallpaper and screen saver</string>
     <string name="pref_background_colour_title">Base colour</string>
     <string name="pref_background_colour_summary">Colour shown behind ponies, and while the wallpaper is reloading</string>

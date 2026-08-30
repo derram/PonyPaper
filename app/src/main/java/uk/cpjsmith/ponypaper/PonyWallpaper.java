@@ -165,6 +165,7 @@ public class PonyWallpaper extends WallpaperService {
         PonySize.ensureDefault(this);
         TargetFps.ensureDefault(this);
         PonySceneController.ensureIdleTimeoutDefault(this);
+        SceneMode.migrate(this);
         PrefDefaults.apply(this);
         return new PonyEngine();
     }
