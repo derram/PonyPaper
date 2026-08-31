@@ -47,6 +47,7 @@ public class Ponies implements Pony.EffectHost {
     private final Rect spriteDst = new Rect();
     private final RectF effectPonyBounds = new RectF();
     private final float[] effectOrigin = new float[2];
+    private final float[] effectTravel = new float[2];
     private final int[] effectPlaceScratch = new int[1];
     /** Live effect sprites (not pony herd slots). */
     private final ArrayList<EffectInstance> effectInstances = new ArrayList<EffectInstance>();
@@ -419,8 +420,10 @@ public class Ponies implements Pony.EffectHost {
             return;
         }
         int facing = pony.getDirection();
+        pony.fillTravelVector(effectTravel);
         def.computeOrigin(effectPonyBounds, facing, pony.getScale(),
-                pony.effectRandom(), effectOrigin, effectPlaceScratch);
+                pony.effectRandom(), effectOrigin, effectPlaceScratch,
+                effectTravel[0], effectTravel[1]);
         effectInstances.add(new EffectInstance(def, pony, facing, effectPlaceScratch[0],
                 effectOrigin[0], effectOrigin[1]));
         invalidateVisualStamp();

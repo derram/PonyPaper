@@ -45,6 +45,7 @@ public final class PonyEditorEffectTest {
         editor.setEffectAction(i, "stand");
         editor.setEffectDuration(i, 2.5f);
         editor.setEffectFollow(i, true);
+        editor.setEffectPlacementMode(i, "motion");
         editor.setEffectPlacement(i, "right", "Top");
         if (editor.getEffectCount() != 1) {
             throw new AssertionError("expected 1 effect");
@@ -55,6 +56,9 @@ public final class PonyEditorEffectTest {
         }
         if (!"stand".equals(editor.getEffectAction(0)) || !editor.getEffectFollow(0)) {
             throw new AssertionError("fields not preserved");
+        }
+        if (!"motion".equals(editor.getEffectPlacementMode(0))) {
+            throw new AssertionError("placementMode not preserved");
         }
     }
 

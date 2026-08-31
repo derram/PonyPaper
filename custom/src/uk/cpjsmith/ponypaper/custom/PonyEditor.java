@@ -10,6 +10,7 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 import org.w3c.dom.Document;
 import org.xml.sax.SAXException;
+import uk.cpjsmith.ponypaper.EffectPlacement;
 import uk.cpjsmith.ponypaper.PonyDefinition;
 
 /**
@@ -1166,6 +1167,16 @@ public class PonyEditor {
     public void setEffectNoLoop(int index, boolean noLoop) {
         checkEffectIndex(index);
         ponyDefinition.effects[index].noLoop = noLoop;
+    }
+
+    public String getEffectPlacementMode(int index) {
+        checkEffectIndex(index);
+        return EffectPlacement.normalizeMode(ponyDefinition.effects[index].placementMode);
+    }
+
+    public void setEffectPlacementMode(int index, String mode) {
+        checkEffectIndex(index);
+        ponyDefinition.effects[index].placementMode = EffectPlacement.normalizeMode(mode);
     }
 
     public String getEffectPlacement(int index, String direction) {

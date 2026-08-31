@@ -2,6 +2,7 @@ package uk.cpjsmith.ponypaper.custom;
 
 import java.awt.Rectangle;
 import java.util.Random;
+import uk.cpjsmith.ponypaper.EffectPlacement;
 import uk.cpjsmith.ponypaper.PonyDefinition;
 
 /**
@@ -158,7 +159,7 @@ public final class EffectPlacementMath {
      * Computes attach point and effect top-left from pony draw bounds and
      * effect size (already scaled). When placement is Any / Any-Not_Center,
      * {@code resolvedPlacementOverride} must be a concrete cell {@code 0..8}
-     * (preview resolves once and reuses / re-rolls).
+     * (preview resolves once and reuses / re-rolls). Bounds mode (default).
      */
     public static Origin computeOrigin(
             Rectangle ponyBounds,
@@ -167,6 +168,31 @@ public final class EffectPlacementMath {
             String placementToken,
             String centeringToken,
             int resolvedPlacementOverride) {
+        return computeOrigin(ponyBounds, effectW, effectH, placementToken, centeringToken,
+                resolvedPlacementOverride, false, 0f, 0f, EffectPlacement.FACING_RIGHT);
+    }
+
+    /**
+     * Same as the bounds {@link #computeOrigin} overload, with optional
+     * motion-relative remapping of the placement cell.
+     *
+     * @param motionMode when true, rotate the cell with travel (see
+     *                   {@link EffectPlacement#remapCellForMotion})
+     * @param travelX    screen-space travel (+right)
+     * @param travelY    screen-space travel (+down)
+     * @param facing     {@link EffectPlacement#FACING_LEFT} or {@link EffectPlacement#FACING_RIGHT}
+     */
+    public static Origin computeOrigin(
+            Rectangle ponyBounds,
+            float effectW,
+            float effectH,
+            String placementToken,
+            String centeringToken,
+            int resolvedPlacementOverride,
+            boolean motionMode,
+            float travelX,
+            float travelY,
+            int facing) {
         if (ponyBounds == null) {
             throw new IllegalArgumentException("ponyBounds");
         }
@@ -184,7 +210,9 @@ public final class EffectPlacementMath {
         if (center < 0 || center > 8) {
             center = CELL_CENTER;
         }
-        float[] p = cellWeights(place);
+        int attachCell = EffectPlacement.maybeRemapCell(
+                motionMode, place, travelX, travelY, facing);
+        float[] p = cellWeights(attachCell);
         float[] c = cellWeights(center);
         float attachX = ponyBounds.x + ponyBounds.width * p[0];
         float attachY = ponyBounds.y + ponyBounds.height * p[1];
@@ -203,12 +231,29 @@ public final class EffectPlacementMath {
             String placementToken,
             String centeringToken,
             Random random) {
+        return computeOrigin(ponyBounds, effectW, effectH, placementToken, centeringToken,
+                random, false, 0f, 0f, EffectPlacement.FACING_RIGHT);
+    }
+
+    /** Random-Any overload with motion remapping. */
+    public static Origin computeOrigin(
+            Rectangle ponyBounds,
+            float effectW,
+            float effectH,
+            String placementToken,
+            String centeringToken,
+            Random random,
+            boolean motionMode,
+            float travelX,
+            float travelY,
+            int facing) {
         int place = cellIndex(placementToken);
         int resolved = place;
         if (place == CELL_ANY || place == CELL_ANY_NOT_CENTER) {
             resolved = pickRandomCell(place, random);
         }
         return computeOrigin(
-                ponyBounds, effectW, effectH, placementToken, centeringToken, resolved);
+                ponyBounds, effectW, effectH, placementToken, centeringToken, resolved,
+                motionMode, travelX, travelY, facing);
     }
 }

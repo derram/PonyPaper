@@ -34,6 +34,8 @@ final class PonyEffectDef {
     final float repeatDelayMs;
     final boolean follow;
     final boolean noLoop;
+    /** When true, rotate placement cells with travel (see {@link EffectPlacement}). */
+    final boolean motionPlacement;
 
     private final int placementLeft;
     private final int placementRight;
@@ -59,6 +61,7 @@ final class PonyEffectDef {
         this.repeatDelayMs = Math.max(0f, def.repeatDelay) * 1000f;
         this.follow = def.follow;
         this.noLoop = def.noLoop;
+        this.motionPlacement = EffectPlacement.isMotionMode(def.placementMode);
         this.placementLeft = cellIndex(def.placement.get("left"));
         this.placementRight = cellIndex(def.placement.get("right"));
         this.centeringLeft = cellIndex(def.centering.get("left"));
@@ -153,9 +156,13 @@ final class PonyEffectDef {
     /**
      * Writes the effect's top-left destination origin into {@code outPos} (x,y)
      * given the pony's current draw bounds and facing.
+     * {@code resolvedPlacementOut} receives the authored cell after Any is
+     * resolved (before motion remapping) so follow instances can re-apply
+     * travel rotation each frame.
      */
     void computeOrigin(RectF ponyBounds, int facing, float effectScale,
-            Random random, float[] outPos, int[] resolvedPlacementOut) {
+            Random random, float[] outPos, int[] resolvedPlacementOut,
+            float travelX, float travelY) {
         int place = facing == PonyAction.LEFT ? placementLeft : placementRight;
         int center = facing == PonyAction.LEFT ? centeringLeft : centeringRight;
         if (place == CELL_ANY || place == CELL_ANY_NOT_CENTER) {
@@ -164,26 +171,30 @@ final class PonyEffectDef {
         if (resolvedPlacementOut != null && resolvedPlacementOut.length > 0) {
             resolvedPlacementOut[0] = place;
         }
-        SpriteSheet sheet = sheet(facing);
-        float effectW = sheet != null ? sheet.frameWidth * effectScale : 0f;
-        float effectH = sheet != null ? sheet.frameHeight * effectScale : 0f;
-        float[] p = cellWeights(place);
-        float[] c = cellWeights(center);
-        float attachX = ponyBounds.left + ponyBounds.width() * p[0];
-        float attachY = ponyBounds.top + ponyBounds.height() * p[1];
-        outPos[0] = attachX - effectW * c[0];
-        outPos[1] = attachY - effectH * c[1];
+        int attachCell = EffectPlacement.maybeRemapCell(
+                motionPlacement, place, travelX, travelY, facing);
+        writeOrigin(ponyBounds, facing, effectScale, attachCell, center, outPos);
     }
 
-    /** Recompute origin using a previously resolved placement cell (not Any). */
+    /**
+     * Recompute origin using a previously resolved placement cell (not Any),
+     * re-applying motion remapping with the current travel vector.
+     */
     void computeOriginFixed(RectF ponyBounds, int facing, float effectScale,
-            int resolvedPlacement, float[] outPos) {
+            int resolvedPlacement, float[] outPos, float travelX, float travelY) {
         int center = facing == PonyAction.LEFT ? centeringLeft : centeringRight;
+        int attachCell = EffectPlacement.maybeRemapCell(
+                motionPlacement, resolvedPlacement, travelX, travelY, facing);
+        writeOrigin(ponyBounds, facing, effectScale, attachCell, center, outPos);
+    }
+
+    private void writeOrigin(RectF ponyBounds, int facing, float effectScale,
+            int placeCell, int centerCell, float[] outPos) {
         SpriteSheet sheet = sheet(facing);
         float effectW = sheet != null ? sheet.frameWidth * effectScale : 0f;
         float effectH = sheet != null ? sheet.frameHeight * effectScale : 0f;
-        float[] p = cellWeights(resolvedPlacement);
-        float[] c = cellWeights(center);
+        float[] p = cellWeights(placeCell);
+        float[] c = cellWeights(centerCell);
         float attachX = ponyBounds.left + ponyBounds.width() * p[0];
         float attachY = ponyBounds.top + ponyBounds.height() * p[1];
         outPos[0] = attachX - effectW * c[0];

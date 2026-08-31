@@ -863,6 +863,12 @@ public class PonyDefinition {
          */
         public boolean noLoop;
         /**
+         * How placement cells attach: {@link EffectPlacement#MODE_BOUNDS}
+         * (default, Desktop Ponies AABB) or {@link EffectPlacement#MODE_MOTION}
+         * (rotate side cells with travel so diagonals stay in the wake).
+         */
+        public String placementMode;
+        /**
          * Placement on the pony image per facing ({@code left}/{@code right}).
          * Values are canonical tokens from {@link #PLACEMENT_TOKENS}.
          */
@@ -881,6 +887,7 @@ public class PonyDefinition {
             repeatDelay = 0.0f;
             follow = false;
             noLoop = false;
+            placementMode = EffectPlacement.MODE_BOUNDS;
             placement.put("left", "Center");
             placement.put("right", "Center");
             centering.put("left", "Center");
@@ -904,6 +911,7 @@ public class PonyDefinition {
             Float parsedRepeat = null;
             Boolean parsedFollow = null;
             Boolean parsedNoLoop = null;
+            String parsedPlacementMode = null;
 
             for (Node node = element.getFirstChild(); node != null; node = node.getNextSibling()) {
                 switch (node.getNodeType()) {
@@ -924,6 +932,9 @@ public class PonyDefinition {
                         } else if (nodeName.equals("noloop")) {
                             parsedNoLoop = addBoolean((Element)node, "noloop",
                                     parsedNoLoop, errors);
+                        } else if (nodeName.equals("placementmode")) {
+                            parsedPlacementMode = addPlacementMode((Element)node,
+                                    parsedPlacementMode, errors);
                         } else if (nodeName.equals("placement")) {
                             addDirectedToken((Element)node, "placement", placement, errors);
                         } else if (nodeName.equals("centering")) {
@@ -964,6 +975,8 @@ public class PonyDefinition {
             repeatDelay = parsedRepeat != null ? parsedRepeat.floatValue() : 0.0f;
             follow = parsedFollow != null ? parsedFollow.booleanValue() : false;
             noLoop = parsedNoLoop != null ? parsedNoLoop.booleanValue() : false;
+            placementMode = parsedPlacementMode != null
+                    ? parsedPlacementMode : EffectPlacement.MODE_BOUNDS;
 
             if (!placement.containsKey("left")) {
                 placement.put("left", "Center");
@@ -1055,6 +1068,25 @@ public class PonyDefinition {
             }
             errors.add("<" + tag + "> must be true or false.");
             return null;
+        }
+
+        private String addPlacementMode(Element element, String existing, List<String> errors) {
+            if (existing != null) {
+                errors.add("Too many <placementmode> elements.");
+                return existing;
+            }
+            String text = getContent(element, errors);
+            if (text == null) {
+                return null;
+            }
+            String canon = EffectPlacement.normalizeMode(text);
+            String trimmed = text.replaceAll("\\s+", "").toLowerCase();
+            if (!trimmed.equals(EffectPlacement.MODE_BOUNDS)
+                    && !trimmed.equals(EffectPlacement.MODE_MOTION)) {
+                errors.add("<placementmode> must be bounds or motion.");
+                return null;
+            }
+            return canon;
         }
 
         private void addDirectedToken(Element element, String tag,
@@ -1528,6 +1560,8 @@ public class PonyDefinition {
                         + (int)MAX_EFFECT_SECONDS + ".");
             }
 
+            effect.placementMode = EffectPlacement.normalizeMode(effect.placementMode);
+
             validateEffectFacing(effect, "left", label, errors);
             validateEffectFacing(effect, "right", label, errors);
         }
@@ -1922,6 +1956,9 @@ public class PonyDefinition {
         }
         if (effect.noLoop) {
             writer.println("        <noloop>true</noloop>");
+        }
+        if (EffectPlacement.isMotionMode(effect.placementMode)) {
+            writer.println("        <placementmode>motion</placementmode>");
         }
 
         writeDirectedToken(writer, "placement", "right", effect.placement.get("right"));

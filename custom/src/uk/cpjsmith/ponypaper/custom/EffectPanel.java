@@ -36,6 +36,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileFilter;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import uk.cpjsmith.ponypaper.EffectPlacement;
 import uk.cpjsmith.ponypaper.PonyDefinition;
 
 /**
@@ -60,6 +61,7 @@ final class EffectPanel extends JPanel {
     private final JTextField repeatField = new JTextField();
     private final JCheckBox followCheck = new JCheckBox("Follow pony");
     private final JCheckBox noLoopCheck = new JCheckBox("Prevent animation loop");
+    private final JCheckBox motionPlacementCheck = new JCheckBox("Motion-relative placement");
     private final JComboBox<String> placementRight = new JComboBox<String>(placementTokens());
     private final JComboBox<String> centeringRight = new JComboBox<String>(centeringTokens());
     private final JComboBox<String> placementLeft = new JComboBox<String>(placementTokens());
@@ -119,6 +121,9 @@ final class EffectPanel extends JPanel {
 
         followCheck.setToolTipText("When checked, the effect stays glued to the pony; otherwise it is planted.");
         noLoopCheck.setToolTipText("Play the effect sheet once even if the image would loop.");
+        motionPlacementCheck.setToolTipText(
+                "Rotate Left/Right/Top/Bottom attach points with travel so diagonal "
+                        + "movers keep trails in their wake. Off = Desktop Ponies bounds attach.");
         followCheck.addItemListener(new ItemListener() {
             @Override
             public void itemStateChanged(ItemEvent e) {
@@ -139,6 +144,19 @@ final class EffectPanel extends JPanel {
                 host.markDirty();
             }
         });
+        motionPlacementCheck.addItemListener(new ItemListener() {
+            @Override
+            public void itemStateChanged(ItemEvent e) {
+                if (suppressListeners || currentIndex < 0) {
+                    return;
+                }
+                host.editor().setEffectPlacementMode(currentIndex,
+                        motionPlacementCheck.isSelected()
+                                ? EffectPlacement.MODE_MOTION
+                                : EffectPlacement.MODE_BOUNDS);
+                host.markDirty();
+            }
+        });
         GridBagConstraints c = constraints(0, row);
         c.gridwidth = 2;
         c.anchor = GridBagConstraints.WEST;
@@ -148,6 +166,11 @@ final class EffectPanel extends JPanel {
         c.gridwidth = 2;
         c.anchor = GridBagConstraints.WEST;
         form.add(noLoopCheck, c);
+        row++;
+        c = constraints(0, row);
+        c.gridwidth = 2;
+        c.anchor = GridBagConstraints.WEST;
+        form.add(motionPlacementCheck, c);
         row++;
 
         row = addCombo(form, row, "Placement right:", placementRight,
@@ -204,6 +227,7 @@ final class EffectPanel extends JPanel {
                 repeatField.setText("");
                 followCheck.setSelected(false);
                 noLoopCheck.setSelected(false);
+                motionPlacementCheck.setSelected(false);
                 placementRight.setSelectedItem("Center");
                 centeringRight.setSelectedItem("Center");
                 placementLeft.setSelectedItem("Center");
@@ -220,6 +244,8 @@ final class EffectPanel extends JPanel {
             repeatField.setText(formatFloat(editor.getEffectRepeatDelay(index)));
             followCheck.setSelected(editor.getEffectFollow(index));
             noLoopCheck.setSelected(editor.getEffectNoLoop(index));
+            motionPlacementCheck.setSelected(EffectPlacement.isMotionMode(
+                    editor.getEffectPlacementMode(index)));
             placementRight.setSelectedItem(editor.getEffectPlacement(index, "right"));
             centeringRight.setSelectedItem(editor.getEffectCentering(index, "right"));
             placementLeft.setSelectedItem(editor.getEffectPlacement(index, "left"));
@@ -239,6 +265,7 @@ final class EffectPanel extends JPanel {
         repeatField.setEnabled(enabled);
         followCheck.setEnabled(enabled);
         noLoopCheck.setEnabled(enabled);
+        motionPlacementCheck.setEnabled(enabled);
         placementRight.setEnabled(enabled);
         centeringRight.setEnabled(enabled);
         placementLeft.setEnabled(enabled);

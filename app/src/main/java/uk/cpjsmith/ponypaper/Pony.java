@@ -71,6 +71,13 @@ public class Pony {
      * {@link PonyAction#getAnchorX} / {@link PonyAction#getAnchorY}).
      */
     private float posY;
+    /**
+     * Last travel step while {@link #MOTION_MOVING} (screen pixels; +x right,
+     * +y down). Zero when idle / dragged / special. Used by motion-relative
+     * effect placement.
+     */
+    private float travelX;
+    private float travelY;
     private int direction;
     /** Animation clock in centiseconds (same unit as sprite frame timings). */
     private float frameTime = 0;
@@ -128,6 +135,18 @@ public class Pony {
 
     int getDirection() {
         return direction;
+    }
+
+    /**
+     * Writes the current travel vector into {@code out} as {@code [dx, dy]}.
+     * Zero when not interpolating toward a target.
+     */
+    void fillTravelVector(float[] out) {
+        if (out == null || out.length < 2) {
+            return;
+        }
+        out[0] = travelX;
+        out[1] = travelY;
     }
 
     float getScale() {
@@ -197,6 +216,8 @@ public class Pony {
         currentAction = null;
         posX = 0;
         posY = 0;
+        travelX = 0;
+        travelY = 0;
         frameTime = 0;
         if (effectHost != null) {
             effectHost.onPonyEffectsCleared(this);
@@ -552,6 +573,8 @@ public class Pony {
         if (setDragged()) {
             motion = MOTION_DRAGGED;
             targetPos = null;
+            travelX = 0;
+            travelY = 0;
             leavingMode = LM_NORMAL;
         }
     }
@@ -654,6 +677,8 @@ public class Pony {
             if (!forceLeave && !SceneExit.shouldLeaveScene(random)) {
                 return false;
             }
+            travelX = 0;
+            travelY = 0;
             changeAction(next);
             motion = MOTION_SPECIAL;
             leavingMode = LM_GOING;
@@ -662,15 +687,26 @@ public class Pony {
         }
         if (next.type == PonyAction.SCREEN_IN) {
             // Appear-in-place is not travel; play here then idle.
+            travelX = 0;
+            travelY = 0;
             changeAction(next);
             motion = MOTION_SPECIAL;
             return true;
         }
-        changeAction(next);
+        // Seed motion/target before changeAction so effect spawn sees travel.
         motion = next.type == PonyAction.NORMAL ? MOTION_MOVING : MOTION_SPECIAL;
         if (alwaysNewTarget || targetPos == null) {
             setRandomTarget();
         }
+        if (motion == MOTION_MOVING && targetPos != null) {
+            travelX = targetPos.x - posX;
+            travelY = targetPos.y - posY;
+            setDirection(targetPos);
+        } else {
+            travelX = 0;
+            travelY = 0;
+        }
+        changeAction(next);
         return true;
     }
 
@@ -696,6 +732,8 @@ public class Pony {
     private void beginWaitingInPlace() {
         motion = MOTION_WAITING;
         targetPos = null;
+        travelX = 0;
+        travelY = 0;
         waitTimerMs = WAIT_MIN_MS + random.nextInt(WAIT_EXTRA_MS);
         setWaiting();
     }
@@ -768,6 +806,8 @@ public class Pony {
     private void arriveTarget() {
         motion = MOTION_WAITING;
         targetPos = null;
+        travelX = 0;
+        travelY = 0;
         waitTimerMs = WAIT_MIN_MS + random.nextInt(WAIT_EXTRA_MS);
         if (leavingMode == LM_GOING) leavingMode = LM_GONE;
     }
@@ -800,6 +840,8 @@ public class Pony {
         float dY = targetPos.y - posY;
         float dist = (float)Math.sqrt(dX * dX + dY * dY);
         if (dist == 0 || speed >= dist) {
+            travelX = dX;
+            travelY = dY;
             posX = targetPos.x;
             posY = targetPos.y;
             // Leaving the scene always completes exit bookkeeping.
@@ -819,8 +861,10 @@ public class Pony {
             arriveTarget();
         } else {
             float f = speed / dist;
-            posX += dX * f;
-            posY += dY * f;
+            travelX = dX * f;
+            travelY = dY * f;
+            posX += travelX;
+            posY += travelY;
         }
     }
     

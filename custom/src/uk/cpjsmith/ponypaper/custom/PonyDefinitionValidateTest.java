@@ -341,6 +341,7 @@ public final class PonyDefinitionValidateTest {
         PonyDefinition.Effect e = effect("Hurdle", "trot", false);
         e.duration = 0.6f;
         e.repeatDelay = 1.32f;
+        e.placementMode = "motion";
         e.placement.put("right", "Right");
         e.centering.put("right", "Top_Left");
         e.placement.put("left", "Left");
@@ -355,7 +356,8 @@ public final class PonyDefinitionValidateTest {
         java.io.StringWriter sw = new java.io.StringWriter();
         def.writeDefinition(new java.io.PrintWriter(sw));
         String xml = sw.toString();
-        if (!xml.contains("<effect name=\"Hurdle\">") || !xml.contains("<repeatdelay>1.32</repeatdelay>")) {
+        if (!xml.contains("<effect name=\"Hurdle\">") || !xml.contains("<repeatdelay>1.32</repeatdelay>")
+                || !xml.contains("<placementmode>motion</placementmode>")) {
             throw new AssertionError("writeDefinition missing effect fields: " + xml);
         }
 
@@ -373,6 +375,9 @@ public final class PonyDefinitionValidateTest {
         }
         if (Math.abs(got.duration - 0.6f) > 0.001f || Math.abs(got.repeatDelay - 1.32f) > 0.001f) {
             throw new AssertionError("effect timing mismatch");
+        }
+        if (!"motion".equals(got.placementMode)) {
+            throw new AssertionError("effect placementMode mismatch");
         }
         if (!"Right".equals(got.placement.get("right")) || !"Top_Left".equals(got.centering.get("right"))) {
             throw new AssertionError("effect placement mismatch");

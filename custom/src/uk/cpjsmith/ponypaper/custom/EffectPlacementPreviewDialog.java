@@ -41,13 +41,15 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
+import uk.cpjsmith.ponypaper.EffectPlacement;
 import uk.cpjsmith.ponypaper.PonyDefinition;
 
 /**
  * Modal dialog: composite preview of an effect on its trigger action with
  * editable placement/centering (per facing). Mirrors
  * {@link TransitionPreviewDialog}'s stage/playback and {@link AnchorPickerDialog}'s
- * Apply write-back.
+ * Apply write-back. Includes a travel-direction scrub so motion-relative
+ * placement can be checked on diagonals.
  */
 public final class EffectPlacementPreviewDialog extends JDialog {
 
@@ -60,6 +62,18 @@ public final class EffectPlacementPreviewDialog extends JDialog {
     private static final Color CENTER_RING = new Color(0xFF, 0x99, 0x33, 0xEE);
     private static final Color CENTER_CORE = new Color(0xFF, 0x99, 0x33, 0x99);
     private static final Color BOUNDS_STROKE = new Color(0xAA, 0xAA, 0xAA, 0x88);
+
+    /** Preview travel presets: label plus unit vector (screen +x right, +y down). */
+    private static final String[] TRAVEL_LABELS = {
+        "Idle",
+        "Right", "Up-Right", "Up", "Up-Left",
+        "Left", "Down-Left", "Down", "Down-Right"
+    };
+    private static final float[][] TRAVEL_VECTORS = {
+        { 0f, 0f },
+        { 1f, 0f }, { 1f, -1f }, { 0f, -1f }, { -1f, -1f },
+        { -1f, 0f }, { -1f, 1f }, { 0f, 1f }, { 1f, 1f }
+    };
 
     /**
      * Placement/centering tokens to commit for both facings when the user applies.
@@ -85,6 +99,7 @@ public final class EffectPlacementPreviewDialog extends JDialog {
 
     private final StagePanel stage;
     private final JComboBox<String> directionCombo;
+    private final JComboBox<String> travelCombo;
     private final JComboBox<String> placementCombo;
     private final JComboBox<String> centeringCombo;
     private final CellGrid placementGrid;
@@ -151,6 +166,13 @@ public final class EffectPlacementPreviewDialog extends JDialog {
             directionCombo.setSelectedItem("right");
         }
 
+        travelCombo = new JComboBox<String>(TRAVEL_LABELS.clone());
+        travelCombo.setSelectedItem("Idle");
+        travelCombo.setToolTipText(
+                "Simulated travel for motion-relative placement. Idle matches waiting; "
+                        + "pick a diagonal to verify wake/trail attach. Only applies when "
+                        + "the effect has Motion-relative placement enabled.");
+
         placementCombo = new JComboBox<String>(PonyDefinition.PLACEMENT_TOKENS.clone());
         centeringCombo = new JComboBox<String>(centeringTokens());
         placementGrid = new CellGrid(true);
@@ -184,6 +206,13 @@ public final class EffectPlacementPreviewDialog extends JDialog {
                     syncCombosFromDraft();
                     loadSources();
                     resetClocks();
+                    refreshStage();
+                }
+            }
+        });
+        travelCombo.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                if (!updatingUi) {
                     refreshStage();
                 }
             }
@@ -304,7 +333,8 @@ public final class EffectPlacementPreviewDialog extends JDialog {
         int row = 0;
         row = addToolbarRow(north, row, "Facing:", directionCombo,
                 "Scale:", scaleSlider);
-        row = addToolbarRow(north, row, "Rate %:", rateSlider, null, null);
+        row = addToolbarRow(north, row, "Travel:", travelCombo,
+                "Rate %:", rateSlider);
 
         JPanel pickPanel = new JPanel();
         pickPanel.setLayout(new BoxLayout(pickPanel, BoxLayout.Y_AXIS));
@@ -656,6 +686,23 @@ public final class EffectPlacementPreviewDialog extends JDialog {
         return scaleSlider.getValue();
     }
 
+    private boolean motionPlacementEnabled() {
+        return EffectPlacement.isMotionMode(editor.getEffectPlacementMode(effectIndex));
+    }
+
+    private int currentFacing() {
+        return "left".equals(currentDirection())
+                ? EffectPlacement.FACING_LEFT : EffectPlacement.FACING_RIGHT;
+    }
+
+    private float[] currentTravel() {
+        int index = travelCombo.getSelectedIndex();
+        if (index < 0 || index >= TRAVEL_VECTORS.length) {
+            return TRAVEL_VECTORS[0];
+        }
+        return TRAVEL_VECTORS[index];
+    }
+
     private EffectPlacementMath.Origin currentOrigin(Rectangle ponyBounds, float scale) {
         if (effectSource == null || ponyBounds == null) {
             return null;
@@ -664,13 +711,18 @@ public final class EffectPlacementPreviewDialog extends JDialog {
         float effectW = effectSource.frameWidth * scale;
         float effectH = effectSource.frameHeight * scale;
         int resolved = getResolvedAny(dir);
+        float[] travel = currentTravel();
         return EffectPlacementMath.computeOrigin(
                 ponyBounds,
                 effectW,
                 effectH,
                 getDraftPlacement(dir),
                 getDraftCentering(dir),
-                resolved);
+                resolved,
+                motionPlacementEnabled(),
+                travel[0],
+                travel[1],
+                currentFacing());
     }
 
     private void updateStatus() {
@@ -694,6 +746,8 @@ public final class EffectPlacementPreviewDialog extends JDialog {
         float scale = displayScale();
         // Approximate attach using preferred size feet for status numbers.
         Rectangle ponyBounds = ponySource.destinationRect(0, 0, scale);
+        float[] travel = currentTravel();
+        boolean motion = motionPlacementEnabled();
         // Recompute relative: attach offsets from origin of pony bounds.
         EffectPlacementMath.Origin o = EffectPlacementMath.computeOrigin(
                 new Rectangle(0, 0, ponyBounds.width, ponyBounds.height),
@@ -701,13 +755,28 @@ public final class EffectPlacementPreviewDialog extends JDialog {
                 effectSource.frameHeight * scale,
                 place,
                 center,
-                getResolvedAny(dir));
+                getResolvedAny(dir),
+                motion,
+                travel[0],
+                travel[1],
+                currentFacing());
         String follow = editor.getEffectFollow(effectIndex) ? "follow" : "planted";
         float duration = editor.getEffectDuration(effectIndex);
         String dur = duration <= 0f ? "until action ends" : duration + "s";
         String playState = playing ? "playing" : "paused";
+        String motionNote = motion
+                ? ("motion/" + travelCombo.getSelectedItem())
+                : "bounds";
+        int authoredCell = EffectPlacementMath.isAnyPlacement(place)
+                ? getResolvedAny(dir) : EffectPlacementMath.cellIndex(place);
+        int attachCell = EffectPlacement.maybeRemapCell(
+                motion, authoredCell, travel[0], travel[1], currentFacing());
+        String remapNote = "";
+        if (motion && attachCell != authoredCell) {
+            remapNote = " remap→" + EffectPlacementMath.tokenForCell(attachCell);
+        }
         statusLabel.setText(String.format(
-                "%s on %s (%s)  ·  pony %d/%d  effect %d/%d  ·  %s → %s%s  ·  attach (%.0f, %.0f)  origin (%.0f, %.0f)  ·  %s, %s  ·  %s",
+                "%s on %s (%s)  ·  pony %d/%d  effect %d/%d  ·  %s → %s%s%s  ·  attach (%.0f, %.0f)  origin (%.0f, %.0f)  ·  %s, %s, %s  ·  %s",
                 effectSource.effectName,
                 ponySource.actionName,
                 dir,
@@ -718,11 +787,13 @@ public final class EffectPlacementPreviewDialog extends JDialog {
                 place,
                 center,
                 anyNote,
+                remapNote,
                 o.attachX,
                 o.attachY,
                 o.originX,
                 o.originY,
                 follow,
+                motionNote,
                 dur,
                 playState));
     }

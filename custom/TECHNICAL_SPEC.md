@@ -89,6 +89,7 @@ Effects are Desktop Ponies–compatible prop/VFX sprites spawned when a named ac
   <repeatdelay>1.32</repeatdelay>
   <follow>false</follow>
   <noloop>false</noloop>
+  <placementmode>bounds</placementmode>
   <placement direction="right">Right</placement>
   <centering direction="right">Top_Left</centering>
   <placement direction="left">Left</placement>
@@ -107,10 +108,11 @@ Effects are Desktop Ponies–compatible prop/VFX sprites spawned when a named ac
 | `repeatdelay` | Seconds between additional spawns while the trigger action is still current. `0` / omitted = spawn once |
 | `follow` | `true` = re-attach each frame; `false` = plant at spawn and stay |
 | `noloop` | `true` = play the sheet once even if it would loop |
+| `placementmode` | `bounds` (default) = Desktop Ponies AABB attach. `motion` = rotate Left/Right/Top/Bottom cells with travel so diagonal movers keep side attaches in the wake / lead. Idle and pure-horizontal travel match `bounds`. Written only when `motion`. |
 | `placement` | Point on the **pony** image (`Top_Left` … `Bottom_Right`, or `Any` / `Any-Not_Center`) |
 | `centering` | Point on the **effect** image (same 9-cell set; not `Any`) |
 
-Defaults when omitted: `duration=0`, `repeatdelay=0`, `follow=false`, `noloop=false`, placement/centering `Center`. Duration and repeat delay must be in `[0, 300]`. Images and timings use the same Base64 strip + centisecond format as actions.
+Defaults when omitted: `duration=0`, `repeatdelay=0`, `follow=false`, `noloop=false`, `placementmode=bounds`, placement/centering `Center`. Duration and repeat delay must be in `[0, 300]`. Images and timings use the same Base64 strip + centisecond format as actions.
 
 Runtime note: effect instances are scene-owned (they do not consume pony herd slots). Action change stops repeats and expires `duration=0` instances; pony leave/reset expires all of that pony’s effects.
 

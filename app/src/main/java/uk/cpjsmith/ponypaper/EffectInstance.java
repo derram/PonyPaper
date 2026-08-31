@@ -70,8 +70,16 @@ final class EffectInstance {
         if (def.follow && parent != null) {
             parent.fillCurrentDrawBounds(ponyBoundsScratch);
             float scale = parent.getScale();
+            // Reuse originScratch[0..1] for origin; travel via temporary on parent.
+            float travelX = 0f;
+            float travelY = 0f;
+            if (def.motionPlacement) {
+                parent.fillTravelVector(originScratch);
+                travelX = originScratch[0];
+                travelY = originScratch[1];
+            }
             def.computeOriginFixed(ponyBoundsScratch, facing, scale,
-                    resolvedPlacement, originScratch);
+                    resolvedPlacement, originScratch, travelX, travelY);
             originX = originScratch[0];
             originY = originScratch[1];
         }
