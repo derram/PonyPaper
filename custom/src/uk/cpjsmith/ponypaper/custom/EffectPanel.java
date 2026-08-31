@@ -68,6 +68,7 @@ final class EffectPanel extends JPanel {
     private final JTextField timingsRightField = new JTextField();
     private final JLabel imageLeftStatus = new JLabel(" ");
     private final JLabel imageRightStatus = new JLabel(" ");
+    private final JButton checkPlacementButton;
 
     EffectPanel(Host host) {
         super(new BorderLayout());
@@ -158,6 +159,17 @@ final class EffectPanel extends JPanel {
         row = addCombo(form, row, "Centering left:", centeringLeft,
                 "Point on the effect image aligned to placement (facing left).");
 
+        checkPlacementButton = button("Check placement…", e -> checkPlacement());
+        checkPlacementButton.setToolTipText(
+                "Preview this effect on its trigger action and adjust placement/centering "
+                        + "(like Check… for action anchors).");
+        GridBagConstraints checkConstraints = constraints(0, row);
+        checkConstraints.gridwidth = 2;
+        checkConstraints.anchor = GridBagConstraints.WEST;
+        checkConstraints.insets = new Insets(4, 0, 4, 0);
+        form.add(checkPlacementButton, checkConstraints);
+        row++;
+
         wireCombo(placementRight, true, true);
         wireCombo(centeringRight, false, true);
         wireCombo(placementLeft, true, false);
@@ -231,6 +243,7 @@ final class EffectPanel extends JPanel {
         centeringRight.setEnabled(enabled);
         placementLeft.setEnabled(enabled);
         centeringLeft.setEnabled(enabled);
+        checkPlacementButton.setEnabled(enabled);
         timingsLeftField.setEnabled(enabled);
         timingsRightField.setEnabled(enabled);
     }
@@ -470,6 +483,32 @@ final class EffectPanel extends JPanel {
             host.markDirty();
         } catch (PonyEditor.GenericException e) {
             JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void checkPlacement() {
+        if (currentIndex < 0) {
+            return;
+        }
+        // Prefer right when both facings work; dialog may flip if needed.
+        EffectPlacementPreviewDialog.Result result = EffectPlacementPreviewDialog.showDialog(
+                host.dialogParent(),
+                host.editor(),
+                currentIndex,
+                "right");
+        if (result == null) {
+            return;
+        }
+        try {
+            host.editor().setEffectPlacement(currentIndex, "right", result.placementRight);
+            host.editor().setEffectCentering(currentIndex, "right", result.centeringRight);
+            host.editor().setEffectPlacement(currentIndex, "left", result.placementLeft);
+            host.editor().setEffectCentering(currentIndex, "left", result.centeringLeft);
+            host.markDirty();
+            setEffect(currentIndex);
+        } catch (IllegalArgumentException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(),
+                    "Invalid placement", JOptionPane.ERROR_MESSAGE);
         }
     }
 

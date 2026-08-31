@@ -59,6 +59,7 @@ On the **Effects** tab:
 * **Follow pony**: glue to the character each frame; unchecked plants the sprite in the world.
 * **Prevent animation loop**: play the sheet once even if it would loop.
 * **Placement / centering** (per facing): 9-point attach on the pony vs the effect image (`Any` / `Any-Not_Center` allowed for placement only).
+* **Check placement…**: Opens a composite preview of the effect on its trigger action (feet-locked stage, like **Check…** for anchors). Change facing, play/step both sheets, and edit placement/centering via combos or the 3×3 grids. **Apply** writes both facings back to the form; Cancel discards. For `Any` / `Any-Not_Center`, **Re-roll Any** picks a preview cell without changing the token — click a fixed cell to replace Any.
 * **Left/right sprite**: same Import image / Import frames / Mirror / Preview / Export tools as actions. Apparent motion (falling apples, shaking trees) belongs in the spritesheet — there is no velocity/physics.
 
 Renaming an action rewrites matching effect triggers. Deleting an action removes effects that pointed only at that action. The wallpaper loads and draws effects for custom characters automatically.

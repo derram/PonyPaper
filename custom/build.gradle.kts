@@ -139,6 +139,13 @@ tasks.register<JavaExec>("testDpEffects") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.DesktopPoniesEffectImportTest")
 }
 
+tasks.register<JavaExec>("testEffectPlacement") {
+    group = "verification"
+    description = "Run effect placement math checks (wallpaper parity)"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.EffectPlacementMathTest")
+}
+
 tasks.named("check") {
     dependsOn("testPacker")
     dependsOn("testDefinition")
@@ -150,4 +157,5 @@ tasks.named("check") {
     dependsOn("testFileChooserScroll")
     dependsOn("testEditorEffects")
     dependsOn("testDpEffects")
+    dependsOn("testEffectPlacement")
 }
