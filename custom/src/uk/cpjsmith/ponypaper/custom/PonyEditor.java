@@ -253,7 +253,8 @@ public class PonyEditor {
     /**
      * Drops any action names from next/start lists that are not present in the
      * current action set (e.g. after a delete or a partial import). Also clears
-     * {@code spritesfrom} when the owner was removed.
+     * {@code spritesfrom} when the owner was removed, and removes effects whose
+     * trigger action no longer exists.
      */
     private void scrubMissingActionReferences() {
         java.util.Set<String> present = new java.util.HashSet<String>();
@@ -271,6 +272,27 @@ public class PonyEditor {
         }
         setStartActions(filterActionList(getStartActions(), present));
         setDefaultDrag(filterActionList(getDefaultDrag(), present));
+        scrubMissingEffectTriggers(present);
+    }
+
+    /** Removes effects whose trigger action is not in {@code present}. */
+    private void scrubMissingEffectTriggers(java.util.Set<String> present) {
+        ensureEffectsArray();
+        PonyDefinition.Effect[] old = ponyDefinition.effects;
+        if (old.length == 0) {
+            return;
+        }
+        java.util.ArrayList<PonyDefinition.Effect> keep =
+                new java.util.ArrayList<PonyDefinition.Effect>();
+        for (int i = 0; i < old.length; i++) {
+            String trigger = old[i].action;
+            if (trigger != null && present.contains(trigger)) {
+                keep.add(old[i]);
+            }
+        }
+        if (keep.size() != old.length) {
+            ponyDefinition.effects = keep.toArray(new PonyDefinition.Effect[keep.size()]);
+        }
     }
     
     public String getActionName(int index) {
@@ -304,8 +326,8 @@ public class PonyEditor {
     }
 
     /**
-     * Replaces {@code oldName} with {@code newName} in every next/start list
-     * and in {@code spritesfrom} references. Duplicate weighted entries are all rewritten.
+     * Replaces {@code oldName} with {@code newName} in every next/start list,
+     * {@code spritesfrom} references, and effect trigger actions.
      */
     private void renameActionReferences(String oldName, String newName) {
         for (int i = 0; i < ponyDefinition.actions.length; i++) {
@@ -318,6 +340,12 @@ public class PonyEditor {
         }
         setStartActions(renameInActionList(getStartActions(), oldName, newName));
         setDefaultDrag(renameInActionList(getDefaultDrag(), oldName, newName));
+        ensureEffectsArray();
+        for (int i = 0; i < ponyDefinition.effects.length; i++) {
+            if (oldName.equals(ponyDefinition.effects[i].action)) {
+                ponyDefinition.effects[i].action = newName;
+            }
+        }
     }
 
     private static String renameInActionList(String list, String oldName, String newName) {
@@ -675,7 +703,13 @@ public class PonyEditor {
                 ponyDefinition.actions[index].timings.put(direction, imported.timings);
             }
         } catch (IOException e) {
-            throw new GenericException("", "Failed to read " + spriteFile + ".");
+            String detail = e.getMessage();
+            if (detail == null || detail.isEmpty()) {
+                detail = "Failed to read " + spriteFile + ".";
+            } else {
+                detail = "Failed to read " + spriteFile + ": " + detail;
+            }
+            throw new GenericException("", detail);
         }
     }
 
@@ -881,7 +915,49 @@ public class PonyEditor {
             setStartActions(result.startActions);
             setDefaultDrag(result.defaultDrag);
             scrubMissingActionReferences();
-            notes.add(0, "Loaded " + loaded + " action(s) into the editor.");
+
+            int effectsLoaded = 0;
+            ImageImport.PackOptions effectOpts = new ImageImport.PackOptions();
+            effectOpts.scaleDivisor = ImageImport.SCALE_DIVISOR_HALF;
+            for (DesktopPoniesImport.ImportedEffect effect : result.effects) {
+                if (findAction(effect.actionName) < 0) {
+                    notes.add("Skipped effect \"" + effect.name
+                            + "\": trigger action \"" + effect.actionName + "\" was not loaded.");
+                    continue;
+                }
+                try {
+                    int index = addEffect(effect.name);
+                    setEffectAction(index, effect.actionName);
+                    setEffectDuration(index, effect.duration);
+                    setEffectRepeatDelay(index, effect.repeatDelay);
+                    setEffectFollow(index, effect.follow);
+                    setEffectNoLoop(index, effect.noLoop);
+                    setEffectPlacement(index, "right", effect.placementRight);
+                    setEffectCentering(index, "right", effect.centeringRight);
+                    setEffectPlacement(index, "left", effect.placementLeft);
+                    setEffectCentering(index, "left", effect.centeringLeft);
+                    loadEffectSprite(index, "left", effect.leftImage, effectOpts);
+                    loadEffectSprite(index, "right", effect.rightImage, effectOpts);
+                    effectsLoaded++;
+                } catch (GenericException e) {
+                    int idx = findEffect(effect.name);
+                    if (idx >= 0) {
+                        removeEffect(idx);
+                    }
+                    notes.add("Skipped effect \"" + effect.name + "\": could not load sprites ("
+                            + (e.detail != null && e.detail.length > 0 ? e.detail[0] : e.getMessage())
+                            + ").");
+                } catch (RuntimeException e) {
+                    int idx = findEffect(effect.name);
+                    if (idx >= 0) {
+                        removeEffect(idx);
+                    }
+                    notes.add("Skipped effect \"" + effect.name + "\": " + e.getMessage());
+                }
+            }
+
+            notes.add(0, "Loaded " + loaded + " action(s) and " + effectsLoaded
+                    + " effect(s) into the editor.");
             notes.add(1, "GIF sprites were scaled to 50% so they match built-in PonyPaper size.");
         } catch (GenericException e) {
             ponyDefinition = previous;
@@ -905,6 +981,339 @@ public class PonyEditor {
 
     private static String filterActionList(String list, java.util.Set<String> present) {
         return PonyDefinition.filterActionList(list, present);
+    }
+
+    private void ensureEffectsArray() {
+        if (ponyDefinition.effects == null) {
+            ponyDefinition.effects = new PonyDefinition.Effect[0];
+        }
+    }
+
+    private void checkEffectIndex(int index) {
+        ensureEffectsArray();
+        if (index < 0 || index >= ponyDefinition.effects.length) {
+            throw new IndexOutOfBoundsException();
+        }
+    }
+
+    private static void checkEffectDirection(String direction) {
+        if (!"left".equals(direction) && !"right".equals(direction)) {
+            throw new IndexOutOfBoundsException();
+        }
+    }
+
+    /**
+     * @return number of effects; indices for effect methods are in
+     *         {@code [0, getEffectCount())}
+     */
+    public int getEffectCount() {
+        ensureEffectsArray();
+        return ponyDefinition.effects.length;
+    }
+
+    /**
+     * @return index of the effect with {@code name}, or {@code -1}
+     */
+    public int findEffect(String name) {
+        ensureEffectsArray();
+        if (name == null) {
+            return -1;
+        }
+        for (int i = 0; i < ponyDefinition.effects.length; i++) {
+            if (name.equals(ponyDefinition.effects[i].name)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Creates a new effect with the given name. Defaults: duration 0, no repeat,
+     * follow false, placement/centering Center, empty images. Trigger action is
+     * left empty until {@link #setEffectAction} is called.
+     *
+     * @return index of the new effect
+     */
+    public int addEffect(String name) {
+        if (name == null) {
+            throw new IllegalArgumentException("Effect name must not be empty");
+        }
+        name = name.trim();
+        checkEffectName(name);
+        ensureEffectsArray();
+        if (findEffect(name) >= 0) {
+            throw new IllegalArgumentException("Effect name already in use: " + name);
+        }
+        PonyDefinition.Effect[] old = ponyDefinition.effects;
+        PonyDefinition.Effect[] next = new PonyDefinition.Effect[old.length + 1];
+        System.arraycopy(old, 0, next, 0, old.length);
+        PonyDefinition.Effect effect = new PonyDefinition.Effect();
+        effect.name = name;
+        next[old.length] = effect;
+        ponyDefinition.effects = next;
+        return old.length;
+    }
+
+    /**
+     * Removes the effect at {@code index}.
+     */
+    public void removeEffect(int index) {
+        checkEffectIndex(index);
+        PonyDefinition.Effect[] old = ponyDefinition.effects;
+        PonyDefinition.Effect[] next = new PonyDefinition.Effect[old.length - 1];
+        System.arraycopy(old, 0, next, 0, index);
+        System.arraycopy(old, index + 1, next, index, old.length - index - 1);
+        ponyDefinition.effects = next;
+    }
+
+    public String getEffectName(int index) {
+        checkEffectIndex(index);
+        return ponyDefinition.effects[index].name;
+    }
+
+    /**
+     * Renames an effect. Does not need to rewrite cross-references (effects are
+     * not referenced by name elsewhere).
+     */
+    public void setEffectName(int index, String name) {
+        checkEffectIndex(index);
+        if (name == null) {
+            throw new IllegalArgumentException("Effect name must not be empty");
+        }
+        name = name.trim();
+        checkEffectName(name);
+        if (name.equals(ponyDefinition.effects[index].name)) {
+            return;
+        }
+        if (findEffect(name) >= 0) {
+            throw new IllegalArgumentException("Effect name already in use: " + name);
+        }
+        ponyDefinition.effects[index].name = name;
+    }
+
+    private static void checkEffectName(String name) {
+        if (name == null || name.isEmpty()) {
+            throw new IllegalArgumentException("Effect name must not be empty");
+        }
+        if (name.indexOf(':') >= 0) {
+            throw new IllegalArgumentException("Effect name must not contain ':'");
+        }
+    }
+
+    /** Trigger action name for this effect (may be empty until set). */
+    public String getEffectAction(int index) {
+        checkEffectIndex(index);
+        String a = ponyDefinition.effects[index].action;
+        return a != null ? a : "";
+    }
+
+    /**
+     * Sets the trigger action name. Empty is allowed while editing; {@link #validate()}
+     * requires a defined action before the pony is usable.
+     */
+    public void setEffectAction(int index, String actionName) {
+        checkEffectIndex(index);
+        if (actionName == null) {
+            actionName = "";
+        }
+        ponyDefinition.effects[index].action = actionName.trim();
+    }
+
+    public float getEffectDuration(int index) {
+        checkEffectIndex(index);
+        return ponyDefinition.effects[index].duration;
+    }
+
+    public void setEffectDuration(int index, float duration) {
+        checkEffectIndex(index);
+        if (Float.isNaN(duration) || duration < 0f || duration > PonyDefinition.MAX_EFFECT_SECONDS) {
+            throw new IllegalArgumentException(
+                    "duration must be between 0 and " + (int)PonyDefinition.MAX_EFFECT_SECONDS);
+        }
+        ponyDefinition.effects[index].duration = duration;
+    }
+
+    public float getEffectRepeatDelay(int index) {
+        checkEffectIndex(index);
+        return ponyDefinition.effects[index].repeatDelay;
+    }
+
+    public void setEffectRepeatDelay(int index, float repeatDelay) {
+        checkEffectIndex(index);
+        if (Float.isNaN(repeatDelay) || repeatDelay < 0f
+                || repeatDelay > PonyDefinition.MAX_EFFECT_SECONDS) {
+            throw new IllegalArgumentException(
+                    "repeatdelay must be between 0 and " + (int)PonyDefinition.MAX_EFFECT_SECONDS);
+        }
+        ponyDefinition.effects[index].repeatDelay = repeatDelay;
+    }
+
+    public boolean getEffectFollow(int index) {
+        checkEffectIndex(index);
+        return ponyDefinition.effects[index].follow;
+    }
+
+    public void setEffectFollow(int index, boolean follow) {
+        checkEffectIndex(index);
+        ponyDefinition.effects[index].follow = follow;
+    }
+
+    public boolean getEffectNoLoop(int index) {
+        checkEffectIndex(index);
+        return ponyDefinition.effects[index].noLoop;
+    }
+
+    public void setEffectNoLoop(int index, boolean noLoop) {
+        checkEffectIndex(index);
+        ponyDefinition.effects[index].noLoop = noLoop;
+    }
+
+    public String getEffectPlacement(int index, String direction) {
+        checkEffectIndex(index);
+        checkEffectDirection(direction);
+        String value = ponyDefinition.effects[index].placement.get(direction);
+        return value != null ? value : "Center";
+    }
+
+    public void setEffectPlacement(int index, String direction, String token) {
+        checkEffectIndex(index);
+        checkEffectDirection(direction);
+        String canon = PonyDefinition.normalizePlacementToken(token);
+        if (canon == null) {
+            throw new IllegalArgumentException("Unknown placement: " + token);
+        }
+        ponyDefinition.effects[index].placement.put(direction, canon);
+    }
+
+    public String getEffectCentering(int index, String direction) {
+        checkEffectIndex(index);
+        checkEffectDirection(direction);
+        String value = ponyDefinition.effects[index].centering.get(direction);
+        return value != null ? value : "Center";
+    }
+
+    public void setEffectCentering(int index, String direction, String token) {
+        checkEffectIndex(index);
+        checkEffectDirection(direction);
+        String canon = PonyDefinition.normalizePlacementToken(token);
+        if (canon == null) {
+            throw new IllegalArgumentException("Unknown centering: " + token);
+        }
+        if ("Any".equals(canon) || "Any-Not_Center".equals(canon)) {
+            throw new IllegalArgumentException("centering cannot be Any or Any-Not_Center");
+        }
+        ponyDefinition.effects[index].centering.put(direction, canon);
+    }
+
+    public String getEffectImage(int index, String direction) {
+        checkEffectIndex(index);
+        checkEffectDirection(direction);
+        String value = ponyDefinition.effects[index].images.get(direction);
+        return value != null ? value : "";
+    }
+
+    public String getEffectTimings(int index, String direction) {
+        checkEffectIndex(index);
+        checkEffectDirection(direction);
+        String value = ponyDefinition.effects[index].timings.get(direction);
+        return value != null ? value : "";
+    }
+
+    public void setEffectTimings(int index, String direction, String timings) {
+        checkEffectIndex(index);
+        checkEffectDirection(direction);
+        ponyDefinition.effects[index].timings.put(direction, timings != null ? timings : "");
+    }
+
+    public void loadEffectSprite(int index, String direction, File spriteFile) throws GenericException {
+        loadEffectSprite(index, direction, spriteFile, null);
+    }
+
+    public void loadEffectSprite(int index, String direction, File spriteFile,
+            ImageImport.PackOptions options) throws GenericException {
+        checkEffectIndex(index);
+        checkEffectDirection(direction);
+        try {
+            ImageImport imported = ImageImport.load(spriteFile, options);
+            ponyDefinition.effects[index].images.put(
+                    direction, Base64.getEncoder().encodeToString(imported.loadedImage));
+            if (imported.timings != null) {
+                ponyDefinition.effects[index].timings.put(direction, imported.timings);
+            }
+        } catch (IOException e) {
+            String detail = e.getMessage();
+            if (detail == null || detail.isEmpty()) {
+                detail = "Failed to read " + spriteFile + ".";
+            } else {
+                detail = "Failed to read " + spriteFile + ": " + detail;
+            }
+            throw new GenericException("", detail);
+        }
+    }
+
+    public ImageImport loadEffectSpriteFrames(
+            int index, String direction, java.util.List<File> selected, ImageImport.PackOptions options)
+            throws GenericException {
+        checkEffectIndex(index);
+        checkEffectDirection(direction);
+        try {
+            java.util.List<File> files = ImageImport.collectFrameFiles(selected);
+            return loadEffectSpriteFromFrames(index, direction, ImageImport.loadFrameImages(files), options);
+        } catch (IOException e) {
+            throw new GenericException("Import Frames Failed", e.getMessage());
+        }
+    }
+
+    public ImageImport loadEffectSpriteFromFrames(
+            int index, String direction, java.util.List<java.awt.image.BufferedImage> frames,
+            ImageImport.PackOptions options) throws GenericException {
+        checkEffectIndex(index);
+        checkEffectDirection(direction);
+        try {
+            ImageImport imported = ImageImport.fromFrames(frames, options);
+            applyPackedEffectSprite(index, direction, imported);
+            return imported;
+        } catch (IOException e) {
+            throw new GenericException("Import Failed", e.getMessage());
+        }
+    }
+
+    public ImageImport mirrorEffectSprite(int index, String fromDirection) throws GenericException {
+        checkEffectIndex(index);
+        checkEffectDirection(fromDirection);
+        String toDirection = "left".equals(fromDirection) ? "right" : "left";
+        String b64 = ponyDefinition.effects[index].images.get(fromDirection);
+        if (b64 == null || b64.isEmpty()) {
+            throw new GenericException("Mirror Failed", "No " + fromDirection + " spritesheet to mirror.");
+        }
+        String timings = ponyDefinition.effects[index].timings.get(fromDirection);
+        int frameCount = ImageImport.countTimings(timings);
+        if (frameCount < 1) {
+            throw new GenericException(
+                    "Mirror Failed",
+                    "Set " + fromDirection + " timings first so the sheet can be split into frames.");
+        }
+        try {
+            byte[] png = Base64.getDecoder().decode(b64);
+            ImageImport mirrored = ImageImport.mirrorSheet(png, frameCount, timings);
+            applyPackedEffectSprite(index, toDirection, mirrored);
+            return mirrored;
+        } catch (IllegalArgumentException e) {
+            throw new GenericException("Mirror Failed", "The " + fromDirection + " image could not be decoded.");
+        } catch (IOException e) {
+            throw new GenericException("Mirror Failed", e.getMessage());
+        }
+    }
+
+    private void applyPackedEffectSprite(int index, String direction, ImageImport imported) {
+        ponyDefinition.effects[index].images.put(
+                direction, Base64.getEncoder().encodeToString(imported.loadedImage));
+        String existing = ponyDefinition.effects[index].timings.get(direction);
+        int packedCount = ImageImport.countTimings(imported.timings);
+        if (ImageImport.countTimings(existing) == packedCount && packedCount > 0) {
+            return;
+        }
+        ponyDefinition.effects[index].timings.put(direction, imported.timings);
     }
     
     public static void main(String[] args) {

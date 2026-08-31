@@ -50,6 +50,8 @@ public final class ImageImportPackTest {
         failures += run("explicitTimingsCs", ImageImportPackTest::testExplicitTimingsCs);
         failures += run("gifLoadIsNativeSize", ImageImportPackTest::testGifLoadIsNativeSize);
         failures += run("gifLoadHalfScale", ImageImportPackTest::testGifLoadHalfScale);
+        failures += run("gifLoadSharedOptionsDoesNotLeakTimings",
+                ImageImportPackTest::testGifLoadSharedOptionsDoesNotLeakTimings);
         failures += run("permuteOrder", ImageImportPackTest::testPermuteOrder);
         failures += run("permutePacksInGivenOrder", ImageImportPackTest::testPermutePacksInGivenOrder);
         failures += run("permuteTimingsTravel", ImageImportPackTest::testPermuteTimingsTravel);
@@ -817,6 +819,49 @@ public final class ImageImportPackTest {
         } finally {
             gif.delete();
         }
+    }
+
+    /**
+     * Desktop Ponies import reuses one {@link ImageImport.PackOptions} for every
+     * GIF. Loading must not leave the previous GIF's delays on that instance,
+     * or a later GIF with a different frame count fails with a timing mismatch
+     * (Applejack: apple_drop then tree/hurdle/sparkle).
+     */
+    private static void testGifLoadSharedOptionsDoesNotLeakTimings() throws Exception {
+        File multi = findApplejackGif("apple_drop.gif");
+        File single = findApplejackGif("hurdle_left.gif");
+        if (multi == null || single == null) {
+            System.out.println("skip gifLoadSharedOptionsDoesNotLeakTimings (Applejack GIFs not found)");
+            return;
+        }
+        ImageImport.PackOptions shared = new ImageImport.PackOptions();
+        shared.scaleDivisor = ImageImport.SCALE_DIVISOR_HALF;
+        ImageImport first = ImageImport.load(multi, shared);
+        ImageImport second = ImageImport.load(single, shared);
+        int firstFrames = ImageImport.countTimings(first.timings);
+        int secondFrames = ImageImport.countTimings(second.timings);
+        if (firstFrames <= 1) {
+            throw new AssertionError("expected multi-frame apple_drop, got " + firstFrames);
+        }
+        assertEq("hurdle frames", 1, secondFrames);
+        if (shared.timingsCs != null) {
+            throw new AssertionError("shared PackOptions.timingsCs should stay null");
+        }
+    }
+
+    private static File findApplejackGif(String name) {
+        File[] roots = {
+                new File("../Desktop-Ponies/Content/Ponies/Applejack"),
+                new File("Desktop-Ponies/Content/Ponies/Applejack"),
+                new File("/home/derram/code/Desktop-Ponies/Content/Ponies/Applejack"),
+        };
+        for (File root : roots) {
+            File gif = new File(root, name);
+            if (gif.isFile()) {
+                return gif;
+            }
+        }
+        return null;
     }
 
     private static void testCollectFrameFilesRejectsMix() throws Exception {

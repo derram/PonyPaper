@@ -44,13 +44,24 @@ It can be started by launching the JAR from the file manager (if `.jar` is assoc
 * map simple teleport chains (e.g. Twilight’s warp) to `teleport-out` / `teleport-in`
 * use a `Dragged` behavior for drag when present
 
-Speech, interactions, non-zero behavior groups, and most `Skip=True` story sequences are skipped. **Effect lines are still skipped by the importer** (runtime/XML support exists; import wiring is next). A summary dialog lists what was imported or omitted—always review the action graph before saving.
+Speech, interactions, non-zero behavior groups, and most `Skip=True` story sequences are skipped. **Effect lines are imported** when their trigger behavior is available (GIFs packed at 50% like actions). If an Effect references a `Skip=True` behavior (e.g. Applejack’s gallop apple drops), that behavior is kept so the effect can load. Effects whose behavior was omitted for other reasons (follow targets, non-zero groups, or the 30-action cap) are listed in the import summary. Always review the action graph and Effects tab before saving.
 
 ### Effects (spawned sprites)
 
-Custom ponies can declare Desktop Ponies–style **effects** in XML: sprites that appear when a named action starts, with 9-point placement/centering, optional follow, duration, and repeat. See the [Technical Spec](TECHNICAL_SPEC.md#effects-spawned-sprites). Apparent motion (falling apples, shaking trees) belongs in the spritesheet — there is no velocity/physics.
+The center of the editor has **Actions** and **Effects** tabs. Effects are Desktop Ponies–style prop/VFX sprites that appear when a named action starts. See the [Technical Spec](TECHNICAL_SPEC.md#effects-spawned-sprites).
 
-The Swing editor does not yet have an Effects panel; author `<effect>` blocks by hand (or wait for the forthcoming UI), then open/save the pony in the editor as usual. The wallpaper loads and draws effects for custom characters automatically.
+On the **Effects** tab:
+
+* **New / Rename / Delete** manage the effect list (double-click renames).
+* **Trigger action**: which action starts the effect (Tab completes action names).
+* **Duration** (seconds): `0` = until that action ends; timed effects may outlive the action (e.g. a tree after a short buck).
+* **Repeat delay**: `0` = spawn once; otherwise re-spawn while the trigger action is still current.
+* **Follow pony**: glue to the character each frame; unchecked plants the sprite in the world.
+* **Prevent animation loop**: play the sheet once even if it would loop.
+* **Placement / centering** (per facing): 9-point attach on the pony vs the effect image (`Any` / `Any-Not_Center` allowed for placement only).
+* **Left/right sprite**: same Import image / Import frames / Mirror / Preview / Export tools as actions. Apparent motion (falling apples, shaking trees) belongs in the spritesheet — there is no velocity/physics.
+
+Renaming an action rewrites matching effect triggers. Deleting an action removes effects that pointed only at that action. The wallpaper loads and draws effects for custom characters automatically.
 
 ### Action Properties
 

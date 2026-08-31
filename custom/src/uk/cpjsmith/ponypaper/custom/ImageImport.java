@@ -222,13 +222,35 @@ public class ImageImport {
         String filename = file.getName().toLowerCase(Locale.ROOT);
         if (filename.endsWith(".gif")) {
             GifFrames gif = loadGifFrames(file);
-            PackOptions opts = options != null ? options : new PackOptions();
+            // Copy so filling in GIF delays does not mutate a caller-owned
+            // PackOptions reused across multiple loads (DP import shares one
+            // options instance for every action/effect GIF).
+            PackOptions opts = copyPackOptions(options);
             if (opts.timingsCs == null) {
                 opts.timingsCs = gif.timingsCs;
             }
             return fromFrames(gif.frames, opts);
         }
         return new ImageImport(Files.readAllBytes(file.toPath()), null);
+    }
+
+    /**
+     * Shallow copy of pack options. Array fields are shared by reference; GIF
+     * load only assigns {@link PackOptions#timingsCs} when it was null, which
+     * must happen on the copy.
+     */
+    static PackOptions copyPackOptions(PackOptions options) {
+        PackOptions opts = new PackOptions();
+        if (options == null) {
+            return opts;
+        }
+        opts.defaultTimingCs = options.defaultTimingCs;
+        opts.rejectMixedSizes = options.rejectMixedSizes;
+        opts.lifts = options.lifts;
+        opts.scaleDivisor = options.scaleDivisor;
+        opts.scaleFitBuiltin = options.scaleFitBuiltin;
+        opts.timingsCs = options.timingsCs;
+        return opts;
     }
 
     /**

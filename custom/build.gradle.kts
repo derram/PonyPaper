@@ -125,6 +125,20 @@ tasks.register<JavaExec>("testFileChooserScroll") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.EditorFileChoosersTest")
 }
 
+tasks.register<JavaExec>("testEditorEffects") {
+    group = "verification"
+    description = "Run PonyEditor effect CRUD and action-scrub checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.PonyEditorEffectTest")
+}
+
+tasks.register<JavaExec>("testDpEffects") {
+    group = "verification"
+    description = "Run Desktop Ponies Effect-line import checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.DesktopPoniesEffectImportTest")
+}
+
 tasks.named("check") {
     dependsOn("testPacker")
     dependsOn("testDefinition")
@@ -134,4 +148,6 @@ tasks.named("check") {
     dependsOn("testSpritePreview")
     dependsOn("testActionFrames")
     dependsOn("testFileChooserScroll")
+    dependsOn("testEditorEffects")
+    dependsOn("testDpEffects")
 }

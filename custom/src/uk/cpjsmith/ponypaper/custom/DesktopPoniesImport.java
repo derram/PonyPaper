@@ -16,17 +16,18 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import uk.cpjsmith.ponypaper.PonyDefinition;
 
 /**
  * Imports a Desktop Ponies character folder ({@code pony.ini} + GIF sprites)
  * into a structure the custom editor can apply to a {@link PonyEditor}.
  *
- * <p>Desktop Ponies supports effects, speech, multi-pony interactions, and
- * free-form linked sequences that PonyPaper does not model. Those are skipped
- * with warnings. Locomotion, idle, drag, and simple teleport chains are mapped
- * onto PonyPaper actions and next-action lists. The editor packs GIF sprites
- * at 50% ({@link ImageImport#SCALE_DIVISOR_HALF}) so imported stock ponies
- * match built-in sheet size.
+ * <p>Speech, multi-pony interactions, and free-form linked sequences are
+ * skipped with warnings. Locomotion, idle, drag, simple teleport chains, and
+ * {@code Effect} lines (when their trigger behavior was imported) are mapped
+ * onto PonyPaper actions/effects. The editor packs GIF sprites at 50%
+ * ({@link ImageImport#SCALE_DIVISOR_HALF}) so imported stock ponies match
+ * built-in sheet size.
  *
  * @see <a href="https://github.com/RoosterDragon/Desktop-Ponies">Desktop Ponies</a>
  *      {@code techdoc.md} for the {@code pony.ini} line format
@@ -80,22 +81,75 @@ public final class DesktopPoniesImport {
         }
     }
 
+    /** One effect ready to load into the editor. */
+    public static final class ImportedEffect {
+        public final String name;
+        /** Canonical name of an imported action that triggers this effect. */
+        public final String actionName;
+        public final float duration;
+        public final float repeatDelay;
+        public final boolean follow;
+        public final boolean noLoop;
+        public final String placementRight;
+        public final String centeringRight;
+        public final String placementLeft;
+        public final String centeringLeft;
+        public final File leftImage;
+        public final File rightImage;
+
+        ImportedEffect(String name, String actionName, float duration, float repeatDelay,
+                       boolean follow, boolean noLoop,
+                       String placementRight, String centeringRight,
+                       String placementLeft, String centeringLeft,
+                       File leftImage, File rightImage) {
+            this.name = name;
+            this.actionName = actionName;
+            this.duration = duration;
+            this.repeatDelay = repeatDelay;
+            this.follow = follow;
+            this.noLoop = noLoop;
+            this.placementRight = placementRight;
+            this.centeringRight = centeringRight;
+            this.placementLeft = placementLeft;
+            this.centeringLeft = centeringLeft;
+            this.leftImage = leftImage;
+            this.rightImage = rightImage;
+        }
+    }
+
     /** Result of importing one pony directory. */
     public static final class Result {
         public final String displayName;
         public final List<ImportedAction> actions;
+        public final List<ImportedEffect> effects;
         public final String startActions;
         public final String defaultDrag;
         public final List<String> warnings;
 
-        Result(String displayName, List<ImportedAction> actions, String startActions,
-               String defaultDrag, List<String> warnings) {
+        Result(String displayName, List<ImportedAction> actions, List<ImportedEffect> effects,
+               String startActions, String defaultDrag, List<String> warnings) {
             this.displayName = displayName;
             this.actions = actions;
+            this.effects = effects != null ? effects : Collections.<ImportedEffect>emptyList();
             this.startActions = startActions;
             this.defaultDrag = defaultDrag != null ? defaultDrag : "";
             this.warnings = warnings;
         }
+    }
+
+    private static final class DpEffect {
+        String name = "";
+        String behavior = "";
+        String rightImage = "";
+        String leftImage = "";
+        float duration;
+        float repeatDelay;
+        String placementRight = "Center";
+        String centeringRight = "Center";
+        String placementLeft = "Center";
+        String centeringLeft = "Center";
+        boolean follow;
+        boolean noLoop;
     }
 
     private static final class DpBehavior {
@@ -139,8 +193,8 @@ public final class DesktopPoniesImport {
         List<String> warnings = new ArrayList<>();
         String displayName = ponyDir.getName();
         List<DpBehavior> raw = new ArrayList<>();
+        List<DpEffect> rawEffects = new ArrayList<>();
         int ignoredLines = 0;
-        int effectLines = 0;
         int speakLines = 0;
         int interactionLines = 0;
 
@@ -177,7 +231,10 @@ public final class DesktopPoniesImport {
                         }
                         break;
                     case "effect":
-                        effectLines++;
+                        DpEffect effect = parseEffect(rest, warnings);
+                        if (effect != null) {
+                            rawEffects.add(effect);
+                        }
                         break;
                     case "speak":
                         speakLines++;
@@ -196,9 +253,6 @@ public final class DesktopPoniesImport {
             }
         }
 
-        if (effectLines > 0) {
-            warnings.add("Skipped " + effectLines + " Effect line(s) (not supported in PonyPaper).");
-        }
         if (speakLines > 0) {
             warnings.add("Skipped " + speakLines + " Speak line(s) (not supported in PonyPaper).");
         }
@@ -260,6 +314,14 @@ public final class DesktopPoniesImport {
         Map<String, String> teleportOutToIn = new HashMap<>();
         detectTeleportChains(resolved, byName, teleportMiddle, teleportOutToIn, warnings);
 
+        // Keep Skip=True behaviors that effects need as triggers (e.g. AJ gallop).
+        Set<String> effectTriggers = new HashSet<>();
+        for (DpEffect effect : rawEffects) {
+            if (effect.behavior != null && !effect.behavior.isEmpty()) {
+                effectTriggers.add(effect.behavior.toLowerCase(Locale.ROOT));
+            }
+        }
+
         // Classify roles
         for (DpBehavior b : resolved) {
             String key = b.name.toLowerCase(Locale.ROOT);
@@ -291,7 +353,8 @@ public final class DesktopPoniesImport {
         }
 
         // Select which behaviors become actions
-        List<DpBehavior> selected = selectBehaviors(resolved, teleportMiddle, teleportOutToIn, warnings);
+        List<DpBehavior> selected = selectBehaviors(
+                resolved, teleportMiddle, teleportOutToIn, effectTriggers, warnings);
 
         // Build weighted lists
         List<String> waitWeights = new ArrayList<>();
@@ -396,8 +459,84 @@ public final class DesktopPoniesImport {
             actions.add(action);
         }
 
-        warnings.add(0, "Imported " + actions.size() + " action(s) from \"" + displayName + "\".");
-        return new Result(displayName, actions, startList, dragList, warnings);
+        List<ImportedEffect> effects = resolveEffects(ponyDir, rawEffects, actions, warnings);
+        warnings.add(0, "Imported " + actions.size() + " action(s) and " + effects.size()
+                + " effect(s) from \"" + displayName + "\".");
+        return new Result(displayName, actions, effects, startList, dragList, warnings);
+    }
+
+    /**
+     * Maps parsed Effect lines onto imported actions. Effects whose behavior
+     * was not imported (skipped, truncated, missing) are counted and warned.
+     */
+    private static List<ImportedEffect> resolveEffects(
+            File ponyDir, List<DpEffect> rawEffects, List<ImportedAction> actions,
+            List<String> warnings) {
+        if (rawEffects.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<String, String> actionByLower = new HashMap<>();
+        for (ImportedAction action : actions) {
+            actionByLower.put(action.name.toLowerCase(Locale.ROOT), action.name);
+        }
+
+        List<ImportedEffect> effects = new ArrayList<>();
+        Set<String> seenNames = new HashSet<>();
+        int orphaned = 0;
+        for (DpEffect raw : rawEffects) {
+            if (raw.name.isEmpty()) {
+                warnings.add("Skipped an Effect with an empty name.");
+                continue;
+            }
+            String nameKey = raw.name.toLowerCase(Locale.ROOT);
+            if (!seenNames.add(nameKey)) {
+                warnings.add("Duplicate effect name \"" + raw.name + "\"; keeping the first.");
+                continue;
+            }
+            String trigger = actionByLower.get(raw.behavior.toLowerCase(Locale.ROOT));
+            if (trigger == null) {
+                orphaned++;
+                continue;
+            }
+            File right = resolveImage(ponyDir, raw.rightImage);
+            File left = resolveImage(ponyDir, raw.leftImage);
+            if (right == null || left == null) {
+                warnings.add("Skipped effect \"" + raw.name + "\": missing image file(s) "
+                        + "left=\"" + raw.leftImage + "\" right=\"" + raw.rightImage + "\".");
+                continue;
+            }
+            String placeR = normalizePlacement(raw.placementRight, "placement", raw.name, warnings, true);
+            String centerR = normalizePlacement(raw.centeringRight, "centering", raw.name, warnings, false);
+            String placeL = normalizePlacement(raw.placementLeft, "placement", raw.name, warnings, true);
+            String centerL = normalizePlacement(raw.centeringLeft, "centering", raw.name, warnings, false);
+            effects.add(new ImportedEffect(
+                    raw.name, trigger, raw.duration, raw.repeatDelay, raw.follow, raw.noLoop,
+                    placeR, centerR, placeL, centerL, left, right));
+        }
+        if (orphaned > 0) {
+            warnings.add("Skipped " + orphaned
+                    + " Effect line(s) whose behavior was not imported.");
+        }
+        return effects;
+    }
+
+    /**
+     * @param allowAny when false, {@code Any} / {@code Any-Not_Center} fall back to Center
+     */
+    private static String normalizePlacement(String raw, String field, String effectName,
+            List<String> warnings, boolean allowAny) {
+        String canon = PonyDefinition.normalizePlacementToken(raw);
+        if (canon == null) {
+            warnings.add("Effect \"" + effectName + "\": unknown " + field + " \"" + raw
+                    + "\"; using Center.");
+            return "Center";
+        }
+        if (!allowAny && ("Any".equals(canon) || "Any-Not_Center".equals(canon))) {
+            warnings.add("Effect \"" + effectName + "\": " + field
+                    + " cannot be Any; using Center.");
+            return "Center";
+        }
+        return canon;
     }
 
     /**
@@ -561,11 +700,15 @@ public final class DesktopPoniesImport {
             List<DpBehavior> resolved,
             Set<String> teleportMiddle,
             Map<String, String> outToIn,
+            Set<String> effectTriggers,
             List<String> warnings) {
 
         Set<String> mustKeep = new HashSet<>();
         mustKeep.addAll(outToIn.keySet());
         mustKeep.addAll(outToIn.values());
+        if (effectTriggers != null) {
+            mustKeep.addAll(effectTriggers);
+        }
 
         List<DpBehavior> candidates = new ArrayList<>();
         for (DpBehavior b : resolved) {
@@ -578,9 +721,13 @@ public final class DesktopPoniesImport {
                 warnings.add("Skipped non-random behavior \"" + b.name + "\" (Skip=True).");
                 continue;
             }
-            // Skip-true teleport ends still kept via mustKeep
+            // Skip-true teleport ends / effect triggers still kept via mustKeep
             if (b.skip && mustKeep.contains(key)) {
                 candidates.add(b);
+                if (effectTriggers != null && effectTriggers.contains(key)) {
+                    warnings.add("Kept Skip=True behavior \"" + b.name
+                            + "\" because an Effect references it.");
+                }
                 continue;
             }
             if (b.role == Role.DRAG || !b.skip) {
@@ -588,10 +735,15 @@ public final class DesktopPoniesImport {
             }
         }
 
-        // Ensure teleport ends present even if filtered oddly
+        // Ensure teleport ends and effect triggers present even if filtered oddly
         for (Map.Entry<String, String> e : outToIn.entrySet()) {
             ensurePresent(candidates, resolved, e.getKey());
             ensurePresent(candidates, resolved, e.getValue());
+        }
+        if (effectTriggers != null) {
+            for (String trigger : effectTriggers) {
+                ensurePresent(candidates, resolved, trigger);
+            }
         }
 
         if (candidates.size() <= MAX_ACTIONS) {
@@ -633,6 +785,32 @@ public final class DesktopPoniesImport {
                         }
                     } else {
                         limited.add(b);
+                    }
+                }
+            }
+        }
+
+        // Force effect-trigger behaviors if truncation dropped them
+        if (effectTriggers != null) {
+            for (DpBehavior b : ranked) {
+                String key = b.name.toLowerCase(Locale.ROOT);
+                if (!effectTriggers.contains(key) || !included.add(key)) {
+                    continue;
+                }
+                if (limited.size() < MAX_ACTIONS) {
+                    limited.add(b);
+                    continue;
+                }
+                for (int i = limited.size() - 1; i >= 0; i--) {
+                    Role r = limited.get(i).role;
+                    String replaceKey = limited.get(i).name.toLowerCase(Locale.ROOT);
+                    if ((r == Role.WAITING || r == Role.MOVING)
+                            && (effectTriggers == null || !effectTriggers.contains(replaceKey))
+                            && !outToIn.containsKey(replaceKey)
+                            && !outToIn.containsValue(replaceKey)) {
+                        included.remove(replaceKey);
+                        limited.set(i, b);
+                        break;
                     }
                 }
             }
@@ -732,6 +910,47 @@ public final class DesktopPoniesImport {
             }
         }
         return null;
+    }
+
+    /**
+     * Parses fields after {@code Effect,}. Requires elements through Follow
+     * (Desktop Ponies techdoc). Duration / repeat delay are clamped to
+     * {@link PonyDefinition#MAX_EFFECT_SECONDS}.
+     */
+    private static DpEffect parseEffect(String rest, List<String> warnings) {
+        List<String> fields = splitCsv(rest);
+        // 0 name, 1 behavior, 2 right, 3 left, 4 duration, 5 repeat,
+        // 6–9 placement/centering, 10 follow [, 11 noloop]
+        if (fields.size() < 11) {
+            warnings.add("Skipped incomplete Effect line (" + fields.size() + " fields).");
+            return null;
+        }
+        DpEffect effect = new DpEffect();
+        effect.name = fields.get(0).trim();
+        effect.behavior = fields.get(1).trim();
+        effect.rightImage = fields.get(2).trim();
+        effect.leftImage = fields.get(3).trim();
+        effect.duration = clampEffectSeconds(parseDouble(fields.get(4), 0));
+        effect.repeatDelay = clampEffectSeconds(parseDouble(fields.get(5), 0));
+        effect.placementRight = fields.get(6).trim();
+        effect.centeringRight = fields.get(7).trim();
+        effect.placementLeft = fields.get(8).trim();
+        effect.centeringLeft = fields.get(9).trim();
+        effect.follow = parseBool(fields.get(10));
+        if (fields.size() > 11) {
+            effect.noLoop = parseBool(fields.get(11));
+        }
+        return effect;
+    }
+
+    private static float clampEffectSeconds(double value) {
+        if (value < 0) {
+            return 0f;
+        }
+        if (value > PonyDefinition.MAX_EFFECT_SECONDS) {
+            return PonyDefinition.MAX_EFFECT_SECONDS;
+        }
+        return (float) value;
     }
 
     private static DpBehavior parseBehavior(String rest, List<String> warnings) {

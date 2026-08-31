@@ -46,6 +46,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
 import javax.swing.JToolBar;
 import javax.swing.KeyStroke;
@@ -1955,9 +1956,10 @@ public class PonyEditorGUI extends JPanel {
                     actionList.clearSelection();
                     actionSettingsPane.setAction(-1);
                 }
-                // Model already scrubbed start actions; keep the field in sync.
+                // Model already scrubbed start actions and orphaned effects.
                 startActionsField.setText(editor.getStartActions());
                 defaultDragField.setText(editor.getDefaultDrag());
+                refreshEffectListFromEditor();
             }
         }
     };
@@ -1965,6 +1967,63 @@ public class PonyEditorGUI extends JPanel {
     private ActionListener renameActionListener = new ActionListener() {
         public void actionPerformed(ActionEvent e) {
             renameSelectedAction();
+        }
+    };
+
+    private ListSelectionListener effectListSelectionListener = new ListSelectionListener() {
+        public void valueChanged(ListSelectionEvent e) {
+            if (e.getValueIsAdjusting()) {
+                return;
+            }
+            effectSettingsPane.setEffect(effectList.getSelectedIndex());
+            refreshStatusBar();
+        }
+    };
+
+    private ActionListener newEffectListener = new ActionListener() {
+        public void actionPerformed(ActionEvent e) {
+            String effectName = JOptionPane.showInputDialog(PonyEditorGUI.this,
+                    "Enter a name for the new effect:", "New Effect", JOptionPane.PLAIN_MESSAGE);
+            if (effectName != null && !effectName.trim().isEmpty()) {
+                try {
+                    int i = editor.addEffect(effectName);
+                    setDirty(true);
+                    effectListModel.addElement(editor.getEffectName(i));
+                    effectList.setSelectedIndex(i);
+                    if (centerTabs != null) {
+                        centerTabs.setSelectedIndex(1);
+                    }
+                } catch (IllegalArgumentException ex) {
+                    JOptionPane.showMessageDialog(PonyEditorGUI.this, ex.getMessage(),
+                            "New Effect Failed", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }
+    };
+
+    private ActionListener deleteEffectListener = new ActionListener() {
+        public void actionPerformed(ActionEvent e) {
+            int i = effectList.getSelectedIndex();
+            if (i != -1) {
+                editor.removeEffect(i);
+                setDirty(true);
+                effectListModel.remove(i);
+                int newIndex = i < editor.getEffectCount() ? i : i - 1;
+                if (newIndex >= 0) {
+                    effectList.setSelectedIndex(newIndex);
+                    effectSettingsPane.setEffect(newIndex);
+                } else {
+                    effectList.clearSelection();
+                    effectSettingsPane.setEffect(-1);
+                }
+                refreshStatusBar();
+            }
+        }
+    };
+
+    private ActionListener renameEffectListener = new ActionListener() {
+        public void actionPerformed(ActionEvent e) {
+            renameSelectedEffect();
         }
     };
     
@@ -1990,6 +2049,10 @@ public class PonyEditorGUI extends JPanel {
     private DefaultListModel<String> actionListModel;
     private JList<String> actionList;
     private ActionPanel actionSettingsPane;
+    private DefaultListModel<String> effectListModel;
+    private JList<String> effectList;
+    private EffectPanel effectSettingsPane;
+    private JTabbedPane centerTabs;
     private JTextField startActionsField;
     private JTextField defaultDragField;
     private JLabel statusLabel;
@@ -2033,15 +2096,56 @@ public class PonyEditorGUI extends JPanel {
                 BorderFactory.createEmptyBorder(2, 4, 4, 4)));
         actionSettingsPane.setMinimumSize(new Dimension(420, 200));
 
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, actionListPane, actionSettingsPane);
-        split.setResizeWeight(0.22);
-        split.setContinuousLayout(true);
-        split.setBorder(BorderFactory.createEmptyBorder());
-        split.setDividerSize(6);
+        JSplitPane actionSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, actionListPane, actionSettingsPane);
+        actionSplit.setResizeWeight(0.22);
+        actionSplit.setContinuousLayout(true);
+        actionSplit.setBorder(BorderFactory.createEmptyBorder());
+        actionSplit.setDividerSize(6);
+
+        JComponent effectListPane = createEffectListPane();
+        effectListPane.setPreferredSize(new Dimension(220, 400));
+        effectListPane.setMinimumSize(new Dimension(160, 200));
+        effectSettingsPane = new EffectPanel(new EffectPanel.Host() {
+            @Override
+            public PonyEditor editor() {
+                return editor;
+            }
+
+            @Override
+            public JFileChooser fileChooser() {
+                return fc;
+            }
+
+            @Override
+            public void markDirty() {
+                setDirty(true);
+            }
+
+            @Override
+            public Component dialogParent() {
+                return PonyEditorGUI.this;
+            }
+        });
+
+        JSplitPane effectSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, effectListPane, effectSettingsPane);
+        effectSplit.setResizeWeight(0.22);
+        effectSplit.setContinuousLayout(true);
+        effectSplit.setBorder(BorderFactory.createEmptyBorder());
+        effectSplit.setDividerSize(6);
+
+        centerTabs = new JTabbedPane();
+        centerTabs.addTab("Actions", actionSplit);
+        centerTabs.addTab("Effects", effectSplit);
+        centerTabs.addChangeListener(new javax.swing.event.ChangeListener() {
+            @Override
+            public void stateChanged(javax.swing.event.ChangeEvent e) {
+                refreshStatusBar();
+            }
+        });
 
         JPanel center = new JPanel(new BorderLayout(0, 0));
         center.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 6));
-        center.add(split, BorderLayout.CENTER);
+        center.add(centerTabs, BorderLayout.CENTER);
         center.add(createStartActionsPane(), BorderLayout.SOUTH);
         add(center, BorderLayout.CENTER);
         add(createStatusBar(), BorderLayout.SOUTH);
@@ -2106,16 +2210,26 @@ public class PonyEditorGUI extends JPanel {
             return;
         }
         int actions = editor != null ? editor.getActionCount() : 0;
+        int effects = editor != null ? editor.getEffectCount() : 0;
         int sel = actionList != null ? actionList.getSelectedIndex() : -1;
         String actionName = "—";
         if (editor != null && sel >= 0 && sel < editor.getActionCount()) {
             actionName = editor.getActionName(sel);
         }
+        int effectSel = effectList != null ? effectList.getSelectedIndex() : -1;
+        String effectName = "—";
+        if (editor != null && effectSel >= 0 && effectSel < editor.getEffectCount()) {
+            effectName = editor.getEffectName(effectSel);
+        }
         String path = currentFile != null ? currentFile.getAbsolutePath() : "(unsaved)";
         String dirty = hasChanges ? "Modified" : "Saved";
         String actionWord = actions == 1 ? "action" : "actions";
+        String effectWord = effects == 1 ? "effect" : "effects";
+        boolean onEffects = centerTabs != null && centerTabs.getSelectedIndex() == 1;
+        String focus = onEffects ? ("effect " + effectName) : ("action " + actionName);
         statusLabel.setText(dirty + "  ·  " + actions + " " + actionWord
-                + "  ·  " + actionName + "  ·  " + path);
+                + "  ·  " + effects + " " + effectWord
+                + "  ·  " + focus + "  ·  " + path);
     }
 
     /**
@@ -2178,7 +2292,27 @@ public class PonyEditorGUI extends JPanel {
             actionList.clearSelection();
             actionSettingsPane.setAction(-1);
         }
+        refreshEffectListFromEditor();
         refreshStatusBar();
+    }
+
+    private void refreshEffectListFromEditor() {
+        if (effectListModel == null || effectSettingsPane == null) {
+            return;
+        }
+        int previous = effectList.getSelectedIndex();
+        effectListModel.clear();
+        for (int i = 0; i < editor.getEffectCount(); i++) {
+            effectListModel.addElement(editor.getEffectName(i));
+        }
+        if (editor.getEffectCount() > 0) {
+            int select = previous >= 0 && previous < editor.getEffectCount() ? previous : 0;
+            effectList.setSelectedIndex(select);
+            effectSettingsPane.setEffect(select);
+        } else {
+            effectList.clearSelection();
+            effectSettingsPane.setEffect(-1);
+        }
     }
     
     private void createNewPony() {
@@ -2414,6 +2548,41 @@ public class PonyEditorGUI extends JPanel {
         actionSettingsPane.setAction(i);
         startActionsField.setText(editor.getStartActions());
         defaultDragField.setText(editor.getDefaultDrag());
+        // Effect trigger names are rewritten in the model; refresh the form.
+        int effectSel = effectList != null ? effectList.getSelectedIndex() : -1;
+        if (effectSettingsPane != null) {
+            effectSettingsPane.setEffect(effectSel);
+        }
+        refreshStatusBar();
+    }
+
+    private void renameSelectedEffect() {
+        int i = effectList.getSelectedIndex();
+        if (i < 0) {
+            return;
+        }
+        String current = editor.getEffectName(i);
+        String effectName = (String)JOptionPane.showInputDialog(this,
+                "Enter a new name for this effect:", "Rename Effect",
+                JOptionPane.PLAIN_MESSAGE, null, null, current);
+        if (effectName == null) {
+            return;
+        }
+        effectName = effectName.trim();
+        if (effectName.isEmpty() || effectName.equals(current)) {
+            return;
+        }
+        try {
+            editor.setEffectName(i, effectName);
+        } catch (IllegalArgumentException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Rename Failed",
+                    JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        setDirty(true);
+        effectListModel.set(i, effectName);
+        effectSettingsPane.setEffect(i);
+        refreshStatusBar();
     }
 
     private JComponent createActionListPane() {
@@ -2452,6 +2621,45 @@ public class PonyEditorGUI extends JPanel {
         buttons.add(deleteAction);
         result.add(buttons, BorderLayout.SOUTH);
         
+        return result;
+    }
+
+    private JComponent createEffectListPane() {
+        JPanel result = new JPanel(new BorderLayout(0, 4));
+        result.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder("Effects"),
+                BorderFactory.createEmptyBorder(2, 4, 4, 4)));
+
+        effectListModel = new DefaultListModel<String>();
+        effectList = new JList<String>(effectListModel);
+        effectList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        effectList.setVisibleRowCount(-1);
+        effectList.getSelectionModel().addListSelectionListener(effectListSelectionListener);
+        effectList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2 && effectList.locationToIndex(e.getPoint()) >= 0) {
+                    renameSelectedEffect();
+                }
+            }
+        });
+        result.add(new JScrollPane(effectList), BorderLayout.CENTER);
+
+        JPanel buttons = new JPanel(new GridLayout(1, 3, 4, 0));
+        JButton newEffect = new JButton("New");
+        newEffect.setToolTipText("Create a new effect");
+        newEffect.addActionListener(newEffectListener);
+        JButton renameEffect = new JButton("Rename");
+        renameEffect.setToolTipText("Rename the selected effect");
+        renameEffect.addActionListener(renameEffectListener);
+        JButton deleteEffect = new JButton("Delete");
+        deleteEffect.setToolTipText("Delete the selected effect");
+        deleteEffect.addActionListener(deleteEffectListener);
+        buttons.add(newEffect);
+        buttons.add(renameEffect);
+        buttons.add(deleteEffect);
+        result.add(buttons, BorderLayout.SOUTH);
+
         return result;
     }
     

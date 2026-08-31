@@ -113,3 +113,5 @@ Effects are Desktop Ponies–compatible prop/VFX sprites spawned when a named ac
 Defaults when omitted: `duration=0`, `repeatdelay=0`, `follow=false`, `noloop=false`, placement/centering `Center`. Duration and repeat delay must be in `[0, 300]`. Images and timings use the same Base64 strip + centisecond format as actions.
 
 Runtime note: effect instances are scene-owned (they do not consume pony herd slots). Action change stops repeats and expires `duration=0` instances; pony leave/reset expires all of that pony’s effects.
+
+**Desktop Ponies import:** `Effect,*Name*,*Behavior*,*Right*,*Left*,*Duration*,*RepeatDelay*,*PlaceR*,*CenterR*,*PlaceL*,*CenterL*,*Follow*[,*NoLoop*]` lines map onto `<effect>` entries. Placement tokens are normalized to the canonical set above. Behaviors that are `Skip=True` are still imported when an Effect names them as its trigger.
