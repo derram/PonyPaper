@@ -8,8 +8,10 @@ import android.view.ViewParent;
 import android.widget.ScrollView;
 
 /**
- * {@link ScrollView} that honours {@code android:maxHeight}. The mix picker
- * list on the dream sheet must scroll instead of growing off a short display.
+ * {@link ScrollView} that honours {@code android:maxHeight}. Used for the dream
+ * session sheet (main page and mix picker): a short display — especially
+ * landscape — measures the sheet with {@code AT_MOST}, and without a scroll
+ * viewport the bottom rows are clipped.
  *
  * <p>Clickable ancestors (the full-screen chrome overlay and the sheet) must
  * not steal the drag. Nested scrolling is off so a dream overlay cannot eat

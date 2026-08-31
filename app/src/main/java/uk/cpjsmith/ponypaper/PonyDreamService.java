@@ -485,16 +485,19 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         disableAutoDimSwitch = null;
         shuffleMixesSwitch = null;
         mixItems = null;
-        if (mixScroll != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            mixScroll.setSystemGestureExclusionRects(Collections.<Rect>emptyList());
-        }
-        mixScroll = null;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (sheetMain != null) {
+                sheetMain.setSystemGestureExclusionRects(Collections.<Rect>emptyList());
+            }
+            if (mixScroll != null) {
+                mixScroll.setSystemGestureExclusionRects(Collections.<Rect>emptyList());
+            }
             Window window = getWindow();
             if (window != null) {
                 window.setSystemGestureExclusionRects(Collections.<Rect>emptyList());
             }
         }
+        mixScroll = null;
         super.onDetachedFromWindow();
     }
 
@@ -820,6 +823,27 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 }
             });
         }
+        if (sheetMain != null) {
+            sheetMain.setOnTouchListener(new View.OnTouchListener() {
+                @Override
+                public boolean onTouch(View v, MotionEvent event) {
+                    int action = event.getActionMasked();
+                    if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+                        noteChromeActivity();
+                    }
+                    return false;
+                }
+            });
+            sheetMain.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                @Override
+                public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                        int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                    if (sheetExpanded && !mixListVisible) {
+                        updateSheetGestureExclusion();
+                    }
+                }
+            });
+        }
         if (mixScroll != null) {
             mixScroll.setOnTouchListener(new View.OnTouchListener() {
                 @Override
@@ -836,7 +860,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 public void onLayoutChange(View v, int left, int top, int right, int bottom,
                         int oldLeft, int oldTop, int oldRight, int oldBottom) {
                     if (mixListVisible) {
-                        updateMixGestureExclusion();
+                        updateSheetGestureExclusion();
                     }
                 }
             });
@@ -848,6 +872,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                         int oldLeft, int oldTop, int oldRight, int oldBottom) {
                     if (mixListVisible) {
                         updateMixScrollViewport();
+                    } else if (sheetExpanded) {
+                        updateSheetGestureExclusion();
                     }
                 }
             });
@@ -954,6 +980,12 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 .alpha(1f)
                 .setDuration(CHROME_FADE_MS)
                 .start();
+        sessionSheet.post(new Runnable() {
+            @Override
+            public void run() {
+                updateSheetGestureExclusion();
+            }
+        });
     }
 
     private void collapseSheet() {
@@ -966,6 +998,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         sessionSheet.animate().cancel();
         sessionSheet.setVisibility(View.GONE);
         sessionSheet.setAlpha(1f);
+        updateSheetGestureExclusion();
     }
 
     private void syncChromeWidgets() {
@@ -1043,7 +1076,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         if (mixScroll != null) {
             mixScroll.setMaxHeight(mixScroll.getXmlMaxHeight());
         }
-        updateMixGestureExclusion();
+        updateSheetGestureExclusion();
     }
 
     /**
@@ -1075,27 +1108,53 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             cap = available < minPx ? available : minPx;
         }
         mixScroll.setMaxHeight(cap);
-        updateMixGestureExclusion();
+        updateSheetGestureExclusion();
     }
 
-    private void updateMixGestureExclusion() {
+    /**
+     * Keep dream / system edge gestures from stealing sheet scrolls. Covers the
+     * main settings page and the mix list; both sit in the top-end gesture zone.
+     */
+    private void updateSheetGestureExclusion() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return;
-        List<Rect> rects = Collections.emptyList();
-        if (mixListVisible && sessionSheet != null && sessionSheet.getVisibility() == View.VISIBLE) {
+        List<Rect> windowRects = Collections.emptyList();
+        boolean sheetOpen = sheetExpanded && sessionSheet != null
+                && sessionSheet.getVisibility() == View.VISIBLE;
+        if (sheetOpen) {
             Rect sheet = new Rect();
             if (sessionSheet.getGlobalVisibleRect(sheet) && !sheet.isEmpty()) {
+                Window window = getWindow();
+                if (window != null) {
+                    View decor = window.getDecorView();
+                    if (decor != null) {
+                        int[] loc = new int[2];
+                        decor.getLocationOnScreen(loc);
+                        sheet.offset(-loc[0], -loc[1]);
+                    }
+                }
                 ArrayList<Rect> list = new ArrayList<Rect>(1);
                 list.add(sheet);
-                rects = list;
+                windowRects = list;
             }
-        }
-        if (mixScroll != null) {
-            mixScroll.setSystemGestureExclusionRects(rects);
         }
         Window window = getWindow();
         if (window != null) {
-            window.setSystemGestureExclusionRects(rects);
+            window.setSystemGestureExclusionRects(windowRects);
         }
+        // Local full-bounds on the active scroll surface; empty when hidden.
+        setLocalGestureExclusion(sheetMain, sheetOpen && !mixListVisible);
+        setLocalGestureExclusion(mixScroll, sheetOpen && mixListVisible);
+    }
+
+    private void setLocalGestureExclusion(View view, boolean enabled) {
+        if (view == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return;
+        if (!enabled || view.getWidth() <= 0 || view.getHeight() <= 0) {
+            view.setSystemGestureExclusionRects(Collections.<Rect>emptyList());
+            return;
+        }
+        ArrayList<Rect> list = new ArrayList<Rect>(1);
+        list.add(new Rect(0, 0, view.getWidth(), view.getHeight()));
+        view.setSystemGestureExclusionRects(list);
     }
 
     private String currentMixLabel() {
