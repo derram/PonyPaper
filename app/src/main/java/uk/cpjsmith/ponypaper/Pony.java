@@ -41,13 +41,19 @@ public class Pony {
     private static final int WAIT_MIN_MS = 2000;
     private static final int WAIT_EXTRA_MS = 10000;
     
+    private static final PonyEffectDef[] NO_EFFECTS = new PonyEffectDef[0];
+
     private final PonyAction[] allActions;
     private final PonyAction[] startActions;
+    private final PonyEffectDef[] effectDefs;
     /**
      * Preference key that enabled this pony (e.g. {@code pref_ts},
      * {@code pref_custom_foo.xml}). Used for waifu / priority selection.
      */
     private String prefKey = "";
+
+    /** Scene that owns live effect instances; null until {@link Ponies} wires it. */
+    private EffectHost effectHost;
     
     private Random random;
     private Point targetPos;
@@ -75,6 +81,15 @@ public class Pony {
      * {@code min(w,h)/200} scale).
      */
     private float sizeFactor = 1f;
+
+    /**
+     * Receives action-change and leave notifications so the scene can spawn
+     * and cull effect sprites.
+     */
+    interface EffectHost {
+        void onPonyActionChanged(Pony pony, PonyAction previous, PonyAction next);
+        void onPonyEffectsCleared(Pony pony);
+    }
     
     /**
      * Creates a new {@code Pony} object.
@@ -83,10 +98,65 @@ public class Pony {
      * @param startActions the actions that the pony can enter the screen with
      */
     public Pony(PonyAction[] allActions, PonyAction[] startActions) {
+        this(allActions, startActions, null);
+    }
+
+    /**
+     * Creates a pony with optional effect definitions (custom characters).
+     *
+     * @param effectDefs may be {@code null} or empty when the character has none
+     */
+    public Pony(PonyAction[] allActions, PonyAction[] startActions, PonyEffectDef[] effectDefs) {
         this.allActions = allActions;
         this.startActions = startActions;
+        this.effectDefs = effectDefs != null ? effectDefs : NO_EFFECTS;
         this.random = new Random();
         this.direction = random.nextBoolean() ? PonyAction.LEFT : PonyAction.RIGHT;
+    }
+
+    void setEffectHost(EffectHost host) {
+        this.effectHost = host;
+    }
+
+    PonyEffectDef[] getEffectDefs() {
+        return effectDefs;
+    }
+
+    boolean hasEffects() {
+        return effectDefs.length > 0;
+    }
+
+    int getDirection() {
+        return direction;
+    }
+
+    float getScale() {
+        if (screenBounds == null) {
+            return sizeFactor;
+        }
+        return Math.min(screenBounds.width(), screenBounds.height()) / 200.0f * sizeFactor;
+    }
+
+    Random effectRandom() {
+        return random;
+    }
+
+    /**
+     * Current sprite draw bounds (feet at {@link #posX}/{@link #posY}), including
+     * the drag lift so follow effects track the visible sprite.
+     */
+    void fillCurrentDrawBounds(RectF out) {
+        if (currentAction == null || !currentAction.isReady() || out == null) {
+            if (out != null) {
+                out.setEmpty();
+            }
+            return;
+        }
+        float y = posY;
+        if (motion == MOTION_DRAGGED) {
+            y -= 20f * getScale();
+        }
+        currentAction.fillDrawBounds(posX, y, getScale(), direction, out);
     }
     
     /**
@@ -128,6 +198,9 @@ public class Pony {
         posX = 0;
         posY = 0;
         frameTime = 0;
+        if (effectHost != null) {
+            effectHost.onPonyEffectsCleared(this);
+        }
         unloadActions();
     }
 
@@ -139,6 +212,9 @@ public class Pony {
         for (int i = 0; i < allActions.length; i++) {
             allActions[i].unload();
         }
+        for (int i = 0; i < effectDefs.length; i++) {
+            effectDefs[i].unload();
+        }
     }
 
     /**
@@ -148,6 +224,9 @@ public class Pony {
     public void loadActions() {
         for (int i = 0; i < allActions.length; i++) {
             allActions[i].load();
+        }
+        for (int i = 0; i < effectDefs.length; i++) {
+            effectDefs[i].load();
         }
     }
 
@@ -160,6 +239,11 @@ public class Pony {
                 return false;
             }
         }
+        for (int i = 0; i < effectDefs.length; i++) {
+            if (!effectDefs[i].isReady()) {
+                return false;
+            }
+        }
         return true;
     }
 
@@ -169,6 +253,11 @@ public class Pony {
     public boolean actionsFailed() {
         for (int i = 0; i < allActions.length; i++) {
             if (allActions[i].loadFailed()) {
+                return true;
+            }
+        }
+        for (int i = 0; i < effectDefs.length; i++) {
+            if (effectDefs[i].loadFailed()) {
                 return true;
             }
         }
@@ -662,8 +751,12 @@ public class Pony {
     
     private void changeAction(PonyAction newAction) {
         if (newAction != currentAction) {
+            PonyAction previous = currentAction;
             currentAction = newAction;
             frameTime = 0;
+            if (effectHost != null && effectDefs.length > 0) {
+                effectHost.onPonyActionChanged(this, previous, newAction);
+            }
         }
     }
     
@@ -731,9 +824,7 @@ public class Pony {
         }
     }
     
-    private float getScale() {
-        return Math.min(screenBounds.width(), screenBounds.height()) / 200.0f * sizeFactor;
-    }
+
     
     /**
      * Largest unscaled frame height among this pony's loaded actions. Used so

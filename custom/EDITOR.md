@@ -44,7 +44,13 @@ It can be started by launching the JAR from the file manager (if `.jar` is assoc
 * map simple teleport chains (e.g. Twilight’s warp) to `teleport-out` / `teleport-in`
 * use a `Dragged` behavior for drag when present
 
-Effects, speech, interactions, non-zero behavior groups, and most `Skip=True` story sequences are skipped. A summary dialog lists what was imported or omitted—always review the action graph before saving.
+Speech, interactions, non-zero behavior groups, and most `Skip=True` story sequences are skipped. **Effect lines are still skipped by the importer** (runtime/XML support exists; import wiring is next). A summary dialog lists what was imported or omitted—always review the action graph before saving.
+
+### Effects (spawned sprites)
+
+Custom ponies can declare Desktop Ponies–style **effects** in XML: sprites that appear when a named action starts, with 9-point placement/centering, optional follow, duration, and repeat. See the [Technical Spec](TECHNICAL_SPEC.md#effects-spawned-sprites). Apparent motion (falling apples, shaking trees) belongs in the spritesheet — there is no velocity/physics.
+
+The Swing editor does not yet have an Effects panel; author `<effect>` blocks by hand (or wait for the forthcoming UI), then open/save the pony in the editor as usual. The wallpaper loads and draws effects for custom characters automatically.
 
 ### Action Properties
 

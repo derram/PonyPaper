@@ -96,6 +96,21 @@ public class PonyDefinition {
     public static final String SPECIAL_SCREEN_OUT = "screen-out";
 
     /**
+     * Desktop Ponies–compatible placement / centering tokens (canonical casing).
+     * {@code Any} and {@code Any-Not_Center} are valid for placement only at
+     * spawn time (one cell chosen at random).
+     */
+    public static final String[] PLACEMENT_TOKENS = {
+        "Top_Left", "Top", "Top_Right",
+        "Left", "Center", "Right",
+        "Bottom_Left", "Bottom", "Bottom_Right",
+        "Any", "Any-Not_Center"
+    };
+
+    /** Maximum effect duration / repeat delay in seconds (Desktop Ponies bound). */
+    public static final float MAX_EFFECT_SECONDS = 300.0f;
+
+    /**
      * @return true when {@code specialType} is empty or a known special
      */
     public static boolean isKnownSpecialType(String specialType) {
@@ -106,6 +121,38 @@ public class PonyDefinition {
                 || SPECIAL_TELEPORT_IN.equals(specialType)
                 || SPECIAL_SCREEN_IN.equals(specialType)
                 || SPECIAL_SCREEN_OUT.equals(specialType);
+    }
+
+    /**
+     * Normalizes a placement/centering token to canonical Desktop Ponies casing.
+     * Comparison is case-insensitive; hyphens and underscores are accepted for
+     * {@code Any-Not_Center}. Returns {@code null} when unrecognized.
+     */
+    public static String normalizePlacementToken(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String t = raw.replaceAll("\\s+", "");
+        if (t.isEmpty()) {
+            return null;
+        }
+        String compact = t.replace('_', '-');
+        for (int i = 0; i < PLACEMENT_TOKENS.length; i++) {
+            String canon = PLACEMENT_TOKENS[i];
+            if (canon.equalsIgnoreCase(t)
+                    || canon.replace('_', '-').equalsIgnoreCase(compact)) {
+                return canon;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @return true when {@code token} is a known placement/centering value
+     *         (any casing)
+     */
+    public static boolean isKnownPlacementToken(String token) {
+        return normalizePlacementToken(token) != null;
     }
     
     /**
@@ -786,8 +833,286 @@ public class PonyDefinition {
         }
         
     }
+
+    /**
+     * A Desktop Ponies–style effect: a sprite spawned when a named action
+     * starts. Placement aligns a point on the pony image with a point on the
+     * effect image. Motion is either planted ({@link #follow} false) or glued
+     * to the pony ({@link #follow} true); apparent motion comes from the
+     * spritesheet, not velocity.
+     */
+    public static class Effect {
+        public String name;
+        /** Name of the {@link Action} that triggers this effect when it starts. */
+        public String action;
+        /**
+         * Lifetime in seconds. {@code 0} means until the triggering action
+         * ends (or the pony leaves). Timed effects may outlive the action.
+         */
+        public float duration;
+        /**
+         * Seconds between additional spawns while the triggering action is
+         * still current. {@code 0} means spawn once only.
+         */
+        public float repeatDelay;
+        /** When true, re-attach to the pony each frame; otherwise plant once. */
+        public boolean follow;
+        /**
+         * When true, play the effect animation once even if the sheet would
+         * loop (Desktop Ponies "Prevent Animation Loop").
+         */
+        public boolean noLoop;
+        /**
+         * Placement on the pony image per facing ({@code left}/{@code right}).
+         * Values are canonical tokens from {@link #PLACEMENT_TOKENS}.
+         */
+        public final Map<String, String> placement = new HashMap<String, String>();
+        /**
+         * Centering point on the effect image per facing ({@code left}/{@code right}).
+         */
+        public final Map<String, String> centering = new HashMap<String, String>();
+        public final Map<String, String> images = new HashMap<String, String>();
+        public final Map<String, String> timings = new HashMap<String, String>();
+
+        public Effect() {
+            name = "";
+            action = "";
+            duration = 0.0f;
+            repeatDelay = 0.0f;
+            follow = false;
+            noLoop = false;
+            placement.put("left", "Center");
+            placement.put("right", "Center");
+            centering.put("left", "Center");
+            centering.put("right", "Center");
+            images.put("left", "");
+            images.put("right", "");
+            timings.put("left", "");
+            timings.put("right", "");
+        }
+
+        public Effect(Element element) throws InvalidPonyException {
+            List<String> errors = new ArrayList<String>();
+
+            name = element.getAttribute("name");
+            if (name.equals("")) {
+                errors.add("An <effect> must have a name.");
+            }
+
+            String parsedAction = null;
+            Float parsedDuration = null;
+            Float parsedRepeat = null;
+            Boolean parsedFollow = null;
+            Boolean parsedNoLoop = null;
+
+            for (Node node = element.getFirstChild(); node != null; node = node.getNextSibling()) {
+                switch (node.getNodeType()) {
+                    case Node.ELEMENT_NODE:
+                    {
+                        String nodeName = node.getNodeName();
+                        if (nodeName.equals("action")) {
+                            parsedAction = addActionName((Element)node, parsedAction, errors);
+                        } else if (nodeName.equals("duration")) {
+                            parsedDuration = addSeconds((Element)node, "duration",
+                                    parsedDuration, errors);
+                        } else if (nodeName.equals("repeatdelay")) {
+                            parsedRepeat = addSeconds((Element)node, "repeatdelay",
+                                    parsedRepeat, errors);
+                        } else if (nodeName.equals("follow")) {
+                            parsedFollow = addBoolean((Element)node, "follow",
+                                    parsedFollow, errors);
+                        } else if (nodeName.equals("noloop")) {
+                            parsedNoLoop = addBoolean((Element)node, "noloop",
+                                    parsedNoLoop, errors);
+                        } else if (nodeName.equals("placement")) {
+                            addDirectedToken((Element)node, "placement", placement, errors);
+                        } else if (nodeName.equals("centering")) {
+                            addDirectedToken((Element)node, "centering", centering, errors);
+                        } else if (nodeName.equals("image")) {
+                            addImage((Element)node, errors);
+                        } else if (nodeName.equals("timings")) {
+                            addTimings((Element)node, errors);
+                        } else {
+                            errors.add("Unexpected " + node.getNodeName()
+                                    + " element in <effect>.");
+                        }
+                        break;
+                    }
+
+                    case Node.TEXT_NODE:
+                    {
+                        String text = node.getNodeValue().trim();
+                        if (!text.isEmpty()) {
+                            errors.add("Unexpected text " + text + " in <effect>.");
+                        }
+                        break;
+                    }
+
+                    default:
+                        errors.add("Unexpected " + node.getNodeName() + " node in <effect>.");
+                        break;
+                }
+            }
+
+            if (parsedAction == null || parsedAction.isEmpty()) {
+                errors.add("Effect " + (name.isEmpty() ? "(unnamed)" : name)
+                        + " needs an <action> naming the trigger action.");
+            }
+
+            action = parsedAction != null ? parsedAction : "";
+            duration = parsedDuration != null ? parsedDuration.floatValue() : 0.0f;
+            repeatDelay = parsedRepeat != null ? parsedRepeat.floatValue() : 0.0f;
+            follow = parsedFollow != null ? parsedFollow.booleanValue() : false;
+            noLoop = parsedNoLoop != null ? parsedNoLoop.booleanValue() : false;
+
+            if (!placement.containsKey("left")) {
+                placement.put("left", "Center");
+            }
+            if (!placement.containsKey("right")) {
+                placement.put("right", "Center");
+            }
+            if (!centering.containsKey("left")) {
+                centering.put("left", "Center");
+            }
+            if (!centering.containsKey("right")) {
+                centering.put("right", "Center");
+            }
+            if (!images.containsKey("left")) {
+                images.put("left", "");
+            }
+            if (!images.containsKey("right")) {
+                images.put("right", "");
+            }
+            if (!timings.containsKey("left")) {
+                timings.put("left", "");
+            }
+            if (!timings.containsKey("right")) {
+                timings.put("right", "");
+            }
+
+            if (!errors.isEmpty()) {
+                throw new InvalidPonyException(errors);
+            }
+        }
+
+        private String addActionName(Element element, String existing, List<String> errors) {
+            if (existing != null) {
+                errors.add("Too many <action> elements in <effect>.");
+                return existing;
+            }
+            String text = getContent(element, errors);
+            if (text == null) {
+                return null;
+            }
+            text = text.replaceAll("\\s+", "");
+            if (text.isEmpty()) {
+                errors.add("<action> must name a trigger action.");
+                return null;
+            }
+            return text;
+        }
+
+        private Float addSeconds(Element element, String tag, Float existing,
+                List<String> errors) {
+            if (existing != null) {
+                errors.add("Too many <" + tag + "> elements.");
+                return existing;
+            }
+            String text = getContent(element, errors);
+            if (text == null) {
+                return null;
+            }
+            try {
+                float value = Float.parseFloat(text.replaceAll("\\s+", ""));
+                if (Float.isNaN(value) || value < 0f || value > MAX_EFFECT_SECONDS) {
+                    errors.add("<" + tag + "> must be between 0 and "
+                            + (int)MAX_EFFECT_SECONDS + ".");
+                    return null;
+                }
+                return Float.valueOf(value);
+            } catch (NumberFormatException e) {
+                errors.add("Invalid <" + tag + "> value.");
+                return null;
+            }
+        }
+
+        private Boolean addBoolean(Element element, String tag, Boolean existing,
+                List<String> errors) {
+            if (existing != null) {
+                errors.add("Too many <" + tag + "> elements.");
+                return existing;
+            }
+            String text = getContent(element, errors);
+            if (text == null) {
+                return null;
+            }
+            text = text.replaceAll("\\s+", "").toLowerCase();
+            if (text.equals("true") || text.equals("yes") || text.equals("1")) {
+                return Boolean.TRUE;
+            }
+            if (text.equals("false") || text.equals("no") || text.equals("0")) {
+                return Boolean.FALSE;
+            }
+            errors.add("<" + tag + "> must be true or false.");
+            return null;
+        }
+
+        private void addDirectedToken(Element element, String tag,
+                Map<String, String> target, List<String> errors) {
+            String direction = element.getAttribute("direction");
+            if (!(direction.equals("left") || direction.equals("right"))) {
+                errors.add("<" + tag + "> must have a direction of left or right.");
+                return;
+            }
+            if (target.containsKey(direction)) {
+                errors.add("Too many <" + tag + "> elements with direction " + direction + ".");
+                return;
+            }
+            String text = getContent(element, errors);
+            if (text == null) {
+                return;
+            }
+            String canon = normalizePlacementToken(text);
+            if (canon == null) {
+                errors.add("Unknown <" + tag + "> value \"" + text.trim() + "\".");
+                return;
+            }
+            target.put(direction, canon);
+        }
+
+        private void addImage(Element element, List<String> errors) {
+            String direction = element.getAttribute("direction");
+            if (!(direction.equals("left") || direction.equals("right"))) {
+                errors.add("<image> must have a direction of left or right.");
+                return;
+            }
+            if (images.containsKey(direction)) {
+                errors.add("Too many <image> elements with direction " + direction + ".");
+                return;
+            }
+            images.put(direction, getContent(element, errors).replaceAll("\\s+", ""));
+        }
+
+        private void addTimings(Element element, List<String> errors) {
+            String direction = element.getAttribute("direction");
+            if (!(direction.equals("left") || direction.equals("right"))) {
+                errors.add("<timings> must have a direction of left or right.");
+                return;
+            }
+            if (timings.containsKey(direction)) {
+                errors.add("Too many <timings> elements with direction " + direction + ".");
+                return;
+            }
+            timings.put(direction, getContent(element, errors));
+        }
+    }
     
     public Action[] actions;
+    /**
+     * Optional effect definitions (may be empty). Triggered when the named
+     * {@link Effect#action} starts at runtime.
+     */
+    public Effect[] effects;
     public String startActions;
     /**
      * Pony-level drag successors used when an action has no drag override.
@@ -798,6 +1123,7 @@ public class PonyDefinition {
     
     public PonyDefinition() {
         actions = new Action[0];
+        effects = new Effect[0];
         startActions = "";
         defaultDrag = "";
     }
@@ -813,6 +1139,7 @@ public class PonyDefinition {
         }
         
         List<Action> actions = new ArrayList<Action>();
+        List<Effect> effects = new ArrayList<Effect>();
         
         for (Node node = element.getFirstChild(); node != null; node = node.getNextSibling()) {
             switch (node.getNodeType()) {
@@ -822,6 +1149,12 @@ public class PonyDefinition {
                     if (nodeName.equals("action")) {
                         try {
                             actions.add(new Action((Element)node));
+                        } catch (InvalidPonyException e) {
+                            errors.addAll(e.errors);
+                        }
+                    } else if (nodeName.equals("effect")) {
+                        try {
+                            effects.add(new Effect((Element)node));
                         } catch (InvalidPonyException e) {
                             errors.addAll(e.errors);
                         }
@@ -861,6 +1194,7 @@ public class PonyDefinition {
         if (!errors.isEmpty()) throw new InvalidPonyException(errors);
         
         this.actions = actions.toArray(new Action[actions.size()]);
+        this.effects = effects.toArray(new Effect[effects.size()]);
         if (defaultDrag == null) {
             defaultDrag = "";
         }
@@ -1155,8 +1489,85 @@ public class PonyDefinition {
             errors.add("No reachable action can leave the scene (need a next moving "
                     + "action that walks, teleports out, or is screen-out).");
         }
+
+        validateEffects(errors);
         
         if (!errors.isEmpty()) throw new InvalidPonyException(errors);
+    }
+
+    private void validateEffects(List<String> errors) {
+        if (effects == null) {
+            effects = new Effect[0];
+            return;
+        }
+        for (int i = 0; i < effects.length; i++) {
+            Effect effect = effects[i];
+            String label = (effect.name == null || effect.name.isEmpty())
+                    ? ("effect #" + (i + 1)) : ("Effect " + effect.name);
+
+            if (effect.name == null || effect.name.isEmpty()) {
+                errors.add(label + " must have a name.");
+            } else if (effect.name.indexOf(':') >= 0) {
+                errors.add(label + " name must not contain ':'.");
+            }
+
+            if (effect.action == null || effect.action.isEmpty()) {
+                errors.add(label + " needs a trigger <action>.");
+            } else if (!hasAction(effect.action)) {
+                errors.add(label + " trigger action \"" + effect.action + "\" not defined.");
+            }
+
+            if (Float.isNaN(effect.duration) || effect.duration < 0f
+                    || effect.duration > MAX_EFFECT_SECONDS) {
+                errors.add(label + " duration must be between 0 and "
+                        + (int)MAX_EFFECT_SECONDS + ".");
+            }
+            if (Float.isNaN(effect.repeatDelay) || effect.repeatDelay < 0f
+                    || effect.repeatDelay > MAX_EFFECT_SECONDS) {
+                errors.add(label + " repeatdelay must be between 0 and "
+                        + (int)MAX_EFFECT_SECONDS + ".");
+            }
+
+            validateEffectFacing(effect, "left", label, errors);
+            validateEffectFacing(effect, "right", label, errors);
+        }
+    }
+
+    private void validateEffectFacing(Effect effect, String direction, String label,
+            List<String> errors) {
+        String place = effect.placement.get(direction);
+        if (place == null || place.isEmpty()) {
+            errors.add(label + " needs a " + direction + " placement.");
+        } else {
+            String canon = normalizePlacementToken(place);
+            if (canon == null) {
+                errors.add(label + " has unknown " + direction + " placement \"" + place + "\".");
+            } else {
+                effect.placement.put(direction, canon);
+            }
+        }
+
+        String center = effect.centering.get(direction);
+        if (center == null || center.isEmpty()) {
+            errors.add(label + " needs a " + direction + " centering.");
+        } else {
+            String canon = normalizePlacementToken(center);
+            if (canon == null) {
+                errors.add(label + " has unknown " + direction + " centering \"" + center + "\".");
+            } else if ("Any".equals(canon) || "Any-Not_Center".equals(canon)) {
+                // Centering on a random cell of the effect image is meaningless.
+                errors.add(label + " " + direction
+                        + " centering cannot be Any or Any-Not_Center.");
+            } else {
+                effect.centering.put(direction, canon);
+            }
+        }
+
+        if (effect.images.get(direction) == null || effect.images.get(direction).isEmpty()) {
+            errors.add(label + " missing " + direction + " image.");
+        }
+        validateIntegerList(effect.timings.get(direction),
+                direction + " timings for ", label, errors);
     }
 
     /**
@@ -1467,6 +1878,12 @@ public class PonyDefinition {
             
             writer.println("    </action>");
         }
+
+        if (effects != null) {
+            for (int i = 0; i < effects.length; i++) {
+                writeEffect(writer, effects[i]);
+            }
+        }
         
         writer.print("    <startactions>");
         writeCharacters(writer, startActions);
@@ -1479,6 +1896,73 @@ public class PonyDefinition {
         }
         
         writer.println("</pony>");
+    }
+
+    private static void writeEffect(PrintWriter writer, Effect effect) {
+        writer.print("    <effect");
+        writeAttribute(writer, "name", effect.name != null ? effect.name : "");
+        writer.println(">");
+
+        writer.print("        <action>");
+        writeCharacters(writer, effect.action != null ? effect.action : "");
+        writer.println("</action>");
+
+        writer.print("        <duration>");
+        writeCharacters(writer, formatSpeed(effect.duration));
+        writer.println("</duration>");
+
+        if (effect.repeatDelay > 0f) {
+            writer.print("        <repeatdelay>");
+            writeCharacters(writer, formatSpeed(effect.repeatDelay));
+            writer.println("</repeatdelay>");
+        }
+
+        if (effect.follow) {
+            writer.println("        <follow>true</follow>");
+        }
+        if (effect.noLoop) {
+            writer.println("        <noloop>true</noloop>");
+        }
+
+        writeDirectedToken(writer, "placement", "right", effect.placement.get("right"));
+        writeDirectedToken(writer, "centering", "right", effect.centering.get("right"));
+        writeDirectedToken(writer, "placement", "left", effect.placement.get("left"));
+        writeDirectedToken(writer, "centering", "left", effect.centering.get("left"));
+
+        writer.println("        <image direction=\"left\">");
+        writeSplit(writer, nullToEmpty(effect.images.get("left")), "            ");
+        writer.println("        </image>");
+        writer.print("        <timings direction=\"left\">");
+        writeCharacters(writer, nullToEmpty(effect.timings.get("left")));
+        writer.println("</timings>");
+
+        writer.println("        <image direction=\"right\">");
+        writeSplit(writer, nullToEmpty(effect.images.get("right")), "            ");
+        writer.println("        </image>");
+        writer.print("        <timings direction=\"right\">");
+        writeCharacters(writer, nullToEmpty(effect.timings.get("right")));
+        writer.println("</timings>");
+
+        writer.println("    </effect>");
+    }
+
+    private static void writeDirectedToken(PrintWriter writer, String tag, String direction,
+            String value) {
+        if (value == null || value.isEmpty()) {
+            return;
+        }
+        writer.print("        <");
+        writer.print(tag);
+        writeAttribute(writer, "direction", direction);
+        writer.print(">");
+        writeCharacters(writer, value);
+        writer.print("</");
+        writer.print(tag);
+        writer.println(">");
+    }
+
+    private static String nullToEmpty(String value) {
+        return value != null ? value : "";
     }
     
 }

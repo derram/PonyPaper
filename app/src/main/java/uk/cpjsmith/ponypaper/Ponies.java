@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.MotionEvent;
@@ -16,8 +17,9 @@ import java.util.Random;
 
 /**
  * Class to hold the collection of ponies and coordinate their overall motion.
+ * Also owns live {@link EffectInstance} sprites spawned by custom characters.
  */
-public class Ponies {
+public class Ponies implements Pony.EffectHost {
     
     /**
      * Hold duration before a touch on a pony becomes a drag. Prevents
@@ -43,10 +45,29 @@ public class Ponies {
     private final Rect clipBounds = new Rect();
     private final Rect spriteSrc = new Rect();
     private final Rect spriteDst = new Rect();
-    /** 5 ints per active pony; compared to {@link #lastVisualStamp} to skip blits. */
+    private final RectF effectPonyBounds = new RectF();
+    private final float[] effectOrigin = new float[2];
+    private final int[] effectPlaceScratch = new int[1];
+    /** Live effect sprites (not pony herd slots). */
+    private final ArrayList<EffectInstance> effectInstances = new ArrayList<EffectInstance>();
+    /** Pending repeats while a trigger action remains current. */
+    private final ArrayList<EffectRepeat> effectRepeats = new ArrayList<EffectRepeat>();
+    /** 5 ints per active pony (+5 per effect); compared to skip blits. */
     private int[] visualStamp;
     private int[] lastVisualStamp;
     private int visualStampLen = -1;
+
+    private static final class EffectRepeat {
+        final Pony pony;
+        final PonyEffectDef def;
+        float remainingMs;
+
+        EffectRepeat(Pony pony, PonyEffectDef def, float remainingMs) {
+            this.pony = pony;
+            this.def = def;
+            this.remainingMs = remainingMs;
+        }
+    }
     /**
      * Preference key of the user's favorite pony ({@code pref_waifu}), or empty
      * for none. When non-empty, inactive ponies with this key are preferred when
@@ -123,9 +144,19 @@ public class Ponies {
         if (!randomSizeMode) {
             applySizeFactor(PonySize.factor(prefs));
         }
+        wireEffectHosts(inactivePonies);
         activePonies = new Pony[activeCount];
         for (int i = 0; i < activeCount; i++) {
             activePonies[i] = takeFromInactive();
+        }
+    }
+
+    private void wireEffectHosts(ArrayList<Pony> ponies) {
+        if (ponies == null) {
+            return;
+        }
+        for (int i = 0; i < ponies.size(); i++) {
+            ponies.get(i).setEffectHost(this);
         }
     }
 
@@ -161,6 +192,7 @@ public class Ponies {
      * Resets the position of all active (on-screen) ponies.
      */
     public void reset() {
+        clearAllEffects();
         for (Pony pony : activePonies) pony.reset();
         invalidateVisualStamp();
     }
@@ -171,12 +203,18 @@ public class Ponies {
      */
     public void unloadSprites() {
         prefetched = null;
+        clearAllEffects();
         for (Pony pony : activePonies) {
             pony.unloadActions();
         }
         for (int i = 0; i < inactivePonies.size(); i++) {
             inactivePonies.get(i).unloadActions();
         }
+    }
+
+    private void clearAllEffects() {
+        effectInstances.clear();
+        effectRepeats.clear();
     }
 
     /**
@@ -229,19 +267,66 @@ public class Ponies {
                 activePonies[i].doUpdate(clipBounds, 0);
             }
         }
+        updateEffects(deltaMs);
         updateReplacementPrefetch();
         Arrays.sort(activePonies, compareY);
         return captureVisualDirty();
     }
 
     void draw(Canvas c) {
-        for (int i = 0; i < activePonies.length; i++) {
-            activePonies[i].drawOn(c, spriteSrc, spriteDst);
+        // Draw planted effects behind/among ponies by Y, then ponies, then
+        // follow effects immediately after their parent so they stick visually.
+        ArrayList<EffectInstance> planted = null;
+        for (int i = 0; i < effectInstances.size(); i++) {
+            EffectInstance effect = effectInstances.get(i);
+            if (effect.def.follow) {
+                continue;
+            }
+            if (planted == null) {
+                planted = new ArrayList<EffectInstance>();
+            }
+            planted.add(effect);
+        }
+        int ponyIndex = 0;
+        int plantIndex = 0;
+        if (planted != null) {
+            // Insertion order is fine for a small list; sort by bottom Y.
+            java.util.Collections.sort(planted, new Comparator<EffectInstance>() {
+                @Override
+                public int compare(EffectInstance a, EffectInstance b) {
+                    int yA = a.sortY();
+                    int yB = b.sortY();
+                    return yA < yB ? -1 : yA > yB ? 1 : 0;
+                }
+            });
+        }
+        while (ponyIndex < activePonies.length
+                || (planted != null && plantIndex < planted.size())) {
+            boolean drawPlant = planted != null && plantIndex < planted.size()
+                    && (ponyIndex >= activePonies.length
+                    || planted.get(plantIndex).sortY() <= activePonies[ponyIndex].getY());
+            if (drawPlant) {
+                planted.get(plantIndex).drawOn(c, spriteSrc, spriteDst);
+                plantIndex++;
+            } else {
+                Pony pony = activePonies[ponyIndex];
+                pony.drawOn(c, spriteSrc, spriteDst);
+                for (int e = 0; e < effectInstances.size(); e++) {
+                    EffectInstance effect = effectInstances.get(e);
+                    if (effect.def.follow && effect.parent == pony) {
+                        effect.drawOn(c, spriteSrc, spriteDst);
+                    }
+                }
+                ponyIndex++;
+            }
         }
     }
 
     /** True when every on-screen pony is waiting or still spawning. */
     boolean allIdle() {
+        if (!effectInstances.isEmpty()) {
+            return false;
+        }
         for (int i = 0; i < activePonies.length; i++) {
             if (!activePonies[i].isVisuallyIdle()) {
                 return false;
@@ -250,19 +335,130 @@ public class Ponies {
         return true;
     }
 
+    @Override
+    public void onPonyActionChanged(Pony pony, PonyAction previous, PonyAction next) {
+        stopRepeatsFor(pony);
+        expireDurationZeroFor(pony);
+        if (next == null || !pony.hasEffects()) {
+            return;
+        }
+        PonyEffectDef[] defs = pony.getEffectDefs();
+        for (int i = 0; i < defs.length; i++) {
+            PonyEffectDef def = defs[i];
+            if (!def.triggersOn(next) || !def.isReady()) {
+                continue;
+            }
+            spawnEffect(pony, def);
+            if (def.repeatDelayMs > 0f) {
+                effectRepeats.add(new EffectRepeat(pony, def, def.repeatDelayMs));
+            }
+        }
+    }
+
+    @Override
+    public void onPonyEffectsCleared(Pony pony) {
+        stopRepeatsFor(pony);
+        for (int i = effectInstances.size() - 1; i >= 0; i--) {
+            if (effectInstances.get(i).parent == pony) {
+                effectInstances.remove(i);
+            }
+        }
+        invalidateVisualStamp();
+    }
+
+    private void stopRepeatsFor(Pony pony) {
+        for (int i = effectRepeats.size() - 1; i >= 0; i--) {
+            if (effectRepeats.get(i).pony == pony) {
+                effectRepeats.remove(i);
+            }
+        }
+    }
+
+    private void expireDurationZeroFor(Pony pony) {
+        for (int i = effectInstances.size() - 1; i >= 0; i--) {
+            EffectInstance effect = effectInstances.get(i);
+            if (effect.parent == pony && effect.def.durationMs <= 0f) {
+                effectInstances.remove(i);
+            }
+        }
+    }
+
+    private void updateEffects(long deltaMs) {
+        float dt = deltaMs > 0 ? (float)deltaMs : 0f;
+        for (int i = effectRepeats.size() - 1; i >= 0; i--) {
+            EffectRepeat repeat = effectRepeats.get(i);
+            repeat.remainingMs -= dt;
+            while (repeat.remainingMs <= 0f) {
+                spawnEffect(repeat.pony, repeat.def);
+                if (repeat.def.repeatDelayMs <= 0f) {
+                    effectRepeats.remove(i);
+                    break;
+                }
+                repeat.remainingMs += repeat.def.repeatDelayMs;
+            }
+        }
+        for (int i = effectInstances.size() - 1; i >= 0; i--) {
+            EffectInstance effect = effectInstances.get(i);
+            if (!effect.update(dt, effectPonyBounds, effectOrigin)) {
+                effectInstances.remove(i);
+            }
+        }
+    }
+
+    private void spawnEffect(Pony pony, PonyEffectDef def) {
+        if (!def.isReady()) {
+            return;
+        }
+        while (effectInstances.size() >= PonyEffectDef.MAX_LIVE_INSTANCES) {
+            if (!evictOldestPlanted()) {
+                return;
+            }
+        }
+        pony.fillCurrentDrawBounds(effectPonyBounds);
+        if (effectPonyBounds.isEmpty()) {
+            return;
+        }
+        int facing = pony.getDirection();
+        def.computeOrigin(effectPonyBounds, facing, pony.getScale(),
+                pony.effectRandom(), effectOrigin, effectPlaceScratch);
+        effectInstances.add(new EffectInstance(def, pony, facing, effectPlaceScratch[0],
+                effectOrigin[0], effectOrigin[1]));
+        invalidateVisualStamp();
+    }
+
+    /** Prefer dropping the oldest non-follow instance when over cap. */
+    private boolean evictOldestPlanted() {
+        for (int i = 0; i < effectInstances.size(); i++) {
+            if (!effectInstances.get(i).def.follow) {
+                effectInstances.remove(i);
+                return true;
+            }
+        }
+        if (!effectInstances.isEmpty()) {
+            effectInstances.remove(0);
+            return true;
+        }
+        return false;
+    }
+
     private void invalidateVisualStamp() {
         visualStampLen = -1;
     }
 
     private boolean captureVisualDirty() {
-        int n = activePonies.length * 5;
+        int effectCount = effectInstances.size();
+        int n = activePonies.length * 5 + effectCount * 5;
         if (visualStamp == null || visualStamp.length < n) {
-            visualStamp = new int[n];
-            lastVisualStamp = new int[n];
+            visualStamp = new int[Math.max(n, 16)];
+            lastVisualStamp = new int[visualStamp.length];
             visualStampLen = -1;
         }
         for (int i = 0; i < activePonies.length; i++) {
             activePonies[i].writeVisualStamp(visualStamp, i * 5);
+        }
+        int base = activePonies.length * 5;
+        for (int i = 0; i < effectCount; i++) {
+            effectInstances.get(i).writeVisualStamp(visualStamp, base + i * 5);
         }
         boolean dirty = visualStampLen != n;
         if (!dirty) {
@@ -272,6 +468,9 @@ public class Ponies {
                     break;
                 }
             }
+        }
+        if (lastVisualStamp.length < n) {
+            lastVisualStamp = new int[visualStamp.length];
         }
         System.arraycopy(visualStamp, 0, lastVisualStamp, 0, n);
         visualStampLen = n;

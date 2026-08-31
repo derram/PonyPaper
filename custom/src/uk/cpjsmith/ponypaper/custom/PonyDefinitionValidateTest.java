@@ -50,6 +50,18 @@ public final class PonyDefinitionValidateTest {
                 PonyDefinitionValidateTest::testSpritesfromAloneDoesNotCountAsUsed);
         failures += run("allReachableHasNoWarnings",
                 PonyDefinitionValidateTest::testAllReachableHasNoWarnings);
+        failures += run("effectWithValidTriggerPasses",
+                PonyDefinitionValidateTest::testEffectWithValidTriggerPasses);
+        failures += run("effectUnknownTriggerInvalid",
+                PonyDefinitionValidateTest::testEffectUnknownTriggerInvalid);
+        failures += run("effectUnknownPlacementInvalid",
+                PonyDefinitionValidateTest::testEffectUnknownPlacementInvalid);
+        failures += run("effectAnyCenteringInvalid",
+                PonyDefinitionValidateTest::testEffectAnyCenteringInvalid);
+        failures += run("placementTokenNormalize",
+                PonyDefinitionValidateTest::testPlacementTokenNormalize);
+        failures += run("effectRoundTripXml",
+                PonyDefinitionValidateTest::testEffectRoundTripXml);
         if (failures > 0) {
             System.err.println(failures + " definition check(s) failed.");
             System.exit(1);
@@ -272,6 +284,115 @@ public final class PonyDefinitionValidateTest {
         if (!warnings.isEmpty()) {
             throw new AssertionError("expected no warnings but got " + warnings);
         }
+    }
+
+    private static void testEffectWithValidTriggerPasses() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        def.effects = new PonyDefinition.Effect[] { effect("Sparkle", "stand", false) };
+        def.validate();
+    }
+
+    private static void testEffectUnknownTriggerInvalid() {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        def.effects = new PonyDefinition.Effect[] { effect("Sparkle", "missing", false) };
+        assertInvalid(def, "trigger action \"missing\" not defined");
+    }
+
+    private static void testEffectUnknownPlacementInvalid() {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        PonyDefinition.Effect e = effect("Sparkle", "stand", false);
+        e.placement.put("left", "Nose");
+        def.effects = new PonyDefinition.Effect[] { e };
+        assertInvalid(def, "unknown left placement");
+    }
+
+    private static void testEffectAnyCenteringInvalid() {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        PonyDefinition.Effect e = effect("Sparkle", "stand", true);
+        e.centering.put("right", "Any");
+        def.effects = new PonyDefinition.Effect[] { e };
+        assertInvalid(def, "centering cannot be Any");
+    }
+
+    private static void testPlacementTokenNormalize() {
+        if (!"Bottom_Right".equals(PonyDefinition.normalizePlacementToken("bottom_right"))) {
+            throw new AssertionError("expected Bottom_Right");
+        }
+        if (!"Any-Not_Center".equals(PonyDefinition.normalizePlacementToken("any-not-center"))) {
+            throw new AssertionError("expected Any-Not_Center");
+        }
+        if (PonyDefinition.normalizePlacementToken("Nope") != null) {
+            throw new AssertionError("expected null for unknown token");
+        }
+    }
+
+    private static void testEffectRoundTripXml() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        PonyDefinition.Effect e = effect("Hurdle", "trot", false);
+        e.duration = 0.6f;
+        e.repeatDelay = 1.32f;
+        e.placement.put("right", "Right");
+        e.centering.put("right", "Top_Left");
+        e.placement.put("left", "Left");
+        e.centering.put("left", "Top_Right");
+        e.images.put("left", "AABB");
+        e.images.put("right", "CCDD");
+        e.timings.put("left", "10,20");
+        e.timings.put("right", "10,20");
+        def.effects = new PonyDefinition.Effect[] { e };
+        def.validate();
+
+        java.io.StringWriter sw = new java.io.StringWriter();
+        def.writeDefinition(new java.io.PrintWriter(sw));
+        String xml = sw.toString();
+        if (!xml.contains("<effect name=\"Hurdle\">") || !xml.contains("<repeatdelay>1.32</repeatdelay>")) {
+            throw new AssertionError("writeDefinition missing effect fields: " + xml);
+        }
+
+        javax.xml.parsers.DocumentBuilder builder =
+                javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder();
+        PonyDefinition loaded = new PonyDefinition(builder.parse(
+                new org.xml.sax.InputSource(new java.io.StringReader(xml))));
+        loaded.validate();
+        if (loaded.effects == null || loaded.effects.length != 1) {
+            throw new AssertionError("expected 1 effect after reload");
+        }
+        PonyDefinition.Effect got = loaded.effects[0];
+        if (!"Hurdle".equals(got.name) || !"trot".equals(got.action)) {
+            throw new AssertionError("effect identity mismatch");
+        }
+        if (Math.abs(got.duration - 0.6f) > 0.001f || Math.abs(got.repeatDelay - 1.32f) > 0.001f) {
+            throw new AssertionError("effect timing mismatch");
+        }
+        if (!"Right".equals(got.placement.get("right")) || !"Top_Left".equals(got.centering.get("right"))) {
+            throw new AssertionError("effect placement mismatch");
+        }
+        if (!"AABB".equals(got.images.get("left")) || !"10,20".equals(got.timings.get("right"))) {
+            throw new AssertionError("effect sprite mismatch");
+        }
+    }
+
+    private static PonyDefinition.Effect effect(String name, String trigger, boolean follow) {
+        PonyDefinition.Effect e = new PonyDefinition.Effect();
+        e.name = name;
+        e.action = trigger;
+        e.duration = 1.0f;
+        e.follow = follow;
+        e.images.put("left", "x");
+        e.images.put("right", "x");
+        e.timings.put("left", "10");
+        e.timings.put("right", "10");
+        return e;
     }
 
     private static PonyDefinition pony(PonyDefinition.Action... actions) {

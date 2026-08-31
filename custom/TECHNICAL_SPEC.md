@@ -77,3 +77,39 @@ Use `<anchory>` to ensure the body doesn't "jump" if the teleport VFX makes the 
 For characters that don't walk:
 - `screen-in`: Use on **Start actions** to appear on-screen in place.
 - `screen-out`: Use on **Next moving** to vanish in place (triggered by a 1-in-8 roll or drag-to-edge).
+
+### Effects (spawned sprites)
+
+Effects are Desktop Ponies–compatible prop/VFX sprites spawned when a named action starts. They are **not** a physics or projectile system: apparent motion (falling apples, shaking trees) belongs in the spritesheet. Placement aligns a point on the pony’s current draw bounds with a point on the effect image.
+
+```xml
+<effect name="Hurdle">
+  <action>Hurdle</action>
+  <duration>0.6</duration>
+  <repeatdelay>1.32</repeatdelay>
+  <follow>false</follow>
+  <noloop>false</noloop>
+  <placement direction="right">Right</placement>
+  <centering direction="right">Top_Left</centering>
+  <placement direction="left">Left</placement>
+  <centering direction="left">Top_Right</centering>
+  <image direction="left">…base64 PNG strip…</image>
+  <timings direction="left">10,10</timings>
+  <image direction="right">…</image>
+  <timings direction="right">10,10</timings>
+</effect>
+```
+
+| Field | Meaning |
+|-------|---------|
+| `action` | Trigger: when this action becomes current, the effect starts |
+| `duration` | Seconds to keep the instance. `0` = until the triggering action ends. Timed effects may outlive the action (e.g. a tree after a short buck) |
+| `repeatdelay` | Seconds between additional spawns while the trigger action is still current. `0` / omitted = spawn once |
+| `follow` | `true` = re-attach each frame; `false` = plant at spawn and stay |
+| `noloop` | `true` = play the sheet once even if it would loop |
+| `placement` | Point on the **pony** image (`Top_Left` … `Bottom_Right`, or `Any` / `Any-Not_Center`) |
+| `centering` | Point on the **effect** image (same 9-cell set; not `Any`) |
+
+Defaults when omitted: `duration=0`, `repeatdelay=0`, `follow=false`, `noloop=false`, placement/centering `Center`. Duration and repeat delay must be in `[0, 300]`. Images and timings use the same Base64 strip + centisecond format as actions.
+
+Runtime note: effect instances are scene-owned (they do not consume pony herd slots). Action change stops repeats and expires `duration=0` instances; pony leave/reset expires all of that pony’s effects.

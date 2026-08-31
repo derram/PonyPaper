@@ -1000,7 +1000,41 @@ public class AllPonies {
         }
         
         PonyAction[] start = expandActionList(definition.startActions, bags);
-        return new Pony(all.toArray(new PonyAction[all.size()]), start);
+        PonyEffectDef[] effectDefs = buildEffectDefs(definition, bags);
+        return new Pony(all.toArray(new PonyAction[all.size()]), start, effectDefs);
+    }
+
+    /**
+     * Builds runtime effect defs keyed to every gait variant of the named
+     * trigger action. Invalid/missing triggers are skipped (validate should
+     * already have rejected them for custom XML).
+     */
+    private static PonyEffectDef[] buildEffectDefs(PonyDefinition definition,
+            HashMap<String, PonyAction[]> bags) {
+        if (definition.effects == null || definition.effects.length == 0) {
+            return null;
+        }
+        ArrayList<PonyEffectDef> list = new ArrayList<PonyEffectDef>();
+        for (int i = 0; i < definition.effects.length; i++) {
+            PonyDefinition.Effect effect = definition.effects[i];
+            if (effect == null || effect.action == null) {
+                continue;
+            }
+            PonyAction[] bag = bags.get(effect.action);
+            if (bag == null || bag.length == 0) {
+                continue;
+            }
+            try {
+                list.add(new PonyEffectDef(effect, bag));
+            } catch (RuntimeException e) {
+                // Skip corrupt effect art rather than failing the whole pony.
+                android.util.Log.w("PonyPaper", "Skipping effect \"" + effect.name + "\": " + e.getMessage());
+            }
+        }
+        if (list.isEmpty()) {
+            return null;
+        }
+        return list.toArray(new PonyEffectDef[list.size()]);
     }
     
 }
