@@ -62,6 +62,12 @@ public final class PonyDefinitionValidateTest {
                 PonyDefinitionValidateTest::testPlacementTokenNormalize);
         failures += run("effectRoundTripXml",
                 PonyDefinitionValidateTest::testEffectRoundTripXml);
+        failures += run("wanderMovementRoundTripXml",
+                PonyDefinitionValidateTest::testWanderMovementRoundTripXml);
+        failures += run("unknownMovementInvalid",
+                PonyDefinitionValidateTest::testUnknownMovementInvalid);
+        failures += run("unknownWanderInvalid",
+                PonyDefinitionValidateTest::testUnknownWanderInvalid);
         if (failures > 0) {
             System.err.println(failures + " definition check(s) failed.");
             System.exit(1);
@@ -385,6 +391,62 @@ public final class PonyDefinitionValidateTest {
         if (!"AABB".equals(got.images.get("left")) || !"10,20".equals(got.timings.get("right"))) {
             throw new AssertionError("effect sprite mismatch");
         }
+    }
+
+    private static void testWanderMovementRoundTripXml() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "flyzoom"),
+                action("flyzoom", true, "stand", "flyzoom"));
+        def.startActions = "flyzoom";
+        def.defaultDrag = "flyzoom";
+        def.wander = "vertical";
+        def.actions[1].movement = "horizontal";
+        def.validate();
+
+        java.io.StringWriter sw = new java.io.StringWriter();
+        def.writeDefinition(new java.io.PrintWriter(sw));
+        String xml = sw.toString();
+        if (!xml.contains("<wander>vertical</wander>")) {
+            throw new AssertionError("missing wander: " + xml);
+        }
+        if (!xml.contains("<movement>horizontal</movement>")) {
+            throw new AssertionError("missing movement: " + xml);
+        }
+        // inherit must be omitted
+        if (xml.indexOf("<movement>inherit</movement>") >= 0) {
+            throw new AssertionError("inherit movement should be omitted: " + xml);
+        }
+
+        javax.xml.parsers.DocumentBuilder builder =
+                javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder();
+        PonyDefinition loaded = new PonyDefinition(builder.parse(
+                new org.xml.sax.InputSource(new java.io.StringReader(xml))));
+        loaded.validate();
+        if (!"vertical".equals(loaded.wander)) {
+            throw new AssertionError("wander mismatch: " + loaded.wander);
+        }
+        if (!"inherit".equals(loaded.actions[0].movement)) {
+            throw new AssertionError("stand movement should default inherit");
+        }
+        if (!"horizontal".equals(loaded.actions[1].movement)) {
+            throw new AssertionError("flyzoom movement mismatch: " + loaded.actions[1].movement);
+        }
+    }
+
+    private static void testUnknownMovementInvalid() {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        def.actions[1].movement = "diagonal_only_please";
+        assertInvalid(def, "Unknown movement");
+    }
+
+    private static void testUnknownWanderInvalid() {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        def.wander = "sideways";
+        assertInvalid(def, "Unknown <wander>");
     }
 
     private static PonyDefinition.Effect effect(String name, String trigger, boolean follow) {

@@ -43,6 +43,23 @@ java -jar custom/build/libs/customponies.jar \
 
 ## Engine Logic & Behaviors
 
+### Wander preference and action movement
+
+Destination picking for traveling actions is controlled by two layers:
+
+1. **Pony `<wander>`** (soft bands): `horizontal` (default), `vertical`, or `both`. Soft horizontal prefers `|Δy| < |Δx|` with slight drift (historical behaviour). Soft vertical is the inverse and uses top/bottom scene exits. `both` coin-flips soft H or soft V each pick.
+2. **Action `<movement>`**: `inherit` (default, omitted in XML) uses pony wander; `horizontal` / `vertical` **hard-lock** the other axis (pin Y or X); `any` is free 2D. Desktop Ponies aliases (`Horizontal_Only`, `All`, …) are accepted on parse.
+
+Teleport and `screen-in` / `screen-out` specials ignore `<movement>` and keep free / in-place targeting. Built-in ponies are unchanged (soft horizontal via defaults).
+
+```xml
+<wander>vertical</wander>
+<action name="flyzoom">
+  <movement>horizontal</movement>
+  …
+</action>
+```
+
 ### Speed, aliases, and gaits
 
 Custom ponies can handle discrete speeds in two ways:
@@ -116,4 +133,4 @@ Defaults when omitted: `duration=0`, `repeatdelay=0`, `follow=false`, `noloop=fa
 
 Runtime note: effect instances are scene-owned (they do not consume pony herd slots). Action change stops repeats and expires `duration=0` instances; pony leave/reset expires all of that pony’s effects.
 
-**Desktop Ponies import:** `Effect,*Name*,*Behavior*,*Right*,*Left*,*Duration*,*RepeatDelay*,*PlaceR*,*CenterR*,*PlaceL*,*CenterL*,*Follow*[,*NoLoop*]` lines map onto `<effect>` entries. Placement tokens are normalized to the canonical set above. Behaviors that are `Skip=True` are still imported when an Effect names them as its trigger.
+**Desktop Ponies import:** `Effect,*Name*,*Behavior*,*Right*,*Left*,*Duration*,*RepeatDelay*,*PlaceR*,*CenterR*,*PlaceL*,*CenterL*,*Follow*[,*NoLoop*]` lines map onto `<effect>` entries. Placement tokens are normalized to the canonical set above. Behaviors that are `Skip=True` are still imported when an Effect names them as its trigger. Behavior Allowed Moves map onto action `<movement>` (`Horizontal_Only` → `horizontal`, `Vertical_Only` → `vertical`, `All` / diagonals / `Horizontal_Vertical` → `any`); pony `<wander>` stays at the default `horizontal` (set it by hand for vertical-preferring OCs).

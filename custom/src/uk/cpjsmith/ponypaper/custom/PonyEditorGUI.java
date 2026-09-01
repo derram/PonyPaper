@@ -34,6 +34,7 @@ import javax.swing.BoxLayout;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
@@ -48,6 +49,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
+import uk.cpjsmith.ponypaper.WanderTarget;
 import javax.swing.JToolBar;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
@@ -171,6 +173,18 @@ public class PonyEditorGUI extends JPanel {
                 if (currentIndex >= 0) {
                     editor.setActionLoops(currentIndex, loopCheckBox.isSelected());
                     setDirty(true);
+                }
+            }
+        };
+
+        ActionListener movementListener = new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                if (currentIndex >= 0 && movementCombo != null) {
+                    String next = movementTokenFromLabel((String) movementCombo.getSelectedItem());
+                    if (!next.equals(editor.getActionMovement(currentIndex))) {
+                        editor.setActionMovement(currentIndex, next);
+                        setDirty(true);
+                    }
                 }
             }
         };
@@ -335,6 +349,7 @@ public class PonyEditorGUI extends JPanel {
         JButton pickAnchorsRightButton;
         JButton checkTransitionsButton;
         JTextField speedField;
+        JComboBox<String> movementCombo;
         JCheckBox loopCheckBox;
         JTextField spritesFromField;
         JTextField gaitsField;
@@ -391,12 +406,24 @@ public class PonyEditorGUI extends JPanel {
             speedField.getDocument().addDocumentListener(speedListener);
             addFormRow(identity, 1, new JLabel("Speed:"), speedField, 1.0);
 
+            movementCombo = new JComboBox<String>(new String[] {
+                    "Inherit (pony wander)",
+                    "Horizontal only",
+                    "Vertical only",
+                    "Any direction"
+            });
+            movementCombo.setToolTipText("Inherit uses the pony wander preference (with drift). "
+                    + "Horizontal/Vertical only pin the other axis (Desktop Ponies–style). "
+                    + "Any ignores the pony preference. Teleport/screen specials ignore this.");
+            movementCombo.addActionListener(movementListener);
+            addFormRow(identity, 2, new JLabel("Movement:"), movementCombo, 1.0);
+
             loopCheckBox = new JCheckBox("Loop while active");
             loopCheckBox.setSelected(true);
             loopCheckBox.setToolTipText("Uncheck for one-shot transitions (intros/outros/reactions). "
                     + "After one play, advances via Next waiting/moving or Default drag / drag override.");
             loopCheckBox.addActionListener(loopListener);
-            addFormRow(identity, 2, new JLabel("Loop animation:"), loopCheckBox, 1.0, GridBagConstraints.WEST, false);
+            addFormRow(identity, 3, new JLabel("Loop animation:"), loopCheckBox, 1.0, GridBagConstraints.WEST, false);
 
             spritesFromField = new JTextField();
             spritesFromField.setToolTipText("Reuse another action's bitmaps (leave empty to own sprites). "
@@ -408,7 +435,7 @@ public class PonyEditorGUI extends JPanel {
                     return ActionNameCompleter.spriteOwnerCandidates(editor);
                 }
             }, false);
-            addFormRow(identity, 3, new JLabel("Sprites from:"), spritesFromField, 1.0);
+            addFormRow(identity, 4, new JLabel("Sprites from:"), spritesFromField, 1.0);
 
             gaitsField = new JTextField();
             constrainGrowableField(gaitsField);
@@ -450,7 +477,7 @@ public class PonyEditorGUI extends JPanel {
                     }
                 }
             });
-            addFormRow(identity, 4, new JLabel("Gaits:"),
+            addFormRow(identity, 5, new JLabel("Gaits:"),
                     wrapGaitsField(gaitsField, gaitsDefaultButton, gaitsIdleButton, gaitsClearButton), 1.0);
 
             cloneGaitButton = new JButton("Clone as gait…");
@@ -460,7 +487,7 @@ public class PonyEditorGUI extends JPanel {
                     cloneAsGait();
                 }
             });
-            addFormRow(identity, 5, new JLabel(""), cloneGaitButton, 0.0, GridBagConstraints.WEST, true);
+            addFormRow(identity, 6, new JLabel(""), cloneGaitButton, 0.0, GridBagConstraints.WEST, true);
 
             // --- Anchors ---
             anchorXLeftField = new JTextField();
@@ -762,6 +789,7 @@ public class PonyEditorGUI extends JPanel {
                 anchorXRightField.setText(formatAnchor(editor.getActionAnchorX(index, "right")));
                 anchorYRightField.setText(formatAnchor(editor.getActionAnchorY(index, "right")));
                 speedField.setText(formatSpeed(editor.getActionSpeed(index)));
+                movementCombo.setSelectedItem(movementLabelFromToken(editor.getActionMovement(index)));
                 loopCheckBox.setSelected(editor.getActionLoops(index));
                 spritesFromField.setText(editor.getActionSpritesFrom(index));
                 gaitsField.setText(editor.getActionGaits(index));
@@ -778,6 +806,7 @@ public class PonyEditorGUI extends JPanel {
                 anchorXRightField.setText("");
                 anchorYRightField.setText("");
                 speedField.setText("");
+                movementCombo.setSelectedItem(movementLabelFromToken(WanderTarget.MOVE_INHERIT));
                 loopCheckBox.setSelected(true);
                 spritesFromField.setText("");
                 gaitsField.setText("");
@@ -1789,6 +1818,7 @@ public class PonyEditorGUI extends JPanel {
             pickAnchorsRightButton.setEnabled(enabled);
             checkTransitionsButton.setEnabled(enabled);
             speedField.setEnabled(enabled);
+            movementCombo.setEnabled(enabled);
             loopCheckBox.setEnabled(enabled);
             spritesFromField.setEnabled(enabled);
             gaitsField.setEnabled(enabled);
@@ -2044,6 +2074,19 @@ public class PonyEditorGUI extends JPanel {
             }
         }
     };
+
+    private ActionListener wanderListener = new ActionListener() {
+        public void actionPerformed(ActionEvent e) {
+            if (wanderCombo == null) {
+                return;
+            }
+            String next = wanderTokenFromLabel((String) wanderCombo.getSelectedItem());
+            if (!next.equals(editor.getWander())) {
+                editor.setWander(next);
+                setDirty(true);
+            }
+        }
+    };
     
     private JFrame parentFrame;
     private DefaultListModel<String> actionListModel;
@@ -2055,6 +2098,7 @@ public class PonyEditorGUI extends JPanel {
     private JTabbedPane centerTabs;
     private JTextField startActionsField;
     private JTextField defaultDragField;
+    private JComboBox<String> wanderCombo;
     private JLabel statusLabel;
     
     private JFileChooser fc;
@@ -2285,6 +2329,9 @@ public class PonyEditorGUI extends JPanel {
         }
         startActionsField.setText(editor.getStartActions());
         defaultDragField.setText(editor.getDefaultDrag());
+        if (wanderCombo != null) {
+            wanderCombo.setSelectedItem(wanderLabelFromToken(editor.getWander()));
+        }
         
         if (editor.getActionCount() > 0) {
             actionList.setSelectedIndex(0);
@@ -2510,6 +2557,54 @@ public class PonyEditorGUI extends JPanel {
         result.gridy = gridy;
         return result;
     }
+
+    private static String movementLabelFromToken(String token) {
+        String t = WanderTarget.normalizeMovement(token);
+        if (WanderTarget.MOVE_HORIZONTAL.equals(t)) {
+            return "Horizontal only";
+        }
+        if (WanderTarget.MOVE_VERTICAL.equals(t)) {
+            return "Vertical only";
+        }
+        if (WanderTarget.MOVE_ANY.equals(t)) {
+            return "Any direction";
+        }
+        return "Inherit (pony wander)";
+    }
+
+    private static String movementTokenFromLabel(String label) {
+        if ("Horizontal only".equals(label)) {
+            return WanderTarget.MOVE_HORIZONTAL;
+        }
+        if ("Vertical only".equals(label)) {
+            return WanderTarget.MOVE_VERTICAL;
+        }
+        if ("Any direction".equals(label)) {
+            return WanderTarget.MOVE_ANY;
+        }
+        return WanderTarget.MOVE_INHERIT;
+    }
+
+    private static String wanderLabelFromToken(String token) {
+        String t = WanderTarget.normalizeWander(token);
+        if (WanderTarget.WANDER_VERTICAL.equals(t)) {
+            return "Vertical";
+        }
+        if (WanderTarget.WANDER_BOTH.equals(t)) {
+            return "Both (H or V)";
+        }
+        return "Horizontal";
+    }
+
+    private static String wanderTokenFromLabel(String label) {
+        if ("Vertical".equals(label)) {
+            return WanderTarget.WANDER_VERTICAL;
+        }
+        if ("Both (H or V)".equals(label)) {
+            return WanderTarget.WANDER_BOTH;
+        }
+        return WanderTarget.WANDER_HORIZONTAL;
+    }
     
     /**
      * Prompts for a new name for the selected action and rewrites all
@@ -2714,6 +2809,27 @@ public class PonyEditorGUI extends JPanel {
         c.fill = GridBagConstraints.HORIZONTAL;
         c.insets = new Insets(2, 0, 2, 0);
         result.add(defaultDragField, c);
+
+        JLabel wanderLabel = new JLabel("Wander:");
+        c = getConstraints(4, 0);
+        c.anchor = GridBagConstraints.WEST;
+        c.insets = new Insets(2, 12, 2, 8);
+        result.add(wanderLabel, c);
+
+        wanderCombo = new JComboBox<String>(new String[] {
+                "Horizontal",
+                "Vertical",
+                "Both (H or V)"
+        });
+        wanderCombo.setToolTipText("Soft preference for destination picks when an action's "
+                + "Movement is Inherit. Horizontal/Vertical allow slight drift on the other axis; "
+                + "Both picks a soft H or soft V band each time. Actions can hard-lock or use Any.");
+        wanderCombo.addActionListener(wanderListener);
+        c = getConstraints(5, 0);
+        c.weightx = 0.4;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.insets = new Insets(2, 0, 2, 0);
+        result.add(wanderCombo, c);
         
         return result;
     }

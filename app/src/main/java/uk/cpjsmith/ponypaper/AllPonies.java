@@ -953,6 +953,8 @@ public class AllPonies {
                 if (!Float.isNaN(rightY) && rightY >= 0f) {
                     alias.setAnchorY(PonyAction.RIGHT, rightY);
                 }
+                // Alias movement is independent of the sprite owner (default inherit).
+                alias.setMovement(def.movement);
                 actions.put(def.name, alias);
             }
         }
@@ -1001,7 +1003,8 @@ public class AllPonies {
         
         PonyAction[] start = expandActionList(definition.startActions, bags);
         PonyEffectDef[] effectDefs = buildEffectDefs(definition, bags);
-        return new Pony(all.toArray(new PonyAction[all.size()]), start, effectDefs);
+        return new Pony(all.toArray(new PonyAction[all.size()]), start, effectDefs,
+                definition.wander);
     }
 
     /**

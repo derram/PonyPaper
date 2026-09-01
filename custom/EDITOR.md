@@ -41,10 +41,11 @@ It can be started by launching the JAR from the file manager (if `.jar` is assoc
 * create actions from importable behaviors (group 0, no multi-pony follow targets)
 * convert left/right GIFs into PonyPaper spritesheets at **50%** scale (so they match built-in ponies) and fill frame timings
 * build **start** / **next waiting** / **next moving** / **next drag** lists from Chance, Speed, and Movement (Chance becomes `name:N`)
+* map Allowed Moves onto per-action **Movement** (`Horizontal_Only` → horizontal, `Vertical_Only` → vertical, diagonals/`All` → any; stationary/drag stay inherit)
 * map simple teleport chains (e.g. Twilight’s warp) to `teleport-out` / `teleport-in`
 * use a `Dragged` behavior for drag when present
 
-Speech, interactions, non-zero behavior groups, and most `Skip=True` story sequences are skipped. **Effect lines are imported** when their trigger behavior is available (GIFs packed at 50% like actions). If an Effect references a `Skip=True` behavior (e.g. Applejack’s gallop apple drops), that behavior is kept so the effect can load. Effects whose behavior was omitted for other reasons (follow targets, non-zero groups, or the 30-action cap) are listed in the import summary. Always review the action graph and Effects tab before saving.
+Speech, interactions, non-zero behavior groups, and most `Skip=True` story sequences are skipped. **Effect lines are imported** when their trigger behavior is available (GIFs packed at 50% like actions). If an Effect references a `Skip=True` behavior (e.g. Applejack’s gallop apple drops), that behavior is kept so the effect can load. Effects whose behavior was omitted for other reasons (follow targets, non-zero groups, or the 30-action cap) are listed in the import summary. Always review the action graph, **Wander** preference, and Effects tab before saving. Vertical-preferring characters usually need **Wander → Vertical** set by hand after import.
 
 ### Effects (spawned sprites)
 
@@ -65,6 +66,12 @@ On the **Effects** tab:
 
 Renaming an action rewrites matching effect triggers. Deleting an action removes effects that pointed only at that action. The wallpaper loads and draws effects for custom characters automatically.
 
+### Pony-level wander
+
+Above the action list, the **Pony** strip has **Start actions**, **Default drag**, and **Wander**:
+
+* **Wander**: Soft destination preference for actions whose **Movement** is Inherit. **Horizontal** (default) matches historical mostly-sideways travel with slight vertical drift; **Vertical** is the opposite; **Both (H or V)** picks a soft horizontal or soft vertical band each time. Individual actions can hard-lock an axis or opt into free 2D.
+
 ### Action Properties
 
 On the left side of the editor is the list of actions. Selecting an action in this list allows its properties to be edited on the right:
@@ -72,6 +79,7 @@ On the left side of the editor is the list of actions. Selecting an action in th
 * **Special type**: Leave blank for normal walk/idle clips. Known values: `teleport-out` / `teleport-in` and `screen-in` / `screen-out`. See the [Technical Spec](TECHNICAL_SPEC.md) for details.
 * **Anchors left/right** (`<anchorx>` / `<anchory>`): Optional pixel coordinates of the pony’s feet. Leave empty for normal sheets that are already centre-bottom aligned.
 * **Speed**: Travel and animation rate for this action (positive float; default `1`).
+* **Movement**: Destination axis while traveling. **Inherit** (default) uses the pony Wander preference with soft drift. **Horizontal only** / **Vertical only** hard-lock the other axis (Desktop Ponies–style; use for rainboom / trail clips). **Any direction** is free 2D and ignores Wander. Teleport and screen-in/out specials ignore this field.
 * **Loop animation**: Checked by default. Uncheck for **one-shot transition** clips (intros, outros, reactions).
 * **Sprites from**: When set to another action’s name, this action is an **alias**: it reuses that action’s bitmaps and timings.
 * **Gaits**: Optional load-time bag of `speed:weight` entries (e.g. `0.5:1,0.7:3,1:1`). Use the **Ground** button for the built-in ground bag.

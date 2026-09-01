@@ -35,6 +35,7 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/custom/**",
                 "uk/cpjsmith/ponypaper/PonyDefinition.java",
                 "uk/cpjsmith/ponypaper/EffectPlacement.java",
+                "uk/cpjsmith/ponypaper/WanderTarget.java",
                 "uk/cpjsmith/ponypaper/WaitExpiry.java",
                 "uk/cpjsmith/ponypaper/SceneExit.java",
             )
@@ -147,6 +148,13 @@ tasks.register<JavaExec>("testEffectPlacement") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.EffectPlacementMathTest")
 }
 
+tasks.register<JavaExec>("testWanderTarget") {
+    group = "verification"
+    description = "Run wander / movement-mode token and band checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.WanderTargetTest")
+}
+
 tasks.named("check") {
     dependsOn("testPacker")
     dependsOn("testDefinition")
@@ -159,4 +167,5 @@ tasks.named("check") {
     dependsOn("testEditorEffects")
     dependsOn("testDpEffects")
     dependsOn("testEffectPlacement")
+    dependsOn("testWanderTarget")
 }

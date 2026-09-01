@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import uk.cpjsmith.ponypaper.PonyDefinition;
+import uk.cpjsmith.ponypaper.WanderTarget;
 
 /**
  * Imports a Desktop Ponies character folder ({@code pony.ini} + GIF sprites)
@@ -64,6 +65,11 @@ public final class DesktopPoniesImport {
         public final String specialType;
         /** PonyPaper travel/animation speed factor (positive). */
         public final float speed;
+        /**
+         * Mapped {@code <movement>} token ({@link WanderTarget#MOVE_INHERIT},
+         * {@code horizontal}, {@code vertical}, or {@code any}).
+         */
+        public final String movement;
         public final File leftImage;
         public final File rightImage;
         public String nextWaiting = "";
@@ -71,11 +77,12 @@ public final class DesktopPoniesImport {
         public String nextDrag = "";
 
         ImportedAction(String name, Role role, String specialType, float speed,
-                       File leftImage, File rightImage) {
+                       String movement, File leftImage, File rightImage) {
             this.name = name;
             this.role = role;
             this.specialType = specialType != null ? specialType : "";
             this.speed = speed;
+            this.movement = movement != null ? movement : WanderTarget.MOVE_INHERIT;
             this.leftImage = leftImage;
             this.rightImage = rightImage;
         }
@@ -437,8 +444,10 @@ public final class DesktopPoniesImport {
                 special = "teleport-in";
             }
 
+            String movement = mapDesktopMovement(b.movement, b.role);
             ImportedAction action = new ImportedAction(
-                    b.name, b.role, special, mapDesktopSpeed(b.speed), b.leftFile, b.rightFile);
+                    b.name, b.role, special, mapDesktopSpeed(b.speed), movement,
+                    b.leftFile, b.rightFile);
 
             if (b.role == Role.TELEPORT_OUT) {
                 String inKey = teleportOutToIn.get(b.name.toLowerCase(Locale.ROOT));
@@ -568,6 +577,19 @@ public final class DesktopPoniesImport {
             return Role.MOVING;
         }
         return Role.WAITING;
+    }
+
+    /**
+     * Maps Desktop Ponies Allowed Moves onto a PonyPaper {@code <movement>}
+     * token. Stationary / drag roles stay {@code inherit}; axis modes become
+     * hard locks or {@code any}.
+     */
+    static String mapDesktopMovement(String allowedMoves, Role role) {
+        if (role == Role.WAITING || role == Role.DRAG
+                || role == Role.TELEPORT_OUT || role == Role.TELEPORT_IN) {
+            return WanderTarget.MOVE_INHERIT;
+        }
+        return WanderTarget.movementFromDesktopAllowedMoves(allowedMoves);
     }
 
     /**

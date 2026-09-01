@@ -195,6 +195,15 @@ public class PonyEditorCLI {
                         break;
                     }
 
+                    case "-movement":
+                    {
+                        checkArgument(args, i);
+                        if (currentAction < 0) throw new PonyEditor.GenericException("", "No current action for " + args[i]);
+                        editor.setActionMovement(currentAction, args[++i]);
+                        guiDirty = true;
+                        break;
+                    }
+
                     case "-loop":
                     {
                         checkArgument(args, i);
@@ -373,6 +382,11 @@ public class PonyEditorCLI {
                         editor.setDefaultDrag(args[++i]);
                         guiDirty = true;
                         break;
+                    case "-wander":
+                        checkArgument(args, i);
+                        editor.setWander(args[++i]);
+                        guiDirty = true;
+                        break;
                         
                     default:
                         throw new PonyEditor.GenericException("", "Invalid option: " + args[i]);
@@ -400,6 +414,9 @@ public class PonyEditorCLI {
         System.out.println("-defaultdrag NAMES");
         System.out.println("    Set the pony-level default drag actions. Actions with an empty");
         System.out.println("    drag override inherit this list.");
+        System.out.println("-wander horizontal|vertical|both");
+        System.out.println("    Soft destination preference for actions with Movement=inherit.");
+        System.out.println("    both = each pick is soft-horizontal or soft-vertical.");
         System.out.println("-action NAME");
         System.out.println("    Switch to editing the named action, creating it if it does not exist.");
         System.out.println("-next TYPE NAMES");
@@ -418,6 +435,9 @@ public class PonyEditorCLI {
         System.out.println("-speed VALUE");
         System.out.println("    Set the current action's travel/animation speed factor (positive float).");
         System.out.println("    Typical gaits: 0.5 stroll, 0.7 walk, 1.0 trot.");
+        System.out.println("-movement inherit|horizontal|vertical|any");
+        System.out.println("    Destination axis for the current action. inherit (default) uses");
+        System.out.println("    pony -wander; horizontal/vertical hard-lock the other axis; any is free 2D.");
         System.out.println("-loop true|false");
         System.out.println("    Whether the animation loops (default true). Use false for one-shot");
         System.out.println("    transition clips that advance via next waiting/moving/drag lists.");
@@ -471,6 +491,7 @@ public class PonyEditorCLI {
             case "-anchorx":
             case "-anchory":
             case "-speed":
+            case "-movement":
             case "-loop":
             case "-spritesfrom":
             case "-gaits":
@@ -482,6 +503,7 @@ public class PonyEditorCLI {
             case "-mirror-facing":
             case "-start":
             case "-defaultdrag":
+            case "-wander":
                 return true;
             default:
                 return false;

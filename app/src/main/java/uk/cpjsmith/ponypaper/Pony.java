@@ -47,6 +47,11 @@ public class Pony {
     private final PonyAction[] startActions;
     private final PonyEffectDef[] effectDefs;
     /**
+     * Soft destination preference for actions that inherit movement.
+     * Defaults to {@link WanderTarget#WANDER_HORIZONTAL}.
+     */
+    private String wander = WanderTarget.WANDER_HORIZONTAL;
+    /**
      * Preference key that enabled this pony (e.g. {@code pref_ts},
      * {@code pref_custom_foo.xml}). Used for waifu / priority selection.
      */
@@ -114,9 +119,23 @@ public class Pony {
      * @param effectDefs may be {@code null} or empty when the character has none
      */
     public Pony(PonyAction[] allActions, PonyAction[] startActions, PonyEffectDef[] effectDefs) {
+        this(allActions, startActions, effectDefs, WanderTarget.WANDER_HORIZONTAL);
+    }
+
+    /**
+     * Creates a pony with optional effects and a soft wander preference
+     * (custom characters).
+     *
+     * @param wander {@link WanderTarget#WANDER_HORIZONTAL},
+     *               {@link WanderTarget#WANDER_VERTICAL}, or
+     *               {@link WanderTarget#WANDER_BOTH}
+     */
+    public Pony(PonyAction[] allActions, PonyAction[] startActions,
+            PonyEffectDef[] effectDefs, String wander) {
         this.allActions = allActions;
         this.startActions = startActions;
         this.effectDefs = effectDefs != null ? effectDefs : NO_EFFECTS;
+        this.wander = WanderTarget.normalizeWander(wander);
         this.random = new Random();
         this.direction = random.nextBoolean() ? PonyAction.LEFT : PonyAction.RIGHT;
     }
@@ -694,9 +713,10 @@ public class Pony {
             return true;
         }
         // Seed motion/target before changeAction so effect spawn sees travel.
+        // Band uses the *incoming* action's movement (not the previous clip).
         motion = next.type == PonyAction.NORMAL ? MOTION_MOVING : MOTION_SPECIAL;
         if (alwaysNewTarget || targetPos == null) {
-            setRandomTarget();
+            setRandomTarget(next);
         }
         if (motion == MOTION_MOVING && targetPos != null) {
             travelX = targetPos.x - posX;
@@ -813,19 +833,26 @@ public class Pony {
     }
     
     private void setRandomTarget() {
+        setRandomTarget(currentAction);
+    }
+
+    /**
+     * Picks a wander destination using {@code forAction}'s movement mode
+     * (or free targeting when {@link #motion} is not {@link #MOTION_MOVING}).
+     */
+    private void setRandomTarget(PonyAction forAction) {
+        // Specials (teleport destination, etc.) keep free targeting.
+        String movement = forAction != null
+                ? forAction.getMovement()
+                : WanderTarget.MOVE_INHERIT;
+        int band = motion == MOTION_MOVING
+                ? WanderTarget.resolveBand(wander, movement, random)
+                : WanderTarget.BAND_ANY;
         if (SceneExit.shouldLeaveScene(random)) {
-            if (motion == MOTION_MOVING) {
-                targetPos = randomOffScreenHoriz();
-            } else {
-                targetPos = randomOffScreen();
-            }
+            targetPos = randomOffScreenForBand(band);
             leavingMode = LM_GOING;
         } else {
-            if (motion == MOTION_MOVING) {
-                targetPos = randomOnScreenHoriz();
-            } else {
-                targetPos = randomOnScreen();
-            }
+            targetPos = randomOnScreenForBand(band);
         }
     }
     
@@ -915,26 +942,100 @@ public class Pony {
     }
     
     /**
-     * Chooses a random point on the screen, restricted to areas roughly
-     * horizontal with the current position.
-     * 
-     * @return the chosen point
+     * On-screen destination for the resolved wander/movement band.
      */
-    private Point randomOnScreenHoriz() {
+    private Point randomOnScreenForBand(int band) {
+        switch (band) {
+            case WanderTarget.BAND_HARD_H:
+                return randomOnScreenHardHorizontal();
+            case WanderTarget.BAND_HARD_V:
+                return randomOnScreenHardVertical();
+            case WanderTarget.BAND_SOFT_V:
+                return randomOnScreenSoftVertical();
+            case WanderTarget.BAND_ANY:
+                return randomOnScreen();
+            case WanderTarget.BAND_SOFT_H:
+            default:
+                return randomOnScreenSoftHorizontal();
+        }
+    }
+
+    /**
+     * Off-screen leave target for the resolved band. Soft/hard horizontal and
+     * {@link WanderTarget#BAND_ANY} use left/right exits; vertical bands use
+     * top/bottom.
+     */
+    private Point randomOffScreenForBand(int band) {
+        switch (band) {
+            case WanderTarget.BAND_HARD_H:
+                return randomOffScreenHardHorizontal();
+            case WanderTarget.BAND_HARD_V:
+                return randomOffScreenHardVertical();
+            case WanderTarget.BAND_SOFT_V:
+                return randomOffScreenSoftVertical();
+            case WanderTarget.BAND_ANY:
+                return randomOffScreen();
+            case WanderTarget.BAND_SOFT_H:
+            default:
+                return randomOffScreenSoftHorizontal();
+        }
+    }
+
+    /** Soft horizontal: reject-sample until {@code |Δy| < |Δx|}. */
+    private Point randomOnScreenSoftHorizontal() {
         Point newPoint = null;
         int curY = Math.round(posY);
         int curX = Math.round(posX);
         for (int i = 0; i < 100; i++) {
             newPoint = randomOnScreen();
-            if (Math.abs(newPoint.y - curY) < Math.abs(newPoint.x - curX)) {
+            if (WanderTarget.acceptsSoftHorizontal(newPoint.x - curX, newPoint.y - curY)) {
                 break;
             }
         }
         return newPoint;
     }
+
+    /** Soft vertical: reject-sample until {@code |Δx| < |Δy|}. */
+    private Point randomOnScreenSoftVertical() {
+        Point newPoint = null;
+        int curY = Math.round(posY);
+        int curX = Math.round(posX);
+        for (int i = 0; i < 100; i++) {
+            newPoint = randomOnScreen();
+            if (WanderTarget.acceptsSoftVertical(newPoint.x - curX, newPoint.y - curY)) {
+                break;
+            }
+        }
+        return newPoint;
+    }
+
+    /** Hard horizontal: same Y, random X in the usable on-screen band. */
+    private Point randomOnScreenHardHorizontal() {
+        float scale = getScale();
+        int side = (int)(30 * scale);
+        int usableW = screenBounds.width() - 2 * side;
+        int x = usableW < 1
+                ? screenBounds.centerX()
+                : screenBounds.left + side + random.nextInt(usableW);
+        int y = clampOnScreenY(Math.round(posY));
+        return new Point(x, y);
+    }
+
+    /** Hard vertical: same X, random Y in the usable on-screen band. */
+    private Point randomOnScreenHardVertical() {
+        float scale = getScale();
+        int top = (int)(maxUnscaledFrameHeight() * scale) + (int)(8 * scale);
+        int bottom = (int)(8 * scale);
+        int usableH = screenBounds.height() - top - bottom;
+        int y = usableH < 1
+                ? screenBounds.centerY()
+                : screenBounds.top + top + random.nextInt(usableH);
+        int x = clampOnScreenX(Math.round(posX));
+        return new Point(x, y);
+    }
     
     /**
-     * Chooses a random point just to the side of the screen.
+     * Chooses a random point just to the side of the screen (left/right).
      * 
      * @return the chosen point
      */
@@ -946,24 +1047,94 @@ public class Pony {
                 : screenBounds.top + s + random.nextInt(usableH);
         return new Point(random.nextBoolean() ? screenBounds.left - s : screenBounds.right + s, y);
     }
-    
-    /**
-     * Chooses a random point just to the side of the screen, restricted to
-     * areas roughly horizontal with the current position.
-     * 
-     * @return the chosen point
-     */
-    private Point randomOffScreenHoriz() {
+
+    /** Soft horizontal leave: left/right with {@code |Δy| < |Δx|} bias. */
+    private Point randomOffScreenSoftHorizontal() {
         Point newPoint = null;
         int curY = Math.round(posY);
         int curX = Math.round(posX);
         for (int i = 0; i < 100; i++) {
             newPoint = randomOffScreen();
-            if (Math.abs(newPoint.y - curY) < Math.abs(newPoint.x - curX)) {
+            if (WanderTarget.acceptsSoftHorizontal(newPoint.x - curX, newPoint.y - curY)) {
                 break;
             }
         }
         return newPoint;
+    }
+
+    /** Soft vertical leave: top/bottom with {@code |Δx| < |Δy|} bias. */
+    private Point randomOffScreenSoftVertical() {
+        Point newPoint = null;
+        int curY = Math.round(posY);
+        int curX = Math.round(posX);
+        for (int i = 0; i < 100; i++) {
+            newPoint = randomOffScreenVertical();
+            if (WanderTarget.acceptsSoftVertical(newPoint.x - curX, newPoint.y - curY)) {
+                break;
+            }
+        }
+        return newPoint;
+    }
+
+    /** Hard horizontal leave: left/right at the current Y. */
+    private Point randomOffScreenHardHorizontal() {
+        int s = (int)(30 * getScale());
+        int y = Math.round(posY);
+        return new Point(random.nextBoolean() ? screenBounds.left - s : screenBounds.right + s, y);
+    }
+
+    /** Hard vertical leave: top/bottom at the current X. */
+    private Point randomOffScreenHardVertical() {
+        int s = (int)(30 * getScale());
+        int x = Math.round(posX);
+        return new Point(x, random.nextBoolean() ? screenBounds.top - s : screenBounds.bottom + s);
+    }
+
+    /**
+     * Chooses a random point just above or below the screen (vertical exits).
+     */
+    private Point randomOffScreenVertical() {
+        int s = (int)(30 * getScale());
+        int usableW = screenBounds.width() - 2 * s;
+        int x = usableW < 1
+                ? screenBounds.centerX()
+                : screenBounds.left + s + random.nextInt(usableW);
+        return new Point(x, random.nextBoolean() ? screenBounds.top - s : screenBounds.bottom + s);
+    }
+
+    private int clampOnScreenX(int x) {
+        float scale = getScale();
+        int side = (int)(30 * scale);
+        int min = screenBounds.left + side;
+        int max = screenBounds.right - side;
+        if (max < min) {
+            return screenBounds.centerX();
+        }
+        if (x < min) {
+            return min;
+        }
+        if (x > max) {
+            return max;
+        }
+        return x;
+    }
+
+    private int clampOnScreenY(int y) {
+        float scale = getScale();
+        int top = (int)(maxUnscaledFrameHeight() * scale) + (int)(8 * scale);
+        int bottom = (int)(8 * scale);
+        int min = screenBounds.top + top;
+        int max = screenBounds.bottom - bottom;
+        if (max < min) {
+            return screenBounds.centerY();
+        }
+        if (y < min) {
+            return min;
+        }
+        if (y > max) {
+            return max;
+        }
+        return y;
     }
     
     private void setDirection(Point targetPos) {

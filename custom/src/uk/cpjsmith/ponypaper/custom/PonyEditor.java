@@ -12,6 +12,7 @@ import org.w3c.dom.Document;
 import org.xml.sax.SAXException;
 import uk.cpjsmith.ponypaper.EffectPlacement;
 import uk.cpjsmith.ponypaper.PonyDefinition;
+import uk.cpjsmith.ponypaper.WanderTarget;
 
 /**
  * Wraps a {@code PonyDefinition} with the operational functions needed to
@@ -174,6 +175,24 @@ public class PonyEditor {
      */
     public void setDefaultDrag(String actionNames) {
         ponyDefinition.defaultDrag = actionNames != null ? actionNames : "";
+    }
+
+    /**
+     * Soft destination preference for actions that inherit movement.
+     *
+     * @return {@code horizontal}, {@code vertical}, or {@code both}
+     */
+    public String getWander() {
+        return WanderTarget.normalizeWander(ponyDefinition.wander);
+    }
+
+    /**
+     * Sets the pony-level soft wander preference.
+     *
+     * @param wander {@code horizontal}, {@code vertical}, or {@code both}
+     */
+    public void setWander(String wander) {
+        ponyDefinition.wander = WanderTarget.normalizeWander(wander);
     }
     
     /**
@@ -465,6 +484,26 @@ public class PonyEditor {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
         ponyDefinition.actions[index].loops = loops;
     }
+
+    /**
+     * Destination movement for this action while traveling.
+     *
+     * @return {@code inherit}, {@code horizontal}, {@code vertical}, or {@code any}
+     */
+    public String getActionMovement(int index) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        return WanderTarget.normalizeMovement(ponyDefinition.actions[index].movement);
+    }
+
+    /**
+     * Sets destination movement. Pass {@code inherit} (default) to use the
+     * pony wander preference; {@code horizontal}/{@code vertical} hard-lock
+     * the other axis; {@code any} is free 2D.
+     */
+    public void setActionMovement(int index, String movement) {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        ponyDefinition.actions[index].movement = WanderTarget.normalizeMovement(movement);
+    }
     
     /**
      * @return the action whose sprites this action reuses, or empty if this
@@ -597,6 +636,7 @@ public class PonyEditor {
         setActionSpritesFrom(index, ownerName);
         setActionSpecial(index, source.specialType);
         setActionLoops(index, source.loops);
+        setActionMovement(index, source.movement);
         setActionAnchorX(index, "left", source.getAnchorX("left"));
         setActionAnchorX(index, "right", source.getAnchorX("right"));
         setActionAnchorY(index, "left", source.getAnchorY("left"));
@@ -885,6 +925,7 @@ public class PonyEditor {
                     int index = addAction(action.name);
                     setActionSpecial(index, action.specialType);
                     setActionSpeed(index, action.speed);
+                    setActionMovement(index, action.movement);
                     ImageImport.PackOptions dpOpts = new ImageImport.PackOptions();
                     dpOpts.scaleDivisor = ImageImport.SCALE_DIVISOR_HALF;
                     loadActionSprite(index, "left", action.leftImage, dpOpts);

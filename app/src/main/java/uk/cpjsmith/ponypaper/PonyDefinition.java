@@ -448,6 +448,13 @@ public class PonyDefinition {
          */
         public String gaits;
         /**
+         * Destination axis for this action while traveling. {@code inherit}
+         * (default) uses the pony {@link #wander} soft preference.
+         * {@code horizontal}/{@code vertical} hard-lock the other axis;
+         * {@code any} is free 2D. See {@link WanderTarget}.
+         */
+        public String movement;
+        /**
          * Unscaled feet column within each frame per direction ({@code "left"} /
          * {@code "right"}), pixels from the left of that sheet's frame.
          * {@link Float#NaN} means omit and use frame centre (default). Used when
@@ -478,6 +485,7 @@ public class PonyDefinition {
             loops = true;
             spritesFrom = "";
             gaits = "";
+            movement = WanderTarget.MOVE_INHERIT;
             anchorX.put("left", Float.NaN);
             anchorX.put("right", Float.NaN);
             anchorY.put("left", Float.NaN);
@@ -546,6 +554,7 @@ public class PonyDefinition {
             Boolean parsedLoops = null;
             String parsedSpritesFrom = null;
             String parsedGaits = null;
+            String parsedMovement = null;
             // Bare (no direction) anchor applies to any facing without a directed tag.
             Float bareAnchorX = null;
             Float bareAnchorY = null;
@@ -565,6 +574,8 @@ public class PonyDefinition {
                             parsedSpritesFrom = addSpritesFrom((Element)node, parsedSpritesFrom, errors);
                         } else if (nodeName.equals("gaits")) {
                             parsedGaits = addGaits((Element)node, parsedGaits, errors);
+                        } else if (nodeName.equals("movement")) {
+                            parsedMovement = addMovement((Element)node, parsedMovement, errors);
                         } else if (nodeName.equals("anchorx")) {
                             bareAnchorX = addAnchorAxis((Element)node, "anchorx", anchorX, bareAnchorX, errors);
                         } else if (nodeName.equals("anchory")) {
@@ -603,6 +614,9 @@ public class PonyDefinition {
             loops = parsedLoops != null ? parsedLoops.booleanValue() : true;
             spritesFrom = parsedSpritesFrom != null ? parsedSpritesFrom : "";
             gaits = parsedGaits != null ? parsedGaits : "";
+            movement = parsedMovement != null
+                    ? WanderTarget.normalizeMovement(parsedMovement)
+                    : WanderTarget.MOVE_INHERIT;
             // Directed tags win; bare (legacy) fills any missing facing.
             applyBareAnchor(anchorX, bareAnchorX);
             applyBareAnchor(anchorY, bareAnchorY);
@@ -729,6 +743,26 @@ public class PonyDefinition {
                 return null;
             }
             return text;
+        }
+
+        private String addMovement(Element element, String existing, List<String> errors) {
+            if (existing != null) {
+                errors.add("Too many <movement> elements.");
+                return existing;
+            }
+            String text = getContent(element, errors);
+            if (text == null) {
+                return null;
+            }
+            String trimmed = text.replaceAll("\\s+", "");
+            if (trimmed.isEmpty()) {
+                return WanderTarget.MOVE_INHERIT;
+            }
+            if (!WanderTarget.isKnownMovement(trimmed)) {
+                errors.add("Unknown <movement> value \"" + text.trim() + "\".");
+                return null;
+            }
+            return WanderTarget.normalizeMovement(trimmed);
         }
         
         /**
@@ -1152,12 +1186,20 @@ public class PonyDefinition {
      * (legacy files).
      */
     public String defaultDrag;
+    /**
+     * Soft destination preference for traveling actions that
+     * {@link WanderTarget#MOVE_INHERIT inherit} movement.
+     * {@link WanderTarget#WANDER_HORIZONTAL}, {@link WanderTarget#WANDER_VERTICAL},
+     * or {@link WanderTarget#WANDER_BOTH}. Defaults to horizontal.
+     */
+    public String wander;
     
     public PonyDefinition() {
         actions = new Action[0];
         effects = new Effect[0];
         startActions = "";
         defaultDrag = "";
+        wander = WanderTarget.WANDER_HORIZONTAL;
     }
     
     public PonyDefinition(Document document) throws InvalidPonyException {
@@ -1172,6 +1214,7 @@ public class PonyDefinition {
         
         List<Action> actions = new ArrayList<Action>();
         List<Effect> effects = new ArrayList<Effect>();
+        String parsedWander = null;
         
         for (Node node = element.getFirstChild(); node != null; node = node.getNextSibling()) {
             switch (node.getNodeType()) {
@@ -1202,6 +1245,22 @@ public class PonyDefinition {
                         } else {
                             defaultDrag = getContent((Element)node, errors);
                         }
+                    } else if (nodeName.equals("wander")) {
+                        if (parsedWander != null) {
+                            errors.add("Too many <wander> elements.");
+                        } else {
+                            String text = getContent((Element)node, errors);
+                            if (text != null) {
+                                String trimmed = text.replaceAll("\\s+", "");
+                                if (trimmed.isEmpty()) {
+                                    parsedWander = WanderTarget.WANDER_HORIZONTAL;
+                                } else if (!WanderTarget.isKnownWander(trimmed)) {
+                                    errors.add("Unknown <wander> value \"" + text.trim() + "\".");
+                                } else {
+                                    parsedWander = WanderTarget.normalizeWander(trimmed);
+                                }
+                            }
+                        }
                     } else {
                         errors.add("Unexpected " + node.getNodeName() + " element.");
                     }
@@ -1230,6 +1289,9 @@ public class PonyDefinition {
         if (defaultDrag == null) {
             defaultDrag = "";
         }
+        this.wander = parsedWander != null
+                ? parsedWander
+                : WanderTarget.WANDER_HORIZONTAL;
     }
     
     private static String getContent(Element container, List<String> errors) {
@@ -1417,6 +1479,13 @@ public class PonyDefinition {
             if (action.gaits == null) {
                 action.gaits = "";
             }
+            if (action.movement == null || action.movement.isEmpty()) {
+                action.movement = WanderTarget.MOVE_INHERIT;
+            } else if (!WanderTarget.isKnownMovement(action.movement)) {
+                errors.add("Unknown movement for " + name + " (\"" + action.movement + "\").");
+            } else {
+                action.movement = WanderTarget.normalizeMovement(action.movement);
+            }
             
             boolean alias = action.isAlias();
             if (alias) {
@@ -1515,6 +1584,14 @@ public class PonyDefinition {
             if (!actionListHasReal(defaultDrag)) {
                 errors.add("Default drag must list at least one real action (not only none/-).");
             }
+        }
+
+        if (wander == null || wander.isEmpty()) {
+            wander = WanderTarget.WANDER_HORIZONTAL;
+        } else if (!WanderTarget.isKnownWander(wander)) {
+            errors.add("Unknown <wander> value \"" + wander + "\".");
+        } else {
+            wander = WanderTarget.normalizeWander(wander);
         }
 
         if (!canReachSceneExit()) {
@@ -1841,6 +1918,11 @@ public class PonyDefinition {
             if (action.gaits == null) {
                 action.gaits = "";
             }
+            if (action.movement == null || action.movement.isEmpty()) {
+                action.movement = WanderTarget.MOVE_INHERIT;
+            } else {
+                action.movement = WanderTarget.normalizeMovement(action.movement);
+            }
             
             writer.print("    <action");
             writeAttribute(writer, "name", action.name);
@@ -1860,6 +1942,13 @@ public class PonyDefinition {
             // Omitted <loop> means true; only write the uncommon non-looping case.
             if (!action.loops) {
                 writer.println("        <loop>false</loop>");
+            }
+
+            // Omitted <movement> means inherit pony <wander>.
+            if (!WanderTarget.MOVE_INHERIT.equals(action.movement)) {
+                writer.print("        <movement>");
+                writeCharacters(writer, action.movement);
+                writer.println("</movement>");
             }
             
             // Omitted anchors mean frame centre (X) / frame bottom (Y).
@@ -1928,6 +2017,14 @@ public class PonyDefinition {
             writeCharacters(writer, defaultDrag);
             writer.println("</defaultdrag>");
         }
+
+        // Always write wander so editors round-trip; horizontal is the default.
+        String wanderOut = wander == null || wander.isEmpty()
+                ? WanderTarget.WANDER_HORIZONTAL
+                : WanderTarget.normalizeWander(wander);
+        writer.print("    <wander>");
+        writeCharacters(writer, wanderOut);
+        writer.println("</wander>");
         
         writer.println("</pony>");
     }

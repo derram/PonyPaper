@@ -86,6 +86,12 @@ public class PonyAction {
      * may set {@code <loop>false</loop>} for transition clips.
      */
     public final boolean loops;
+
+    /**
+     * Destination axis while this action travels. Built-ins and omitted XML
+     * use {@link WanderTarget#MOVE_INHERIT}. See {@link WanderTarget}.
+     */
+    private String movement = WanderTarget.MOVE_INHERIT;
     
     /* To create the sprite sheets for a built-in pony. */
     private Resources res;
@@ -224,6 +230,7 @@ public class PonyAction {
         this.res = this.spriteSource.res;
         this.arrayId = this.spriteSource.arrayId;
         this.definition = this.spriteSource.definition;
+        this.movement = this.spriteSource.movement;
         // Same sheets → same feet hotspots unless the alias overrides later.
         this.anchorX[LEFT] = this.spriteSource.anchorX[LEFT];
         this.anchorX[RIGHT] = this.spriteSource.anchorX[RIGHT];
@@ -241,8 +248,29 @@ public class PonyAction {
         this.type = typeFromSpecial(definition.specialType);
         this.speed = sanitizeSpeed(definition.speed);
         this.loops = definition.loops;
+        this.movement = WanderTarget.normalizeMovement(definition.movement);
         copyDefinitionAnchors(definition);
         validateDefinitionBitmaps(definition);
+    }
+
+    /**
+     * Destination movement mode for this action ({@link WanderTarget#MOVE_INHERIT},
+     * {@link WanderTarget#MOVE_HORIZONTAL}, {@link WanderTarget#MOVE_VERTICAL},
+     * or {@link WanderTarget#MOVE_ANY}).
+     */
+    public String getMovement() {
+        return movement != null ? movement : WanderTarget.MOVE_INHERIT;
+    }
+
+    /**
+     * Sets destination movement mode. Used when a named alias overrides the
+     * sprite owner's mode, or when Desktop Ponies import maps Allowed Moves.
+     *
+     * @return this action (for chaining)
+     */
+    public PonyAction setMovement(String movement) {
+        this.movement = WanderTarget.normalizeMovement(movement);
+        return this;
     }
 
     /**
