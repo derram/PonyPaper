@@ -67,7 +67,8 @@ public final class DesktopPoniesImport {
         public final float speed;
         /**
          * Mapped {@code <movement>} token ({@link WanderTarget#MOVE_INHERIT},
-         * {@code horizontal}, {@code vertical}, or {@code any}).
+         * {@link WanderTarget#MOVE_SOFT_VERTICAL}, {@code horizontal},
+         * {@code vertical}, or {@code any}).
          */
         public final String movement;
         public final File leftImage;

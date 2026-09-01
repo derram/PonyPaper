@@ -16,11 +16,13 @@ public final class WanderTargetTest {
         failures += run("normalizeWander", WanderTargetTest::testNormalizeWander);
         failures += run("normalizeMovement", WanderTargetTest::testNormalizeMovement);
         failures += run("desktopAliases", WanderTargetTest::testDesktopAliases);
-        failures += run("resolveInheritSoft", WanderTargetTest::testResolveInheritSoft);
+        failures += run("effectiveMovement", WanderTargetTest::testEffectiveMovement);
+        failures += run("resolveSoftBands", WanderTargetTest::testResolveSoftBands);
         failures += run("resolveHardOverrides", WanderTargetTest::testResolveHardOverrides);
-        failures += run("resolveBothCoinFlip", WanderTargetTest::testResolveBothCoinFlip);
+        failures += run("resolveBothInheritIsSoftH", WanderTargetTest::testResolveBothInheritIsSoftH);
         failures += run("softAccept", WanderTargetTest::testSoftAccept);
         failures += run("verticalFacing", WanderTargetTest::testVerticalFacing);
+        failures += run("defaultMovementForWander", WanderTargetTest::testDefaultMovementForWander);
         if (failures > 0) {
             System.err.println(failures + " wander target check(s) failed.");
             System.exit(1);
@@ -66,6 +68,12 @@ public final class WanderTargetTest {
         if (!WanderTarget.MOVE_INHERIT.equals(WanderTarget.normalizeMovement(""))) {
             throw new AssertionError("empty movement");
         }
+        if (!WanderTarget.MOVE_SOFT_VERTICAL.equals(WanderTarget.normalizeMovement("soft_vertical"))) {
+            throw new AssertionError("soft_vertical");
+        }
+        if (!WanderTarget.MOVE_SOFT_VERTICAL.equals(WanderTarget.normalizeMovement("vertical-wander"))) {
+            throw new AssertionError("vertical-wander alias");
+        }
         if (!WanderTarget.MOVE_HORIZONTAL.equals(WanderTarget.normalizeMovement("horizontal"))) {
             throw new AssertionError("horizontal");
         }
@@ -74,6 +82,9 @@ public final class WanderTargetTest {
         }
         if (!WanderTarget.MOVE_ANY.equals(WanderTarget.normalizeMovement("any"))) {
             throw new AssertionError("any");
+        }
+        if (!WanderTarget.isKnownMovement("soft_vertical")) {
+            throw new AssertionError("isKnown soft_vertical");
         }
     }
 
@@ -103,15 +114,46 @@ public final class WanderTargetTest {
         }
     }
 
-    private static void testResolveInheritSoft() {
+    private static void testEffectiveMovement() {
+        if (!WanderTarget.MOVE_SOFT_VERTICAL.equals(
+                WanderTarget.effectiveMovement(WanderTarget.WANDER_VERTICAL,
+                        WanderTarget.MOVE_INHERIT))) {
+            throw new AssertionError("vertical pony + inherit → soft_vertical");
+        }
+        if (!WanderTarget.MOVE_INHERIT.equals(
+                WanderTarget.effectiveMovement(WanderTarget.WANDER_HORIZONTAL,
+                        WanderTarget.MOVE_INHERIT))) {
+            throw new AssertionError("horizontal pony + inherit stays inherit");
+        }
+        if (!WanderTarget.MOVE_INHERIT.equals(
+                WanderTarget.effectiveMovement(WanderTarget.WANDER_BOTH,
+                        WanderTarget.MOVE_INHERIT))) {
+            throw new AssertionError("both pony + inherit stays inherit");
+        }
+        if (!WanderTarget.MOVE_SOFT_VERTICAL.equals(
+                WanderTarget.effectiveMovement(WanderTarget.WANDER_HORIZONTAL,
+                        WanderTarget.MOVE_SOFT_VERTICAL))) {
+            throw new AssertionError("explicit soft_vertical wins");
+        }
+    }
+
+    private static void testResolveSoftBands() {
         Random r = new Random(1);
         if (WanderTarget.resolveBand(WanderTarget.WANDER_HORIZONTAL,
                 WanderTarget.MOVE_INHERIT, r) != WanderTarget.BAND_SOFT_H) {
-            throw new AssertionError("inherit+horizontal wander");
+            throw new AssertionError("inherit → soft H");
         }
         if (WanderTarget.resolveBand(WanderTarget.WANDER_VERTICAL,
                 WanderTarget.MOVE_INHERIT, r) != WanderTarget.BAND_SOFT_V) {
-            throw new AssertionError("inherit+vertical wander");
+            throw new AssertionError("vertical pony + inherit compat → soft V");
+        }
+        if (WanderTarget.resolveBand(WanderTarget.WANDER_HORIZONTAL,
+                WanderTarget.MOVE_SOFT_VERTICAL, r) != WanderTarget.BAND_SOFT_V) {
+            throw new AssertionError("soft_vertical → soft V on any pony");
+        }
+        if (WanderTarget.resolveBand(WanderTarget.WANDER_BOTH,
+                WanderTarget.MOVE_SOFT_VERTICAL, r) != WanderTarget.BAND_SOFT_V) {
+            throw new AssertionError("soft_vertical on both pony");
         }
     }
 
@@ -131,24 +173,14 @@ public final class WanderTargetTest {
         }
     }
 
-    private static void testResolveBothCoinFlip() {
-        // Fixed seed that produces both outcomes across many draws.
+    private static void testResolveBothInheritIsSoftH() {
         Random r = new Random(42);
-        boolean sawH = false;
-        boolean sawV = false;
         for (int i = 0; i < 40; i++) {
             int band = WanderTarget.resolveBand(WanderTarget.WANDER_BOTH,
                     WanderTarget.MOVE_INHERIT, r);
-            if (band == WanderTarget.BAND_SOFT_H) {
-                sawH = true;
-            } else if (band == WanderTarget.BAND_SOFT_V) {
-                sawV = true;
-            } else {
-                throw new AssertionError("both produced band " + band);
+            if (band != WanderTarget.BAND_SOFT_H) {
+                throw new AssertionError("both+inherit should be soft H, got " + band);
             }
-        }
-        if (!sawH || !sawV) {
-            throw new AssertionError("both should coin-flip H and V (sawH=" + sawH + " sawV=" + sawV + ")");
         }
     }
 
@@ -170,30 +202,53 @@ public final class WanderTargetTest {
     private static void testVerticalFacing() {
         if (!WanderTarget.usesVerticalFacing(WanderTarget.WANDER_VERTICAL,
                 WanderTarget.MOVE_INHERIT)) {
-            throw new AssertionError("vertical wander + inherit");
+            throw new AssertionError("vertical pony + inherit compat");
         }
-        if (!WanderTarget.usesVerticalFacing(WanderTarget.WANDER_VERTICAL,
+        if (!WanderTarget.usesVerticalFacing(WanderTarget.WANDER_HORIZONTAL,
+                WanderTarget.MOVE_SOFT_VERTICAL)) {
+            throw new AssertionError("soft_vertical on horizontal pony");
+        }
+        if (!WanderTarget.usesVerticalFacing(WanderTarget.WANDER_BOTH,
+                WanderTarget.MOVE_SOFT_VERTICAL)) {
+            throw new AssertionError("soft_vertical on both pony");
+        }
+        if (!WanderTarget.usesVerticalFacing(WanderTarget.WANDER_HORIZONTAL,
                 WanderTarget.MOVE_VERTICAL)) {
-            throw new AssertionError("vertical wander + hard V");
+            throw new AssertionError("hard V facing on horizontal pony");
         }
-        if (!WanderTarget.usesVerticalFacing(WanderTarget.WANDER_VERTICAL,
-                WanderTarget.MOVE_ANY)) {
-            throw new AssertionError("vertical wander + any");
+        if (!WanderTarget.usesVerticalFacing(null, WanderTarget.MOVE_VERTICAL)) {
+            throw new AssertionError("hard V facing with null wander");
         }
         if (WanderTarget.usesVerticalFacing(WanderTarget.WANDER_VERTICAL,
                 WanderTarget.MOVE_HORIZONTAL)) {
             throw new AssertionError("hard H should keep classic facing");
         }
+        if (WanderTarget.usesVerticalFacing(WanderTarget.WANDER_VERTICAL,
+                WanderTarget.MOVE_ANY)) {
+            throw new AssertionError("any keeps classic facing");
+        }
         if (WanderTarget.usesVerticalFacing(WanderTarget.WANDER_HORIZONTAL,
                 WanderTarget.MOVE_INHERIT)) {
-            throw new AssertionError("horizontal wander");
+            throw new AssertionError("horizontal wander / inherit");
         }
         if (WanderTarget.usesVerticalFacing(WanderTarget.WANDER_BOTH,
                 WanderTarget.MOVE_INHERIT)) {
-            throw new AssertionError("both should not remap");
+            throw new AssertionError("both + inherit should not remap");
         }
-        if (WanderTarget.usesVerticalFacing(null, WanderTarget.MOVE_VERTICAL)) {
-            throw new AssertionError("null wander defaults horizontal");
+    }
+
+    private static void testDefaultMovementForWander() {
+        if (!WanderTarget.MOVE_SOFT_VERTICAL.equals(
+                WanderTarget.defaultMovementForWander(WanderTarget.WANDER_VERTICAL))) {
+            throw new AssertionError("vertical default");
+        }
+        if (!WanderTarget.MOVE_INHERIT.equals(
+                WanderTarget.defaultMovementForWander(WanderTarget.WANDER_HORIZONTAL))) {
+            throw new AssertionError("horizontal default");
+        }
+        if (!WanderTarget.MOVE_INHERIT.equals(
+                WanderTarget.defaultMovementForWander(WanderTarget.WANDER_BOTH))) {
+            throw new AssertionError("both default");
         }
     }
 }

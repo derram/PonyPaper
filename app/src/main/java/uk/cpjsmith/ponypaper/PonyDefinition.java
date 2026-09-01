@@ -449,9 +449,10 @@ public class PonyDefinition {
         public String gaits;
         /**
          * Destination axis for this action while traveling. {@code inherit}
-         * (default) uses the pony {@link #wander} soft preference.
-         * {@code horizontal}/{@code vertical} hard-lock the other axis;
-         * {@code any} is free 2D. See {@link WanderTarget}.
+         * (default, omitted in XML) is soft horizontal; {@code soft_vertical}
+         * is soft vertical with back/front facing; {@code horizontal}/
+         * {@code vertical} hard-lock the other axis; {@code any} is free 2D.
+         * See {@link WanderTarget}.
          */
         public String movement;
         /**
@@ -1187,10 +1188,11 @@ public class PonyDefinition {
      */
     public String defaultDrag;
     /**
-     * Soft destination preference for traveling actions that
-     * {@link WanderTarget#MOVE_INHERIT inherit} movement.
+     * Pony-level wander default / authoring mode:
      * {@link WanderTarget#WANDER_HORIZONTAL}, {@link WanderTarget#WANDER_VERTICAL},
-     * or {@link WanderTarget#WANDER_BOTH}. Defaults to horizontal.
+     * or {@link WanderTarget#WANDER_BOTH}. Omitted/{@link WanderTarget#MOVE_INHERIT}
+     * movement on a vertical pony still resolves as soft vertical for compat.
+     * Defaults to horizontal.
      */
     public String wander;
     
@@ -1923,6 +1925,13 @@ public class PonyDefinition {
             } else {
                 action.movement = WanderTarget.normalizeMovement(action.movement);
             }
+            // Persist vertical-pony + omitted/inherit as soft_vertical so files
+            // no longer rely only on the runtime compat shim.
+            if (WanderTarget.MOVE_INHERIT.equals(action.movement)
+                    && WanderTarget.WANDER_VERTICAL.equals(
+                            WanderTarget.normalizeWander(wander))) {
+                action.movement = WanderTarget.MOVE_SOFT_VERTICAL;
+            }
             
             writer.print("    <action");
             writeAttribute(writer, "name", action.name);
@@ -1944,7 +1953,7 @@ public class PonyDefinition {
                 writer.println("        <loop>false</loop>");
             }
 
-            // Omitted <movement> means inherit pony <wander>.
+            // Omitted <movement> means soft horizontal (Horizontal wander).
             if (!WanderTarget.MOVE_INHERIT.equals(action.movement)) {
                 writer.print("        <movement>");
                 writeCharacters(writer, action.movement);

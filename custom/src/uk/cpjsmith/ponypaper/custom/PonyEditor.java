@@ -178,7 +178,7 @@ public class PonyEditor {
     }
 
     /**
-     * Soft destination preference for actions that inherit movement.
+     * Pony-level wander default / authoring mode.
      *
      * @return {@code horizontal}, {@code vertical}, or {@code both}
      */
@@ -187,7 +187,7 @@ public class PonyEditor {
     }
 
     /**
-     * Sets the pony-level soft wander preference.
+     * Sets the pony-level wander default / authoring mode.
      *
      * @param wander {@code horizontal}, {@code vertical}, or {@code both}
      */
@@ -241,6 +241,8 @@ public class PonyEditor {
         // Ensure new fields are non-null for older code paths.
         newActions[oldCount].spritesFrom = "";
         newActions[oldCount].gaits = "";
+        newActions[oldCount].movement =
+                WanderTarget.defaultMovementForWander(getWander());
         
         ponyDefinition.actions = newActions;
         
@@ -488,7 +490,8 @@ public class PonyEditor {
     /**
      * Destination movement for this action while traveling.
      *
-     * @return {@code inherit}, {@code horizontal}, {@code vertical}, or {@code any}
+     * @return {@code inherit}, {@code soft_vertical}, {@code horizontal},
+     *         {@code vertical}, or {@code any}
      */
     public String getActionMovement(int index) {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
@@ -496,9 +499,10 @@ public class PonyEditor {
     }
 
     /**
-     * Sets destination movement. Pass {@code inherit} (default) to use the
-     * pony wander preference; {@code horizontal}/{@code vertical} hard-lock
-     * the other axis; {@code any} is free 2D.
+     * Sets destination movement. {@code inherit} (default) is soft horizontal;
+     * {@code soft_vertical} is soft vertical with back/front facing;
+     * {@code horizontal}/{@code vertical} hard-lock the other axis;
+     * {@code any} is free 2D.
      */
     public void setActionMovement(int index, String movement) {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();

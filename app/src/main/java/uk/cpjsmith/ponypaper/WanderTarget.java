@@ -4,31 +4,40 @@ import java.util.Random;
 
 /**
  * Shared wander / movement-mode helpers for custom characters. Pony-level
- * {@code <wander>} is a soft destination band; action-level {@code <movement>}
- * can hard-lock an axis or opt into free targeting. Built-ins keep the default
- * soft-horizontal behaviour via inherit + wander={@link #WANDER_HORIZONTAL}.
+ * {@code <wander>} sets defaults and editor chrome; action-level
+ * {@code <movement>} chooses the destination band and whether left/right
+ * sheets mean back/front. Built-ins keep soft-horizontal behaviour via
+ * omitted/{@link #MOVE_INHERIT} movement.
  *
- * <p>When wander is {@link #WANDER_VERTICAL} (and the action is not hard
- * horizontal), the existing left/right sprite slots are treated as back/front:
- * moving up uses left (back), moving down uses right (front). See
- * {@link #usesVerticalFacing}.
+ * <p>Facing: {@link #MOVE_SOFT_VERTICAL} and hard {@link #MOVE_VERTICAL} treat
+ * left/right slots as back/front (up→left/back, down→right/front). See
+ * {@link #usesVerticalFacing}. Compat: omitted/{@link #MOVE_INHERIT} on a
+ * {@link #WANDER_VERTICAL} pony still resolves as soft vertical.
  */
 public final class WanderTarget {
 
     /** Soft prefer mostly-horizontal destinations (historical default). */
     public static final String WANDER_HORIZONTAL = "horizontal";
-    /** Soft prefer mostly-vertical destinations. */
+    /** Soft prefer mostly-vertical destinations (default for omitted movement). */
     public static final String WANDER_VERTICAL = "vertical";
-    /** Each pick is soft-horizontal or soft-vertical (uniform). */
+    /**
+     * Mixed-axis authoring: use per-action {@link #MOVE_INHERIT} (soft H) and
+     * {@link #MOVE_SOFT_VERTICAL} clips rather than a coin-flip.
+     */
     public static final String WANDER_BOTH = "both";
 
-    /** Use the pony {@code <wander>} preference (soft). */
+    /**
+     * Soft horizontal wander (default; omitted in XML). Always soft-H except
+     * the vertical-pony compat shim in {@link #effectiveMovement}.
+     */
     public static final String MOVE_INHERIT = "inherit";
+    /** Soft vertical wander with back/front facing. */
+    public static final String MOVE_SOFT_VERTICAL = "soft_vertical";
     /** Hard lock: destination keeps current Y (or leaves left/right at that Y). */
     public static final String MOVE_HORIZONTAL = "horizontal";
     /** Hard lock: destination keeps current X (or leaves top/bottom at that X). */
     public static final String MOVE_VERTICAL = "vertical";
-    /** Free 2D destination; ignores pony wander. */
+    /** Free 2D destination; ignores pony wander. Classic left/right facing. */
     public static final String MOVE_ANY = "any";
 
     /** Soft horizontal band ({@code |Δy| < |Δx|}). */
@@ -65,7 +74,8 @@ public final class WanderTarget {
 
     /**
      * Normalizes an action {@code <movement>} token. Accepts Desktop Ponies
-     * aliases ({@code Horizontal_Only}, {@code All}, …). Unknown or empty →
+     * aliases ({@code Horizontal_Only}, {@code All}, …) and
+     * {@code vertical_wander} as {@link #MOVE_SOFT_VERTICAL}. Unknown or empty →
      * {@link #MOVE_INHERIT}.
      */
     public static String normalizeMovement(String raw) {
@@ -75,6 +85,9 @@ public final class WanderTarget {
         String t = raw.trim().toLowerCase().replace('-', '_');
         if (t.isEmpty() || t.equals(MOVE_INHERIT)) {
             return MOVE_INHERIT;
+        }
+        if (t.equals(MOVE_SOFT_VERTICAL) || t.equals("vertical_wander")) {
+            return MOVE_SOFT_VERTICAL;
         }
         if (t.equals(MOVE_HORIZONTAL) || t.equals("horizontal_only")) {
             return MOVE_HORIZONTAL;
@@ -112,7 +125,8 @@ public final class WanderTarget {
         if (t.isEmpty()) {
             return false;
         }
-        if (t.equals(MOVE_INHERIT) || t.equals(MOVE_HORIZONTAL) || t.equals(MOVE_VERTICAL)
+        if (t.equals(MOVE_INHERIT) || t.equals(MOVE_SOFT_VERTICAL) || t.equals("vertical_wander")
+                || t.equals(MOVE_HORIZONTAL) || t.equals(MOVE_VERTICAL)
                 || t.equals(MOVE_ANY) || t.equals("horizontal_only") || t.equals("vertical_only")
                 || t.equals("all") || t.equals("horizontal_vertical") || t.equals("diagonal_only")
                 || t.equals("diagonal_horizontal") || t.equals("diagonal_vertical")) {
@@ -122,12 +136,39 @@ public final class WanderTarget {
     }
 
     /**
-     * Maps pony wander + action movement to a destination band. {@code inherit}
-     * uses soft bands from wander ({@link #WANDER_BOTH} coin-flips); explicit
-     * horizontal/vertical on the action are hard locks.
+     * Resolves stored movement against pony wander. Omitted/{@link #MOVE_INHERIT}
+     * on a {@link #WANDER_VERTICAL} pony becomes {@link #MOVE_SOFT_VERTICAL}
+     * so existing vertical OCs keep soft-V behaviour.
+     */
+    public static String effectiveMovement(String wander, String movement) {
+        String move = normalizeMovement(movement);
+        if (MOVE_INHERIT.equals(move)
+                && WANDER_VERTICAL.equals(normalizeWander(wander))) {
+            return MOVE_SOFT_VERTICAL;
+        }
+        return move;
+    }
+
+    /**
+     * Default movement for a newly created action given pony wander.
+     * Vertical ponies start on {@link #MOVE_SOFT_VERTICAL}; others on
+     * {@link #MOVE_INHERIT} (soft horizontal).
+     */
+    public static String defaultMovementForWander(String wander) {
+        if (WANDER_VERTICAL.equals(normalizeWander(wander))) {
+            return MOVE_SOFT_VERTICAL;
+        }
+        return MOVE_INHERIT;
+    }
+
+    /**
+     * Maps pony wander + action movement to a destination band.
+     * {@link #MOVE_INHERIT} is soft-H except the vertical-pony compat shim;
+     * {@link #MOVE_SOFT_VERTICAL} is always soft-V; hard horizontal/vertical
+     * pin an axis; {@link #MOVE_ANY} is free 2D.
      */
     public static int resolveBand(String wander, String movement, Random random) {
-        String move = normalizeMovement(movement);
+        String move = effectiveMovement(wander, movement);
         if (move.equals(MOVE_HORIZONTAL)) {
             return BAND_HARD_H;
         }
@@ -137,17 +178,10 @@ public final class WanderTarget {
         if (move.equals(MOVE_ANY)) {
             return BAND_ANY;
         }
-        // inherit → soft from wander
-        String w = normalizeWander(wander);
-        if (w.equals(WANDER_VERTICAL)) {
+        if (move.equals(MOVE_SOFT_VERTICAL)) {
             return BAND_SOFT_V;
         }
-        if (w.equals(WANDER_BOTH)) {
-            if (random != null && random.nextBoolean()) {
-                return BAND_SOFT_V;
-            }
-            return BAND_SOFT_H;
-        }
+        // inherit (soft horizontal) — random unused after Both coin-flip removal
         return BAND_SOFT_H;
     }
 
@@ -163,19 +197,17 @@ public final class WanderTarget {
 
     /**
      * True when facing should follow vertical travel (Δy) instead of
-     * horizontal (Δx). Only when pony wander is {@link #WANDER_VERTICAL}, and
-     * not when the action hard-locks {@link #MOVE_HORIZONTAL} (those clips keep
-     * classic left/right by Δx). {@link #WANDER_BOTH} never remaps — only two
-     * sprite slots exist.
+     * horizontal (Δx). True for {@link #MOVE_SOFT_VERTICAL} and hard
+     * {@link #MOVE_VERTICAL}, including vertical-pony + omitted inherit via
+     * {@link #effectiveMovement}. Hard {@link #MOVE_HORIZONTAL} and
+     * {@link #MOVE_ANY} keep classic left/right by Δx.
      *
      * <p>Convention: XML {@code direction="left"} = back (up),
      * {@code direction="right"} = front (down).
      */
     public static boolean usesVerticalFacing(String wander, String movement) {
-        if (!WANDER_VERTICAL.equals(normalizeWander(wander))) {
-            return false;
-        }
-        return !MOVE_HORIZONTAL.equals(normalizeMovement(movement));
+        String move = effectiveMovement(wander, movement);
+        return MOVE_SOFT_VERTICAL.equals(move) || MOVE_VERTICAL.equals(move);
     }
 
     /**

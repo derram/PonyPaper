@@ -47,26 +47,34 @@ java -jar custom/build/libs/customponies.jar \
 
 Destination picking for traveling actions is controlled by two layers:
 
-1. **Pony `<wander>`** (soft bands): `horizontal` (default), `vertical`, or `both`. Soft horizontal prefers `|Δy| < |Δx|` with slight drift (historical behaviour). Soft vertical is the inverse and uses top/bottom scene exits. `both` coin-flips soft H or soft V each pick.
-2. **Action `<movement>`**: `inherit` (default, omitted in XML) uses pony wander; `horizontal` / `vertical` **hard-lock** the other axis (pin Y or X); `any` is free 2D. Desktop Ponies aliases (`Horizontal_Only`, `All`, …) are accepted on parse.
+1. **Pony `<wander>`** (default / authoring mode): `horizontal` (default), `vertical`, or `both`. `horizontal` / `vertical` decide how omitted/`inherit` movement resolves (see compat below). `both` is for mixed-axis OCs authored with per-action soft bands.
+2. **Action `<movement>`**:
+   - `inherit` (default, omitted in XML) → soft horizontal (`|Δy| < |Δx|`)
+   - `soft_vertical` → soft vertical (`|Δx| < |Δy|`) with back/front facing
+   - `horizontal` / `vertical` → **hard-lock** the other axis (pin Y or X)
+   - `any` → free 2D, classic left/right facing
+   Desktop Ponies aliases (`Horizontal_Only`, `All`, …) are accepted on parse.
+
+**Compat:** on a pony with `<wander>vertical</wander>`, omitted/`inherit` movement still resolves as soft vertical (and the editor save path rewrites it to `soft_vertical`).
 
 Teleport and `screen-in` / `screen-out` specials ignore `<movement>` and keep free / in-place targeting. Built-in ponies are unchanged (soft horizontal via defaults).
 
-### Vertical wander and facing
+### Vertical facing (back/front sheets)
 
-XML still uses only `direction="left"` / `direction="right"` sprite slots. When pony `<wander>` is `vertical`, those slots are treated as **back** / **front** at runtime:
+XML still uses only `direction="left"` / `direction="right"` sprite slots. When `WanderTarget.usesVerticalFacing` is true (`soft_vertical` or hard `vertical` movement, including vertical-pony + omitted inherit), those slots are treated as **back** / **front** at runtime:
 
 | Slot | Meaning | Travel that selects it |
 |------|---------|------------------------|
 | `left` | Back (away from camera) | Moving **up** (Δy &lt; 0) |
 | `right` | Front (toward camera) | Moving **down** (Δy &gt; 0) |
 
-Facing follows Δy whenever `WanderTarget.usesVerticalFacing` is true: wander is `vertical` and the action’s `<movement>` is not hard `horizontal`. Hard-horizontal actions on a vertical-wander pony keep classic left/right by Δx. Wander `both` never remaps (only two sheets). Effects use the same left/right indices, so vertical-wander OCs put back/front effect art in those slots too.
+Hard-horizontal and `any` keep classic left/right by Δx. A **Both**-wander pony can mix Horizontal wander (L/R) and Vertical wander (back/front) actions. Effects still share left/right indices; effect editor chrome follows pony Wander (`vertical` → Back/Front).
 
 ```xml
-<wander>vertical</wander>
-<action name="flyzoom">
-  <movement>horizontal</movement>
+<wander>both</wander>
+<action name="trot"><!-- omitted movement = soft horizontal, L/R -->…</action>
+<action name="climb">
+  <movement>soft_vertical</movement>
   …
 </action>
 ```

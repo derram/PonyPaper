@@ -58,15 +58,15 @@ public class PonyAction {
     public static final int SCREEN_OUT = 4;
     
     /**
-     * Left-facing sheet index. With pony {@code <wander>vertical</wander>} (and
-     * movement not hard-horizontal), this slot is the <em>back</em> view
-     * (selected when traveling up). See {@link WanderTarget#usesVerticalFacing}.
+     * Left-facing sheet index. When {@link WanderTarget#usesVerticalFacing} is
+     * true (soft-vertical or hard-vertical movement), this slot is the
+     * <em>back</em> view (selected when traveling up).
      */
     public static final int LEFT = 0;
     /**
-     * Right-facing sheet index. With pony {@code <wander>vertical</wander>} (and
-     * movement not hard-horizontal), this slot is the <em>front</em> view
-     * (selected when traveling down). See {@link WanderTarget#usesVerticalFacing}.
+     * Right-facing sheet index. When {@link WanderTarget#usesVerticalFacing} is
+     * true (soft-vertical or hard-vertical movement), this slot is the
+     * <em>front</em> view (selected when traveling down).
      */
     public static final int RIGHT = 1;
     
@@ -97,7 +97,8 @@ public class PonyAction {
 
     /**
      * Destination axis while this action travels. Built-ins and omitted XML
-     * use {@link WanderTarget#MOVE_INHERIT}. See {@link WanderTarget}.
+     * use {@link WanderTarget#MOVE_INHERIT} (soft horizontal). See
+     * {@link WanderTarget}.
      */
     private String movement = WanderTarget.MOVE_INHERIT;
     
@@ -263,8 +264,8 @@ public class PonyAction {
 
     /**
      * Destination movement mode for this action ({@link WanderTarget#MOVE_INHERIT},
-     * {@link WanderTarget#MOVE_HORIZONTAL}, {@link WanderTarget#MOVE_VERTICAL},
-     * or {@link WanderTarget#MOVE_ANY}).
+     * {@link WanderTarget#MOVE_SOFT_VERTICAL}, {@link WanderTarget#MOVE_HORIZONTAL},
+     * {@link WanderTarget#MOVE_VERTICAL}, or {@link WanderTarget#MOVE_ANY}).
      */
     public String getMovement() {
         return movement != null ? movement : WanderTarget.MOVE_INHERIT;

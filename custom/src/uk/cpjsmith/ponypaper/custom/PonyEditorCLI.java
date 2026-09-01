@@ -415,7 +415,8 @@ public class PonyEditorCLI {
         System.out.println("    Set the pony-level default drag actions. Actions with an empty");
         System.out.println("    drag override inherit this list.");
         System.out.println("-wander horizontal|vertical|both");
-        System.out.println("    Soft destination preference for actions with Movement=inherit.");
+        System.out.println("    Pony wander default / authoring mode. vertical makes omitted");
+        System.out.println("    movement resolve as soft_vertical; both is for mixed H/V actions.");
         System.out.println("    both = each pick is soft-horizontal or soft-vertical.");
         System.out.println("-action NAME");
         System.out.println("    Switch to editing the named action, creating it if it does not exist.");
@@ -435,9 +436,10 @@ public class PonyEditorCLI {
         System.out.println("-speed VALUE");
         System.out.println("    Set the current action's travel/animation speed factor (positive float).");
         System.out.println("    Typical gaits: 0.5 stroll, 0.7 walk, 1.0 trot.");
-        System.out.println("-movement inherit|horizontal|vertical|any");
-        System.out.println("    Destination axis for the current action. inherit (default) uses");
-        System.out.println("    pony -wander; horizontal/vertical hard-lock the other axis; any is free 2D.");
+        System.out.println("-movement inherit|soft_vertical|horizontal|vertical|any");
+        System.out.println("    Destination axis for the current action. inherit (default) is soft");
+        System.out.println("    horizontal; soft_vertical is soft vertical with back/front facing;");
+        System.out.println("    horizontal/vertical hard-lock the other axis; any is free 2D.");
         System.out.println("-loop true|false");
         System.out.println("    Whether the animation loops (default true). Use false for one-shot");
         System.out.println("    transition clips that advance via next waiting/moving/drag lists.");

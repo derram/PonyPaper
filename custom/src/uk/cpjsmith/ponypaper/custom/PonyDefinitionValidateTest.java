@@ -396,11 +396,13 @@ public final class PonyDefinitionValidateTest {
     private static void testWanderMovementRoundTripXml() throws Exception {
         PonyDefinition def = pony(
                 action("stand", true, "stand", "flyzoom"),
-                action("flyzoom", true, "stand", "flyzoom"));
+                action("flyzoom", true, "stand", "flyzoom"),
+                action("climb", true, "stand", "climb"));
         def.startActions = "flyzoom";
         def.defaultDrag = "flyzoom";
         def.wander = "vertical";
         def.actions[1].movement = "horizontal";
+        def.actions[2].movement = "soft_vertical";
         def.validate();
 
         java.io.StringWriter sw = new java.io.StringWriter();
@@ -412,7 +414,11 @@ public final class PonyDefinitionValidateTest {
         if (!xml.contains("<movement>horizontal</movement>")) {
             throw new AssertionError("missing movement: " + xml);
         }
-        // inherit must be omitted
+        // vertical pony + omitted inherit migrates to soft_vertical on save
+        if (!xml.contains("<movement>soft_vertical</movement>")) {
+            throw new AssertionError("missing soft_vertical migrate/write: " + xml);
+        }
+        // inherit token itself must never be written
         if (xml.indexOf("<movement>inherit</movement>") >= 0) {
             throw new AssertionError("inherit movement should be omitted: " + xml);
         }
@@ -425,11 +431,30 @@ public final class PonyDefinitionValidateTest {
         if (!"vertical".equals(loaded.wander)) {
             throw new AssertionError("wander mismatch: " + loaded.wander);
         }
-        if (!"inherit".equals(loaded.actions[0].movement)) {
-            throw new AssertionError("stand movement should default inherit");
+        if (!"soft_vertical".equals(loaded.actions[0].movement)) {
+            throw new AssertionError("stand should migrate to soft_vertical: "
+                    + loaded.actions[0].movement);
         }
         if (!"horizontal".equals(loaded.actions[1].movement)) {
             throw new AssertionError("flyzoom movement mismatch: " + loaded.actions[1].movement);
+        }
+        if (!"soft_vertical".equals(loaded.actions[2].movement)) {
+            throw new AssertionError("climb soft_vertical mismatch: " + loaded.actions[2].movement);
+        }
+
+        // On a horizontal pony, omitted inherit stays omitted (soft H).
+        PonyDefinition hDef = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        hDef.startActions = "trot";
+        hDef.defaultDrag = "trot";
+        hDef.wander = "horizontal";
+        hDef.validate();
+        java.io.StringWriter hSw = new java.io.StringWriter();
+        hDef.writeDefinition(new java.io.PrintWriter(hSw));
+        String hXml = hSw.toString();
+        if (hXml.contains("<movement>")) {
+            throw new AssertionError("horizontal pony should omit default movement: " + hXml);
         }
     }
 

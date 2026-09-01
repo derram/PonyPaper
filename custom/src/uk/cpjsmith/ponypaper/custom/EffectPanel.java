@@ -45,7 +45,8 @@ import uk.cpjsmith.ponypaper.WanderTarget;
 /**
  * Detail form for one Desktop Ponies–style effect: trigger, lifetime, placement,
  * and left/right spritesheets. Owned by {@link PonyEditorGUI}'s Effects tab.
- * When pony Wander is Vertical, labels show Back/Front (XML stays left/right).
+ * When pony Wander is Vertical, effect labels show Back/Front (XML stays left/right).
+ * Action sheet remapping is per-action movement; effects stay pony-Wander-based.
  */
 final class EffectPanel extends JPanel {
 

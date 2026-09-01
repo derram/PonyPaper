@@ -185,6 +185,7 @@ public class PonyEditorGUI extends JPanel {
                     if (!next.equals(editor.getActionMovement(currentIndex))) {
                         editor.setActionMovement(currentIndex, next);
                         setDirty(true);
+                        refreshFacingLabels();
                     }
                 }
             }
@@ -412,15 +413,18 @@ public class PonyEditorGUI extends JPanel {
             addFormRow(identity, 1, new JLabel("Speed:"), speedField, 1.0);
 
             movementCombo = new JComboBox<String>(new String[] {
-                    "Inherit (pony wander)",
+                    "Horizontal wander",
+                    "Vertical wander",
                     "Horizontal only",
                     "Vertical only",
                     "Any direction"
             });
-            movementCombo.setToolTipText("Inherit uses the pony wander preference (with drift). "
+            movementCombo.setToolTipText("Horizontal wander: soft sideways travel (slight vertical drift). "
+                    + "Vertical wander: soft up/down travel and Back/Front sheets (Δy facing). "
                     + "Horizontal/Vertical only pin the other axis (Desktop Ponies–style). "
-                    + "Any ignores the pony preference. Teleport/screen specials ignore this. "
-                    + "On Vertical wander, Horizontal only also keeps classic left/right facing by Δx.");
+                    + "Any is free 2D with classic Left/Right facing. "
+                    + "Use Horizontal + Vertical wander actions together when pony Wander is Both. "
+                    + "Teleport/screen specials ignore this.");
             movementCombo.addActionListener(movementListener);
             addFormRow(identity, 2, new JLabel("Movement:"), movementCombo, 1.0);
 
@@ -797,7 +801,9 @@ public class PonyEditorGUI extends JPanel {
                 anchorXRightField.setText(formatAnchor(editor.getActionAnchorX(index, "right")));
                 anchorYRightField.setText(formatAnchor(editor.getActionAnchorY(index, "right")));
                 speedField.setText(formatSpeed(editor.getActionSpeed(index)));
-                movementCombo.setSelectedItem(movementLabelFromToken(editor.getActionMovement(index)));
+                movementCombo.setSelectedItem(movementLabelFromToken(
+                        WanderTarget.effectiveMovement(editor.getWander(),
+                                editor.getActionMovement(index))));
                 loopCheckBox.setSelected(editor.getActionLoops(index));
                 spritesFromField.setText(editor.getActionSpritesFrom(index));
                 gaitsField.setText(editor.getActionGaits(index));
@@ -814,7 +820,12 @@ public class PonyEditorGUI extends JPanel {
                 anchorXRightField.setText("");
                 anchorYRightField.setText("");
                 speedField.setText("");
-                movementCombo.setSelectedItem(movementLabelFromToken(WanderTarget.MOVE_INHERIT));
+                // editor may still be null during ActionPanel construction
+                String wander = editor != null
+                        ? editor.getWander()
+                        : WanderTarget.WANDER_HORIZONTAL;
+                movementCombo.setSelectedItem(movementLabelFromToken(
+                        WanderTarget.defaultMovementForWander(wander)));
                 loopCheckBox.setSelected(true);
                 spritesFromField.setText("");
                 gaitsField.setText("");
@@ -830,15 +841,24 @@ public class PonyEditorGUI extends JPanel {
             }
             
             currentIndex = index;
+            refreshFacingLabels();
         }
 
         /**
-         * When pony Wander is Vertical, left/right slots mean back/front — update
-         * section titles and mirror/anchor chrome. XML direction tokens stay left/right.
+         * When the selected action uses vertical facing (soft_vertical / hard
+         * vertical, or vertical-pony + omitted inherit), left/right slots mean
+         * back/front — update section titles and mirror/anchor chrome. XML
+         * direction tokens stay left/right.
          */
         void refreshFacingLabels() {
-            boolean vertical = WanderTarget.WANDER_VERTICAL.equals(
-                    WanderTarget.normalizeWander(editor.getWander()));
+            // editor may still be null during ActionPanel construction
+            if (editor == null) {
+                return;
+            }
+            String movement = currentIndex >= 0
+                    ? editor.getActionMovement(currentIndex)
+                    : WanderTarget.defaultMovementForWander(editor.getWander());
+            boolean vertical = WanderTarget.usesVerticalFacing(editor.getWander(), movement);
             String leftName = vertical ? "back" : "left";
             String rightName = vertical ? "front" : "right";
             String leftTitle = vertical ? "Back" : "Left";
@@ -2152,7 +2172,14 @@ public class PonyEditorGUI extends JPanel {
             if (!next.equals(editor.getWander())) {
                 editor.setWander(next);
                 setDirty(true);
-                refreshFacingLabels();
+                // Re-show effective movement (vertical+inherit → Vertical wander)
+                // and facing chrome for the selected action.
+                if (actionSettingsPane != null && actionList != null
+                        && actionList.getSelectedIndex() >= 0) {
+                    actionSettingsPane.setAction(actionList.getSelectedIndex());
+                } else {
+                    refreshFacingLabels();
+                }
             }
         }
     };
@@ -2640,6 +2667,9 @@ public class PonyEditorGUI extends JPanel {
 
     private static String movementLabelFromToken(String token) {
         String t = WanderTarget.normalizeMovement(token);
+        if (WanderTarget.MOVE_SOFT_VERTICAL.equals(t)) {
+            return "Vertical wander";
+        }
         if (WanderTarget.MOVE_HORIZONTAL.equals(t)) {
             return "Horizontal only";
         }
@@ -2649,10 +2679,13 @@ public class PonyEditorGUI extends JPanel {
         if (WanderTarget.MOVE_ANY.equals(t)) {
             return "Any direction";
         }
-        return "Inherit (pony wander)";
+        return "Horizontal wander";
     }
 
     private static String movementTokenFromLabel(String label) {
+        if ("Vertical wander".equals(label)) {
+            return WanderTarget.MOVE_SOFT_VERTICAL;
+        }
         if ("Horizontal only".equals(label)) {
             return WanderTarget.MOVE_HORIZONTAL;
         }
@@ -2901,11 +2934,10 @@ public class PonyEditorGUI extends JPanel {
                 "Vertical",
                 "Both (H or V)"
         });
-        wanderCombo.setToolTipText("Soft preference for destination picks when an action's "
-                + "Movement is Inherit. Horizontal/Vertical allow slight drift on the other axis; "
-                + "Both picks a soft H or soft V band each time. Actions can hard-lock or use Any. "
-                + "Vertical also treats left/right sheets as back/front (up→back, down→front) "
-                + "unless the action is Horizontal only.");
+        wanderCombo.setToolTipText("Pony wander default / authoring mode. Vertical makes omitted "
+                + "movement resolve as Vertical wander (Back/Front sheets). Both is for mixed-axis "
+                + "OCs: use Horizontal wander on sideways clips and Vertical wander on up/down clips. "
+                + "Actions can also hard-lock an axis or use Any direction.");
         wanderCombo.addActionListener(wanderListener);
         c = getConstraints(5, 0);
         c.weightx = 0.4;
