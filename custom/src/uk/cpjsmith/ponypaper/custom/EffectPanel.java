@@ -62,10 +62,10 @@ final class EffectPanel extends JPanel {
     private final JCheckBox followCheck = new JCheckBox("Follow pony");
     private final JCheckBox noLoopCheck = new JCheckBox("Prevent animation loop");
     private final JCheckBox motionPlacementCheck = new JCheckBox("Motion-relative placement");
-    private final JComboBox<String> placementRight = new JComboBox<String>(placementTokens());
-    private final JComboBox<String> centeringRight = new JComboBox<String>(centeringTokens());
     private final JComboBox<String> placementLeft = new JComboBox<String>(placementTokens());
     private final JComboBox<String> centeringLeft = new JComboBox<String>(centeringTokens());
+    private final JComboBox<String> placementRight = new JComboBox<String>(placementTokens());
+    private final JComboBox<String> centeringRight = new JComboBox<String>(centeringTokens());
     private final JTextField timingsLeftField = new JTextField();
     private final JTextField timingsRightField = new JTextField();
     private final JLabel imageLeftStatus = new JLabel(" ");
@@ -173,14 +173,14 @@ final class EffectPanel extends JPanel {
         form.add(motionPlacementCheck, c);
         row++;
 
-        row = addCombo(form, row, "Placement right:", placementRight,
-                "Point on the pony image when facing right.");
-        row = addCombo(form, row, "Centering right:", centeringRight,
-                "Point on the effect image aligned to placement (facing right).");
         row = addCombo(form, row, "Placement left:", placementLeft,
                 "Point on the pony image when facing left.");
         row = addCombo(form, row, "Centering left:", centeringLeft,
                 "Point on the effect image aligned to placement (facing left).");
+        row = addCombo(form, row, "Placement right:", placementRight,
+                "Point on the pony image when facing right.");
+        row = addCombo(form, row, "Centering right:", centeringRight,
+                "Point on the effect image aligned to placement (facing right).");
 
         checkPlacementButton = button("Check placement…", e -> checkPlacement());
         checkPlacementButton.setToolTipText(
@@ -193,14 +193,14 @@ final class EffectPanel extends JPanel {
         form.add(checkPlacementButton, checkConstraints);
         row++;
 
-        wireCombo(placementRight, true, true);
-        wireCombo(centeringRight, false, true);
         wireCombo(placementLeft, true, false);
         wireCombo(centeringLeft, false, false);
+        wireCombo(placementRight, true, true);
+        wireCombo(centeringRight, false, true);
 
-        form.add(spriteBlock("right", timingsRightField, imageRightStatus),
-                fullWidth(row++));
         form.add(spriteBlock("left", timingsLeftField, imageLeftStatus),
+                fullWidth(row++));
+        form.add(spriteBlock("right", timingsRightField, imageRightStatus),
                 fullWidth(row++));
 
         c = constraints(0, row);
@@ -228,10 +228,10 @@ final class EffectPanel extends JPanel {
                 followCheck.setSelected(false);
                 noLoopCheck.setSelected(false);
                 motionPlacementCheck.setSelected(false);
-                placementRight.setSelectedItem("Center");
-                centeringRight.setSelectedItem("Center");
                 placementLeft.setSelectedItem("Center");
                 centeringLeft.setSelectedItem("Center");
+                placementRight.setSelectedItem("Center");
+                centeringRight.setSelectedItem("Center");
                 timingsLeftField.setText("");
                 timingsRightField.setText("");
                 imageLeftStatus.setText(" ");
@@ -246,10 +246,10 @@ final class EffectPanel extends JPanel {
             noLoopCheck.setSelected(editor.getEffectNoLoop(index));
             motionPlacementCheck.setSelected(EffectPlacement.isMotionMode(
                     editor.getEffectPlacementMode(index)));
-            placementRight.setSelectedItem(editor.getEffectPlacement(index, "right"));
-            centeringRight.setSelectedItem(editor.getEffectCentering(index, "right"));
             placementLeft.setSelectedItem(editor.getEffectPlacement(index, "left"));
             centeringLeft.setSelectedItem(editor.getEffectCentering(index, "left"));
+            placementRight.setSelectedItem(editor.getEffectPlacement(index, "right"));
+            centeringRight.setSelectedItem(editor.getEffectCentering(index, "right"));
             timingsLeftField.setText(editor.getEffectTimings(index, "left"));
             timingsRightField.setText(editor.getEffectTimings(index, "right"));
             refreshImageStatus("left");
@@ -266,10 +266,10 @@ final class EffectPanel extends JPanel {
         followCheck.setEnabled(enabled);
         noLoopCheck.setEnabled(enabled);
         motionPlacementCheck.setEnabled(enabled);
-        placementRight.setEnabled(enabled);
-        centeringRight.setEnabled(enabled);
         placementLeft.setEnabled(enabled);
         centeringLeft.setEnabled(enabled);
+        placementRight.setEnabled(enabled);
+        centeringRight.setEnabled(enabled);
         checkPlacementButton.setEnabled(enabled);
         timingsLeftField.setEnabled(enabled);
         timingsRightField.setEnabled(enabled);
