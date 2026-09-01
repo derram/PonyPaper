@@ -36,12 +36,16 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileFilter;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.border.CompoundBorder;
+import javax.swing.border.TitledBorder;
 import uk.cpjsmith.ponypaper.EffectPlacement;
 import uk.cpjsmith.ponypaper.PonyDefinition;
+import uk.cpjsmith.ponypaper.WanderTarget;
 
 /**
  * Detail form for one Desktop Ponies–style effect: trigger, lifetime, placement,
  * and left/right spritesheets. Owned by {@link PonyEditorGUI}'s Effects tab.
+ * When pony Wander is Vertical, labels show Back/Front (XML stays left/right).
  */
 final class EffectPanel extends JPanel {
 
@@ -71,6 +75,12 @@ final class EffectPanel extends JPanel {
     private final JLabel imageLeftStatus = new JLabel(" ");
     private final JLabel imageRightStatus = new JLabel(" ");
     private final JButton checkPlacementButton;
+    private JLabel placementLeftLabel;
+    private JLabel centeringLeftLabel;
+    private JLabel placementRightLabel;
+    private JLabel centeringRightLabel;
+    private JPanel spriteLeftBlock;
+    private JPanel spriteRightBlock;
 
     EffectPanel(Host host) {
         super(new BorderLayout());
@@ -173,13 +183,17 @@ final class EffectPanel extends JPanel {
         form.add(motionPlacementCheck, c);
         row++;
 
-        row = addCombo(form, row, "Placement left:", placementLeft,
+        placementLeftLabel = new JLabel("Placement left:");
+        row = addCombo(form, row, placementLeftLabel, placementLeft,
                 "Point on the pony image when facing left.");
-        row = addCombo(form, row, "Centering left:", centeringLeft,
+        centeringLeftLabel = new JLabel("Centering left:");
+        row = addCombo(form, row, centeringLeftLabel, centeringLeft,
                 "Point on the effect image aligned to placement (facing left).");
-        row = addCombo(form, row, "Placement right:", placementRight,
+        placementRightLabel = new JLabel("Placement right:");
+        row = addCombo(form, row, placementRightLabel, placementRight,
                 "Point on the pony image when facing right.");
-        row = addCombo(form, row, "Centering right:", centeringRight,
+        centeringRightLabel = new JLabel("Centering right:");
+        row = addCombo(form, row, centeringRightLabel, centeringRight,
                 "Point on the effect image aligned to placement (facing right).");
 
         checkPlacementButton = button("Check placement…", e -> checkPlacement());
@@ -198,10 +212,10 @@ final class EffectPanel extends JPanel {
         wireCombo(placementRight, true, true);
         wireCombo(centeringRight, false, true);
 
-        form.add(spriteBlock("left", timingsLeftField, imageLeftStatus),
-                fullWidth(row++));
-        form.add(spriteBlock("right", timingsRightField, imageRightStatus),
-                fullWidth(row++));
+        spriteLeftBlock = spriteBlock("left", timingsLeftField, imageLeftStatus);
+        spriteRightBlock = spriteBlock("right", timingsRightField, imageRightStatus);
+        form.add(spriteLeftBlock, fullWidth(row++));
+        form.add(spriteRightBlock, fullWidth(row++));
 
         c = constraints(0, row);
         c.weighty = 1.0;
@@ -213,6 +227,42 @@ final class EffectPanel extends JPanel {
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         add(scroll, BorderLayout.CENTER);
         setEffect(-1);
+    }
+
+    /**
+     * When pony Wander is Vertical, left/right effect slots mean back/front —
+     * update labels. XML direction tokens stay left/right.
+     */
+    void refreshFacingLabels() {
+        boolean vertical = WanderTarget.WANDER_VERTICAL.equals(
+                WanderTarget.normalizeWander(host.editor().getWander()));
+        String leftName = vertical ? "back" : "left";
+        String rightName = vertical ? "front" : "right";
+        placementLeftLabel.setText("Placement " + leftName + ":");
+        centeringLeftLabel.setText("Centering " + leftName + ":");
+        placementRightLabel.setText("Placement " + rightName + ":");
+        centeringRightLabel.setText("Centering " + rightName + ":");
+        placementLeft.setToolTipText("Point on the pony image when facing " + leftName + ".");
+        centeringLeft.setToolTipText(
+                "Point on the effect image aligned to placement (facing " + leftName + ").");
+        placementRight.setToolTipText("Point on the pony image when facing " + rightName + ".");
+        centeringRight.setToolTipText(
+                "Point on the effect image aligned to placement (facing " + rightName + ").");
+        setSpriteBlockTitle(spriteLeftBlock, leftName);
+        setSpriteBlockTitle(spriteRightBlock, rightName);
+    }
+
+    private static void setSpriteBlockTitle(JPanel block, String directionName) {
+        if (block == null || !(block.getBorder() instanceof CompoundBorder)) {
+            return;
+        }
+        CompoundBorder compound = (CompoundBorder) block.getBorder();
+        if (compound.getOutsideBorder() instanceof TitledBorder) {
+            String title = directionName.substring(0, 1).toUpperCase()
+                    + directionName.substring(1) + " sprite";
+            ((TitledBorder) compound.getOutsideBorder()).setTitle(title);
+            block.repaint();
+        }
     }
 
     void setEffect(int index) {
@@ -639,10 +689,14 @@ final class EffectPanel extends JPanel {
     }
 
     private static int addLabeled(JPanel form, int row, String label, JComponent field, String tip) {
+        return addLabeled(form, row, new JLabel(label), field, tip);
+    }
+
+    private static int addLabeled(JPanel form, int row, JLabel label, JComponent field, String tip) {
         GridBagConstraints c = constraints(0, row);
         c.anchor = GridBagConstraints.WEST;
         c.insets = new Insets(2, 0, 2, 8);
-        form.add(new JLabel(label), c);
+        form.add(label, c);
         field.setToolTipText(tip);
         c = constraints(1, row);
         c.weightx = 1.0;
@@ -651,7 +705,7 @@ final class EffectPanel extends JPanel {
         return row + 1;
     }
 
-    private static int addCombo(JPanel form, int row, String label, JComboBox<String> combo, String tip) {
+    private static int addCombo(JPanel form, int row, JLabel label, JComboBox<String> combo, String tip) {
         combo.setToolTipText(tip);
         return addLabeled(form, row, label, combo, tip);
     }

@@ -7,6 +7,11 @@ import java.util.Random;
  * {@code <wander>} is a soft destination band; action-level {@code <movement>}
  * can hard-lock an axis or opt into free targeting. Built-ins keep the default
  * soft-horizontal behaviour via inherit + wander={@link #WANDER_HORIZONTAL}.
+ *
+ * <p>When wander is {@link #WANDER_VERTICAL} (and the action is not hard
+ * horizontal), the existing left/right sprite slots are treated as back/front:
+ * moving up uses left (back), moving down uses right (front). See
+ * {@link #usesVerticalFacing}.
  */
 public final class WanderTarget {
 
@@ -154,6 +159,23 @@ public final class WanderTarget {
     /** Soft-vertical accept: major axis is Y. */
     public static boolean acceptsSoftVertical(float dx, float dy) {
         return Math.abs(dx) < Math.abs(dy);
+    }
+
+    /**
+     * True when facing should follow vertical travel (Δy) instead of
+     * horizontal (Δx). Only when pony wander is {@link #WANDER_VERTICAL}, and
+     * not when the action hard-locks {@link #MOVE_HORIZONTAL} (those clips keep
+     * classic left/right by Δx). {@link #WANDER_BOTH} never remaps — only two
+     * sprite slots exist.
+     *
+     * <p>Convention: XML {@code direction="left"} = back (up),
+     * {@code direction="right"} = front (down).
+     */
+    public static boolean usesVerticalFacing(String wander, String movement) {
+        if (!WANDER_VERTICAL.equals(normalizeWander(wander))) {
+            return false;
+        }
+        return !MOVE_HORIZONTAL.equals(normalizeMovement(movement));
     }
 
     /**

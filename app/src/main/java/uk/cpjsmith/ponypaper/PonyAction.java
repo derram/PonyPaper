@@ -57,9 +57,17 @@ public class PonyAction {
      */
     public static final int SCREEN_OUT = 4;
     
-    /** Represents motion towards the left (negative x) direction. */
+    /**
+     * Left-facing sheet index. With pony {@code <wander>vertical</wander>} (and
+     * movement not hard-horizontal), this slot is the <em>back</em> view
+     * (selected when traveling up). See {@link WanderTarget#usesVerticalFacing}.
+     */
     public static final int LEFT = 0;
-    /** Represents motion towards the right (positive x) direction. */
+    /**
+     * Right-facing sheet index. With pony {@code <wander>vertical</wander>} (and
+     * movement not hard-horizontal), this slot is the <em>front</em> view
+     * (selected when traveling down). See {@link WanderTarget#usesVerticalFacing}.
+     */
     public static final int RIGHT = 1;
     
     /** Default speed factor (full historical travel / animation rate). */

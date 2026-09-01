@@ -53,6 +53,7 @@ import uk.cpjsmith.ponypaper.WanderTarget;
 import javax.swing.JToolBar;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
+import javax.swing.border.TitledBorder;
 import javax.swing.SwingUtilities;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -345,6 +346,8 @@ public class PonyEditorGUI extends JPanel {
         JTextField anchorYLeftField;
         JTextField anchorXRightField;
         JTextField anchorYRightField;
+        JLabel anchorLeftLabel;
+        JLabel anchorRightLabel;
         JButton pickAnchorsLeftButton;
         JButton pickAnchorsRightButton;
         JButton checkTransitionsButton;
@@ -357,6 +360,8 @@ public class PonyEditorGUI extends JPanel {
         JButton gaitsIdleButton;
         JButton gaitsClearButton;
         JButton cloneGaitButton;
+        JPanel leftSprites;
+        JPanel rightSprites;
         JTextField imageLeftField;
         JButton imageLeftPreview;
         JButton imageLeftMirror;
@@ -388,8 +393,8 @@ public class PonyEditorGUI extends JPanel {
 
             JPanel identity = newSection("Identity & motion");
             JPanel anchors = newSection("Anchors");
-            JPanel leftSprites = newSection("Sprites — left");
-            JPanel rightSprites = newSection("Sprites — right");
+            leftSprites = newSection("Sprites — left");
+            rightSprites = newSection("Sprites — right");
             JPanel transitions = newSection("Transitions");
 
             // --- Identity & motion ---
@@ -414,7 +419,8 @@ public class PonyEditorGUI extends JPanel {
             });
             movementCombo.setToolTipText("Inherit uses the pony wander preference (with drift). "
                     + "Horizontal/Vertical only pin the other axis (Desktop Ponies–style). "
-                    + "Any ignores the pony preference. Teleport/screen specials ignore this.");
+                    + "Any ignores the pony preference. Teleport/screen specials ignore this. "
+                    + "On Vertical wander, Horizontal only also keeps classic left/right facing by Δx.");
             movementCombo.addActionListener(movementListener);
             addFormRow(identity, 2, new JLabel("Movement:"), movementCombo, 1.0);
 
@@ -505,7 +511,8 @@ public class PonyEditorGUI extends JPanel {
                     pickAnchors("left");
                 }
             });
-            addFormRow(anchors, 0, new JLabel("Left (X,Y):"),
+            anchorLeftLabel = new JLabel("Left (X,Y):");
+            addFormRow(anchors, 0, anchorLeftLabel,
                     wrapAnchorRow(anchorXLeftField, anchorYLeftField, pickAnchorsLeftButton), 1.0);
 
             anchorXRightField = new JTextField();
@@ -531,7 +538,8 @@ public class PonyEditorGUI extends JPanel {
                     checkTransitions();
                 }
             });
-            addFormRow(anchors, 1, new JLabel("Right (X,Y):"),
+            anchorRightLabel = new JLabel("Right (X,Y):");
+            addFormRow(anchors, 1, anchorRightLabel,
                     wrapAnchorRow(anchorXRightField, anchorYRightField, pickAnchorsRightButton, checkTransitionsButton), 1.0);
 
             // --- Left sprites ---
@@ -822,6 +830,66 @@ public class PonyEditorGUI extends JPanel {
             }
             
             currentIndex = index;
+        }
+
+        /**
+         * When pony Wander is Vertical, left/right slots mean back/front — update
+         * section titles and mirror/anchor chrome. XML direction tokens stay left/right.
+         */
+        void refreshFacingLabels() {
+            boolean vertical = WanderTarget.WANDER_VERTICAL.equals(
+                    WanderTarget.normalizeWander(editor.getWander()));
+            String leftName = vertical ? "back" : "left";
+            String rightName = vertical ? "front" : "right";
+            String leftTitle = vertical ? "Back" : "Left";
+            String rightTitle = vertical ? "Front" : "Right";
+
+            setSectionTitle(leftSprites, "Sprites — " + leftName);
+            setSectionTitle(rightSprites, "Sprites — " + rightName);
+            anchorLeftLabel.setText(leftTitle + " (X,Y):");
+            anchorRightLabel.setText(rightTitle + " (X,Y):");
+            pickAnchorsLeftButton.setText(vertical ? "Pick B…" : "Pick L…");
+            pickAnchorsRightButton.setText(vertical ? "Pick F…" : "Pick R…");
+            pickAnchorsLeftButton.setToolTipText(
+                    "Pick feet anchors on the " + leftName + " spritesheet.");
+            pickAnchorsRightButton.setToolTipText(
+                    "Pick feet anchors on the " + rightName + " spritesheet.");
+            imageLeftMirror.setText("Mirror to " + rightName);
+            imageRightMirror.setText("Mirror to " + leftName);
+            imageLeftMirror.setToolTipText(
+                    "Build the " + rightName + " spritesheet by flopping each " + leftName
+                            + " frame (same order and timings).");
+            imageRightMirror.setToolTipText(
+                    "Build the " + leftName + " spritesheet by flopping each " + rightName
+                            + " frame (same order and timings).");
+            imageLeftExport.setToolTipText("Save the " + leftName + " spritesheet as a PNG file.");
+            imageRightExport.setToolTipText("Save the " + rightName + " spritesheet as a PNG file.");
+            imageLeftExportFrames.setToolTipText(
+                    "Pick frame borders on the " + leftName + " sheet, then Pack… into this action "
+                            + "or Export PNGs…. Use for padded or uneven third-party strips.");
+            imageRightExportFrames.setToolTipText(
+                    "Pick frame borders on the " + rightName + " sheet, then Pack… into this action "
+                            + "or Export PNGs…. Use for padded or uneven third-party strips.");
+            anchorXLeftField.setToolTipText("Optional. " + leftTitle
+                    + " sheet feet column in pixels from the left of each frame. Leave empty for frame centre.");
+            anchorYLeftField.setToolTipText("Optional. " + leftTitle
+                    + " sheet feet row in pixels from the top of each frame. Leave empty for bottom of frame.");
+            anchorXRightField.setToolTipText("Optional. " + rightTitle
+                    + " sheet feet column in pixels from the left of each frame. Leave empty for frame centre."
+                    + (vertical ? "" : " Often differs from left when sheets are horizontal mirrors."));
+            anchorYRightField.setToolTipText("Optional. " + rightTitle
+                    + " sheet feet row in pixels from the top of each frame. Leave empty for bottom of frame.");
+        }
+
+        private static void setSectionTitle(JPanel section, String title) {
+            if (section.getBorder() instanceof javax.swing.border.CompoundBorder) {
+                javax.swing.border.CompoundBorder compound =
+                        (javax.swing.border.CompoundBorder) section.getBorder();
+                if (compound.getOutsideBorder() instanceof TitledBorder) {
+                    ((TitledBorder) compound.getOutsideBorder()).setTitle(title);
+                    section.repaint();
+                }
+            }
         }
 
         private void fillSpriteFields(int index) {
@@ -2084,9 +2152,19 @@ public class PonyEditorGUI extends JPanel {
             if (!next.equals(editor.getWander())) {
                 editor.setWander(next);
                 setDirty(true);
+                refreshFacingLabels();
             }
         }
     };
+
+    private void refreshFacingLabels() {
+        if (actionSettingsPane != null) {
+            actionSettingsPane.refreshFacingLabels();
+        }
+        if (effectSettingsPane != null) {
+            effectSettingsPane.refreshFacingLabels();
+        }
+    }
     
     private JFrame parentFrame;
     private DefaultListModel<String> actionListModel;
@@ -2200,6 +2278,7 @@ public class PonyEditorGUI extends JPanel {
         if (existing != null) {
             setUIFromPony();
         } else {
+            refreshFacingLabels();
             refreshStatusBar();
         }
     }
@@ -2332,6 +2411,7 @@ public class PonyEditorGUI extends JPanel {
         if (wanderCombo != null) {
             wanderCombo.setSelectedItem(wanderLabelFromToken(editor.getWander()));
         }
+        refreshFacingLabels();
         
         if (editor.getActionCount() > 0) {
             actionList.setSelectedIndex(0);
@@ -2823,7 +2903,9 @@ public class PonyEditorGUI extends JPanel {
         });
         wanderCombo.setToolTipText("Soft preference for destination picks when an action's "
                 + "Movement is Inherit. Horizontal/Vertical allow slight drift on the other axis; "
-                + "Both picks a soft H or soft V band each time. Actions can hard-lock or use Any.");
+                + "Both picks a soft H or soft V band each time. Actions can hard-lock or use Any. "
+                + "Vertical also treats left/right sheets as back/front (up→back, down→front) "
+                + "unless the action is Horizontal only.");
         wanderCombo.addActionListener(wanderListener);
         c = getConstraints(5, 0);
         c.weightx = 0.4;

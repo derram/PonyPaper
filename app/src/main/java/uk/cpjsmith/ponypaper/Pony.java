@@ -1137,7 +1137,28 @@ public class Pony {
         return y;
     }
     
+    /**
+     * Updates facing from travel toward {@code targetPos}. Normally left/right
+     * follow Δx. When {@link WanderTarget#usesVerticalFacing} is true, the
+     * left/right sheets mean back/front and facing follows Δy (up→left/back,
+     * down→right/front). Zero delta on the active axis keeps the current facing.
+     */
     private void setDirection(Point targetPos) {
+        String movement = currentAction != null
+                ? currentAction.getMovement()
+                : WanderTarget.MOVE_INHERIT;
+        if (WanderTarget.usesVerticalFacing(wander, movement)) {
+            float dY = targetPos.y - posY;
+            if (dY < 0 && direction != PonyAction.LEFT) {
+                direction = PonyAction.LEFT;
+                frameTime = 0;
+            }
+            if (dY > 0 && direction != PonyAction.RIGHT) {
+                direction = PonyAction.RIGHT;
+                frameTime = 0;
+            }
+            return;
+        }
         float dX = targetPos.x - posX;
         if (dX > 0 && direction != PonyAction.RIGHT) {
             direction = PonyAction.RIGHT;

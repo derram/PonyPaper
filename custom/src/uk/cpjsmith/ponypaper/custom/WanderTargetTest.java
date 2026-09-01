@@ -20,6 +20,7 @@ public final class WanderTargetTest {
         failures += run("resolveHardOverrides", WanderTargetTest::testResolveHardOverrides);
         failures += run("resolveBothCoinFlip", WanderTargetTest::testResolveBothCoinFlip);
         failures += run("softAccept", WanderTargetTest::testSoftAccept);
+        failures += run("verticalFacing", WanderTargetTest::testVerticalFacing);
         if (failures > 0) {
             System.err.println(failures + " wander target check(s) failed.");
             System.exit(1);
@@ -163,6 +164,36 @@ public final class WanderTargetTest {
         }
         if (WanderTarget.acceptsSoftVertical(10f, 3f)) {
             throw new AssertionError("soft V reject");
+        }
+    }
+
+    private static void testVerticalFacing() {
+        if (!WanderTarget.usesVerticalFacing(WanderTarget.WANDER_VERTICAL,
+                WanderTarget.MOVE_INHERIT)) {
+            throw new AssertionError("vertical wander + inherit");
+        }
+        if (!WanderTarget.usesVerticalFacing(WanderTarget.WANDER_VERTICAL,
+                WanderTarget.MOVE_VERTICAL)) {
+            throw new AssertionError("vertical wander + hard V");
+        }
+        if (!WanderTarget.usesVerticalFacing(WanderTarget.WANDER_VERTICAL,
+                WanderTarget.MOVE_ANY)) {
+            throw new AssertionError("vertical wander + any");
+        }
+        if (WanderTarget.usesVerticalFacing(WanderTarget.WANDER_VERTICAL,
+                WanderTarget.MOVE_HORIZONTAL)) {
+            throw new AssertionError("hard H should keep classic facing");
+        }
+        if (WanderTarget.usesVerticalFacing(WanderTarget.WANDER_HORIZONTAL,
+                WanderTarget.MOVE_INHERIT)) {
+            throw new AssertionError("horizontal wander");
+        }
+        if (WanderTarget.usesVerticalFacing(WanderTarget.WANDER_BOTH,
+                WanderTarget.MOVE_INHERIT)) {
+            throw new AssertionError("both should not remap");
+        }
+        if (WanderTarget.usesVerticalFacing(null, WanderTarget.MOVE_VERTICAL)) {
+            throw new AssertionError("null wander defaults horizontal");
         }
     }
 }

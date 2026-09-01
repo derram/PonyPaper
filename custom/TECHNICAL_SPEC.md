@@ -52,6 +52,17 @@ Destination picking for traveling actions is controlled by two layers:
 
 Teleport and `screen-in` / `screen-out` specials ignore `<movement>` and keep free / in-place targeting. Built-in ponies are unchanged (soft horizontal via defaults).
 
+### Vertical wander and facing
+
+XML still uses only `direction="left"` / `direction="right"` sprite slots. When pony `<wander>` is `vertical`, those slots are treated as **back** / **front** at runtime:
+
+| Slot | Meaning | Travel that selects it |
+|------|---------|------------------------|
+| `left` | Back (away from camera) | Moving **up** (Δy &lt; 0) |
+| `right` | Front (toward camera) | Moving **down** (Δy &gt; 0) |
+
+Facing follows Δy whenever `WanderTarget.usesVerticalFacing` is true: wander is `vertical` and the action’s `<movement>` is not hard `horizontal`. Hard-horizontal actions on a vertical-wander pony keep classic left/right by Δx. Wander `both` never remaps (only two sheets). Effects use the same left/right indices, so vertical-wander OCs put back/front effect art in those slots too.
+
 ```xml
 <wander>vertical</wander>
 <action name="flyzoom">
