@@ -9,7 +9,8 @@ Adding extra ponies (griffons, dragons, etc.) to PonyPaper that aren't available
 PonyPaper represents each custom pony as a single XML file. Once a pony has been created, load it into the wallpaper in any of these ways:
 
 *   **Add custom pony**: In Pony Paper settings, pick the XML file (or a library zip).
-*   **Import library**: Merge a zip of custom ponies, background image, and saved mixes.
+*   **Import library**: Merge a zip of custom ponies, background image, and saved mixes (you confirm which categories to apply).
+*   **Export library**: Tap to save everything exportable; long-press to choose ponies, background, and/or mixes.
 *   **Character library folder** (recommended): Choose a folder (e.g., `Documents/PonyPaper`) to sync XML files via USB, Syncthing, etc.
 *   **Advanced / `adb`**: Push files directly to `Android/data/io.github.derram.ponypaper/files`.
 

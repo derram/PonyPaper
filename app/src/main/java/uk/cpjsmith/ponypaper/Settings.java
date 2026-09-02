@@ -34,6 +34,7 @@ import androidx.preference.PreferenceManager;
 import androidx.preference.PreferenceScreen;
 import android.provider.OpenableColumns;
 import android.util.TypedValue;
+import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -78,6 +79,9 @@ public class Settings extends AppCompatActivity
 
     /** Preference hierarchy of the currently visible settings fragment. */
     private PreferenceFragmentCompat activePrefs;
+
+    /** Categories for the in-flight export SAF create-document callback; null = all. */
+    private CustomStorage.ExportOptions pendingExportOptions;
 
     private final Runnable dreamAdminRefreshRunnable = new Runnable() {
         @Override
@@ -147,7 +151,12 @@ public class Settings extends AppCompatActivity
                             if (result.getResultCode() == RESULT_OK
                                     && data != null
                                     && data.getData() != null) {
-                                exportLibraryZip(data.getData());
+                                CustomStorage.ExportOptions options = pendingExportOptions;
+                                pendingExportOptions = null;
+                                if (options == null) options = CustomStorage.ExportOptions.all();
+                                exportLibraryZip(data.getData(), options);
+                            } else {
+                                pendingExportOptions = null;
                             }
                         }
                     });
@@ -325,6 +334,17 @@ public class Settings extends AppCompatActivity
             });
         }
 
+        Preference clearBackground = findPreference("pref_clear_background");
+        if (clearBackground != null) {
+            clearBackground.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    onClearBackgroundClicked();
+                    return true;
+                }
+            });
+        }
+        refreshSharedBackgroundControls();
+
         Preference openLiveWallpaper = findPreference("pref_open_live_wallpaper");
         if (openLiveWallpaper != null) {
             openLiveWallpaper.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
@@ -477,10 +497,19 @@ public class Settings extends AppCompatActivity
         if (exportLibrary != null) {
             exportLibrary.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
                 public boolean onPreferenceClick(Preference preference) {
-                    startExportLibrary();
+                    startExportLibrary(CustomStorage.ExportOptions.all());
                     return true;
                 }
             });
+            if (exportLibrary instanceof LongClickPreference) {
+                ((LongClickPreference) exportLibrary).setOnLongClickListener(new View.OnLongClickListener() {
+                    @Override
+                    public boolean onLongClick(View v) {
+                        showExportChooseDialog();
+                        return true;
+                    }
+                });
+            }
         }
 
         Preference importLibrary = findPreference("pref_import_library");
@@ -1389,22 +1418,27 @@ public class Settings extends AppCompatActivity
     }
     
     /**
-     * Select background and pixelation apply to the shared image. Enable them
-     * when the live wallpaper uses it, or when a custom screen saver does.
+     * Pixelation applies only while an image background is in use. Select stays
+     * enabled so an imported or leftover file can be replaced without hunting
+     * storage. Clear is enabled only when a background file exists.
      */
     private void refreshSharedBackgroundControls() {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         boolean wallpaper = prefs.getBoolean(PonySceneController.PREF_BACKGROUND, false);
         boolean dream = prefs.getBoolean(PonySceneController.PREF_DREAM_CUSTOM_DISPLAY, false)
                 && prefs.getBoolean(PonySceneController.PREF_DREAM_BACKGROUND, false);
-        boolean enabled = wallpaper || dream;
+        boolean imageInUse = wallpaper || dream;
         Preference select = findPreference("pref_select_background");
         if (select != null) {
-            select.setEnabled(enabled);
+            select.setEnabled(true);
+        }
+        Preference clear = findPreference("pref_clear_background");
+        if (clear != null) {
+            clear.setEnabled(CustomStorage.hasLocalBackground(this));
         }
         Preference pixelation = findPreference("pref_pixelation");
         if (pixelation != null) {
-            pixelation.setEnabled(enabled);
+            pixelation.setEnabled(imageInUse);
         }
     }
 
@@ -1835,12 +1869,14 @@ public class Settings extends AppCompatActivity
         }, "ponypaper-libremove").start();
     }
 
-    private void startExportLibrary() {
-        if (!CustomStorage.hasExportableFiles(this)) {
+    private void startExportLibrary(CustomStorage.ExportOptions options) {
+        if (options == null) options = CustomStorage.ExportOptions.all();
+        if (!CustomStorage.hasExportableFiles(this, options)) {
             showAlertDialog(getString(R.string.library_export_empty_title),
                     getString(R.string.library_export_empty_message));
             return;
         }
+        pendingExportOptions = options;
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("application/zip");
@@ -1848,9 +1884,75 @@ public class Settings extends AppCompatActivity
         try {
             exportLibraryLauncher.launch(intent);
         } catch (Exception e) {
+            pendingExportOptions = null;
             showAlertDialog(getString(R.string.library_export_failed_title),
                     getString(R.string.library_pick_failed_message));
         }
+    }
+
+    private void showExportChooseDialog() {
+        final boolean hasPonies = CustomStorage.listCustomXml(this).length > 0;
+        final boolean hasBackground = CustomStorage.hasLocalBackground(this);
+        final int mixCount = PonyMixes.loadUserMixes(
+                PreferenceManager.getDefaultSharedPreferences(this)).size();
+        final boolean hasMixes = mixCount > 0;
+        if (!hasPonies && !hasBackground && !hasMixes) {
+            showAlertDialog(getString(R.string.library_export_empty_title),
+                    getString(R.string.library_export_empty_message));
+            return;
+        }
+
+        final ArrayList<String> labels = new ArrayList<String>();
+        final ArrayList<Integer> kinds = new ArrayList<Integer>();
+        if (hasPonies) {
+            labels.add(getString(R.string.library_export_item_ponies,
+                    CustomStorage.listCustomXml(this).length));
+            kinds.add(0);
+        }
+        if (hasBackground) {
+            labels.add(getString(R.string.library_export_item_background));
+            kinds.add(1);
+        }
+        if (hasMixes) {
+            labels.add(getString(R.string.library_export_item_mixes, mixCount));
+            kinds.add(2);
+        }
+        final boolean[] checked = new boolean[labels.size()];
+        for (int i = 0; i < checked.length; i++) checked[i] = true;
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.library_export_choose_title);
+        builder.setMultiChoiceItems(
+                labels.toArray(new CharSequence[labels.size()]),
+                checked,
+                new DialogInterface.OnMultiChoiceClickListener() {
+                    public void onClick(DialogInterface dialog, int which, boolean isChecked) {
+                        checked[which] = isChecked;
+                    }
+                });
+        builder.setPositiveButton(R.string.library_export_action, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                CustomStorage.ExportOptions options = new CustomStorage.ExportOptions();
+                options.ponies = false;
+                options.background = false;
+                options.mixes = false;
+                for (int i = 0; i < checked.length; i++) {
+                    if (!checked[i]) continue;
+                    int kind = kinds.get(i);
+                    if (kind == 0) options.ponies = true;
+                    else if (kind == 1) options.background = true;
+                    else if (kind == 2) options.mixes = true;
+                }
+                if (!options.ponies && !options.background && !options.mixes) {
+                    showAlertDialog(getString(R.string.library_export_nothing_selected_title),
+                            getString(R.string.library_export_nothing_selected_message));
+                    return;
+                }
+                startExportLibrary(options);
+            }
+        });
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        builder.create().show();
     }
 
     private static String defaultExportFileName() {
@@ -1858,13 +1960,15 @@ public class Settings extends AppCompatActivity
         return "PonyPaper-library-" + fmt.format(new java.util.Date()) + ".zip";
     }
 
-    private void exportLibraryZip(final Uri dest) {
+    private void exportLibraryZip(final Uri dest, final CustomStorage.ExportOptions options) {
         if (!beginStorageWork()) return;
+        final CustomStorage.ExportOptions exportOptions =
+                options != null ? options : CustomStorage.ExportOptions.all();
         new Thread(new Runnable() {
             public void run() {
                 String error = null;
                 try {
-                    CustomStorage.exportZip(Settings.this, dest);
+                    CustomStorage.exportZip(Settings.this, dest, exportOptions);
                 } catch (Exception e) {
                     error = e.getMessage();
                 }
@@ -1876,7 +1980,8 @@ public class Settings extends AppCompatActivity
                             showAlertDialog(getString(R.string.library_export_failed_title), fail);
                         } else {
                             showAlertDialog(getString(R.string.library_export_ok_title),
-                                    getString(R.string.library_export_ok_message));
+                                    getString(R.string.library_export_ok_message,
+                                            formatLibraryCategoryList(exportOptions)));
                         }
                     }
                 });
@@ -1884,22 +1989,156 @@ public class Settings extends AppCompatActivity
         }, "ponypaper-export").start();
     }
 
+    /** Human list of categories that an export options object asked for (and that exist). */
+    private String formatLibraryCategoryList(CustomStorage.ExportOptions options) {
+        ArrayList<String> parts = new ArrayList<String>();
+        if (options.ponies) {
+            int n = CustomStorage.listCustomXml(this).length;
+            if (n > 0) {
+                String ponyWord = n == 1
+                        ? getString(R.string.library_import_pony_one)
+                        : getString(R.string.library_import_pony_many);
+                parts.add(getString(R.string.library_import_ponies, n, ponyWord));
+            }
+        }
+        if (options.mixes) {
+            int n = PonyMixes.loadUserMixes(
+                    PreferenceManager.getDefaultSharedPreferences(this)).size();
+            if (n > 0) {
+                String mixWord = n == 1
+                        ? getString(R.string.library_import_mix_one)
+                        : getString(R.string.library_import_mix_many);
+                parts.add(getString(R.string.library_import_mixes, n, mixWord));
+            }
+        }
+        if (options.background && CustomStorage.hasLocalBackground(this)) {
+            parts.add(getString(R.string.library_import_background));
+        }
+        return joinLibraryParts(parts);
+    }
+
+    private String joinLibraryParts(ArrayList<String> parts) {
+        if (parts == null || parts.isEmpty()) {
+            return getString(R.string.library_import_nothing);
+        }
+        if (parts.size() == 1) return parts.get(0);
+        if (parts.size() == 2) {
+            return getString(R.string.library_import_list_two, parts.get(0), parts.get(1));
+        }
+        return getString(R.string.library_import_list_three, parts.get(0), parts.get(1), parts.get(2));
+    }
+
+    /**
+     * Peek the zip on a worker, then show a category checklist before applying.
+     * Used by Import library and by Add custom when a zip is picked.
+     */
     private void importLibraryZip(final Uri source) {
         if (!beginStorageWork()) return;
         new Thread(new Runnable() {
             public void run() {
-                final CustomStorage.ZipImportResult result = CustomStorage.importZip(Settings.this, source);
+                final CustomStorage.ZipPeekResult peek = CustomStorage.peekZip(Settings.this, source);
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        storageBusy = false;
+                        if (peek.error != null) {
+                            showAlertDialog(getString(R.string.library_import_failed_title), peek.error);
+                            return;
+                        }
+                        if (peek.isEmpty()) {
+                            showAlertDialog(getString(R.string.library_import_ok_title),
+                                    getString(R.string.library_import_nothing));
+                            return;
+                        }
+                        showImportChooseDialog(source, peek);
+                    }
+                });
+            }
+        }, "ponypaper-peek").start();
+    }
+
+    private void showImportChooseDialog(final Uri source, final CustomStorage.ZipPeekResult peek) {
+        final ArrayList<String> labels = new ArrayList<String>();
+        final ArrayList<Integer> kinds = new ArrayList<Integer>();
+        if (peek.ponyCount > 0) {
+            labels.add(getString(R.string.library_import_item_ponies, peek.ponyCount));
+            kinds.add(0);
+        }
+        if (peek.hasBackground) {
+            boolean willReplaceBg = CustomStorage.hasLocalBackground(this);
+            labels.add(willReplaceBg
+                    ? getString(R.string.library_import_item_background_replace)
+                    : getString(R.string.library_import_item_background));
+            kinds.add(1);
+        }
+        if (peek.mixCount > 0) {
+            labels.add(getString(R.string.library_import_item_mixes, peek.mixCount));
+            kinds.add(2);
+        }
+        final boolean[] checked = new boolean[labels.size()];
+        for (int i = 0; i < checked.length; i++) checked[i] = true;
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.library_import_choose_title);
+        // Multi-choice dialogs often hide setMessage; keep guidance in the title/items.
+        builder.setMultiChoiceItems(
+                labels.toArray(new CharSequence[labels.size()]),
+                checked,
+                new DialogInterface.OnMultiChoiceClickListener() {
+                    public void onClick(DialogInterface dialog, int which, boolean isChecked) {
+                        checked[which] = isChecked;
+                    }
+                });
+        builder.setPositiveButton(R.string.library_import_action, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                CustomStorage.ImportOptions options = new CustomStorage.ImportOptions();
+                options.ponies = false;
+                options.background = false;
+                options.mixes = false;
+                for (int i = 0; i < checked.length; i++) {
+                    if (!checked[i]) continue;
+                    int kind = kinds.get(i);
+                    if (kind == 0) options.ponies = true;
+                    else if (kind == 1) options.background = true;
+                    else if (kind == 2) options.mixes = true;
+                }
+                if (!options.ponies && !options.background && !options.mixes) {
+                    showAlertDialog(getString(R.string.library_import_nothing_selected_title),
+                            getString(R.string.library_import_nothing_selected_message));
+                    return;
+                }
+                runImportLibraryZip(source, options);
+            }
+        });
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        builder.create().show();
+    }
+
+    private void runImportLibraryZip(final Uri source, final CustomStorage.ImportOptions options) {
+        if (!beginStorageWork()) return;
+        final CustomStorage.ImportOptions importOptions =
+                options != null ? options : CustomStorage.ImportOptions.all();
+        new Thread(new Runnable() {
+            public void run() {
+                final CustomStorage.ZipImportResult result =
+                        CustomStorage.importZip(Settings.this, source, importOptions);
                 if (result.error == null && (result.poniesAdded > 0 || result.backgroundImported)) {
                     CustomStorage.SyncResult sync = CustomStorage.syncLibrary(Settings.this);
                     if (sync.permissionLost) {
                         // Keep imported local files; reconnect is separate.
                     }
                 }
+                if (result.error == null && result.backgroundImported) {
+                    PreferenceManager.getDefaultSharedPreferences(Settings.this).edit()
+                            .putString("pref_select_background",
+                                    Long.toString(System.currentTimeMillis()))
+                            .commit();
+                }
                 runOnUiThread(new Runnable() {
                     public void run() {
                         storageBusy = false;
                         showZipImportResult(result);
                         refreshCustomPoniesUi();
+                        refreshSharedBackgroundControls();
                         if (result.poniesAdded > 0 || result.backgroundImported) {
                             CustomStorage.bumpGeneration(Settings.this);
                         }
@@ -1937,19 +2176,11 @@ public class Settings extends AppCompatActivity
         if (result.backgroundImported) {
             parts.add(getString(R.string.library_import_background));
         }
-        String list;
-        if (parts.size() == 1) {
-            list = parts.get(0);
-        } else if (parts.size() == 2) {
-            list = getString(R.string.library_import_list_two, parts.get(0), parts.get(1));
-        } else {
-            list = getString(R.string.library_import_list_three, parts.get(0), parts.get(1), parts.get(2));
-        }
         String skipped = skippedCount > 0
                 ? getString(R.string.library_import_skipped, skippedCount)
                 : "";
         showAlertDialog(getString(R.string.library_import_ok_title),
-                getString(R.string.library_import_ok_message, list, skipped));
+                getString(R.string.library_import_ok_message, joinLibraryParts(parts), skipped));
     }
 
     private void handlePickedContent(Uri[] uris) {
@@ -1980,9 +2211,51 @@ public class Settings extends AppCompatActivity
             SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(this).edit();
             editor.putString("pref_select_background", hash);
             editor.commit();
+            refreshSharedBackgroundControls();
         } catch (IOException e) {
             showAlertDialog("Failed to set background", "An I/O error occurred.");
         }
+    }
+
+    private void onClearBackgroundClicked() {
+        if (!CustomStorage.hasLocalBackground(this)) {
+            showAlertDialog(getString(R.string.pref_clear_background_none_title),
+                    getString(R.string.pref_clear_background_none_message));
+            refreshSharedBackgroundControls();
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.pref_clear_background_confirm_title);
+        builder.setMessage(R.string.pref_clear_background_confirm_message);
+        builder.setPositiveButton(R.string.pref_clear_background_title, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                clearBackgroundNow();
+            }
+        });
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        builder.create().show();
+    }
+
+    private void clearBackgroundNow() {
+        if (!beginStorageWork()) return;
+        new Thread(new Runnable() {
+            public void run() {
+                final CustomStorage.RemoveResult result = CustomStorage.clearBackground(Settings.this);
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        storageBusy = false;
+                        refreshSharedBackgroundControls();
+                        if (result.error != null) {
+                            showAlertDialog(getString(R.string.pref_clear_background_failed_title),
+                                    result.error);
+                        } else {
+                            showAlertDialog(getString(R.string.pref_clear_background_ok_title),
+                                    getString(R.string.pref_clear_background_ok_message));
+                        }
+                    }
+                });
+            }
+        }, "ponypaper-clear-bg").start();
     }
 
     private void importSinglePony(Uri ponyUri) {

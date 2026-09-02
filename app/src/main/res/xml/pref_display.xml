@@ -47,6 +47,10 @@
             android:key="pref_select_background"
             android:title="Select background"
             android:summary="@string/pref_select_background_summary" />
+        <Preference
+            android:key="pref_clear_background"
+            android:title="@string/pref_clear_background_title"
+            android:summary="@string/pref_clear_background_summary" />
         <uk.cpjsmith.ponypaper.NumberPickerPreference
             android:key="pref_pixelation"
             android:title="Background pixelation level"

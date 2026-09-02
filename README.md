@@ -45,7 +45,7 @@ This repository is a **modernization fork** of the [Smithers888/PonyPaper](https
 - **Discrete gaits** — stroll, walk, and trot for more varied movement.
 - **Hold-to-drag** — press and hold a pony to drag it; no more accidentally jostling ponies when swiping the home screen.
 - **Import from Desktop Ponies** — updated custom character editor can import a folder from DP and build an xml file for use with PP.
-- **Custom pony library** — export/import a zip of custom ponies, the background, and saved mixes; optional user-owned folder (survives uninstall).
+- **Custom pony library** — export/import a zip of custom ponies, the background, and saved mixes (tap export for a full backup, long-press to choose categories; import asks what to apply); optional user-owned folder (survives uninstall).
 - **Waifu selector** — best pony should always come first.
 
 ### 🌙 Screen Saver

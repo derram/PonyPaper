@@ -92,16 +92,61 @@ final class CustomStorage {
         return dest;
     }
 
-    static boolean hasExportableFiles(Context context) {
-        if (listCustomXml(context).length > 0) return true;
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        if (!PonyMixes.loadUserMixes(prefs).isEmpty()) return true;
+    /** What to include when writing a library zip. All true = full backup. */
+    static final class ExportOptions {
+        boolean ponies = true;
+        boolean background = true;
+        boolean mixes = true;
+
+        static ExportOptions all() {
+            return new ExportOptions();
+        }
+    }
+
+    /** What to apply when reading a library zip. All true = merge everything found. */
+    static final class ImportOptions {
+        boolean ponies = true;
+        boolean background = true;
+        boolean mixes = true;
+
+        static ImportOptions all() {
+            return new ImportOptions();
+        }
+    }
+
+    /** Non-destructive scan of a library zip for the import confirmation dialog. */
+    static final class ZipPeekResult {
+        int ponyCount;
+        boolean hasBackground;
+        int mixCount;
+        String error;
+
+        boolean isEmpty() {
+            return ponyCount == 0 && !hasBackground && mixCount == 0;
+        }
+    }
+
+    static boolean hasLocalBackground(Context context) {
         try {
             File bg = localFile(context, BACKGROUND_NAME);
             return bg.isFile() && bg.length() > 0;
         } catch (IOException e) {
             return false;
         }
+    }
+
+    static boolean hasExportableFiles(Context context) {
+        return hasExportableFiles(context, ExportOptions.all());
+    }
+
+    static boolean hasExportableFiles(Context context, ExportOptions options) {
+        if (options == null) options = ExportOptions.all();
+        if (options.ponies && listCustomXml(context).length > 0) return true;
+        if (options.mixes) {
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+            if (!PonyMixes.loadUserMixes(prefs).isEmpty()) return true;
+        }
+        return options.background && hasLocalBackground(context);
     }
 
     /**
@@ -150,25 +195,36 @@ final class CustomStorage {
     }
 
     static void exportZip(Context context, Uri dest) throws IOException {
+        exportZip(context, dest, ExportOptions.all());
+    }
+
+    static void exportZip(Context context, Uri dest, ExportOptions options) throws IOException {
+        if (options == null) options = ExportOptions.all();
         OutputStream raw = context.getContentResolver().openOutputStream(dest);
         if (raw == null) {
             throw new IOException("Could not open export destination");
         }
         ZipOutputStream zip = new ZipOutputStream(raw);
         try {
-            File[] ponies = listCustomXml(context);
-            for (int i = 0; i < ponies.length; i++) {
-                addFileToZip(zip, ponies[i], ponies[i].getName());
+            if (options.ponies) {
+                File[] ponies = listCustomXml(context);
+                for (int i = 0; i < ponies.length; i++) {
+                    addFileToZip(zip, ponies[i], ponies[i].getName());
+                }
             }
-            File bg = localFile(context, BACKGROUND_NAME);
-            if (bg.isFile() && bg.length() > 0) {
-                addFileToZip(zip, bg, BACKGROUND_NAME);
+            if (options.background) {
+                File bg = localFile(context, BACKGROUND_NAME);
+                if (bg.isFile() && bg.length() > 0) {
+                    addFileToZip(zip, bg, BACKGROUND_NAME);
+                }
             }
-            List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(
-                    PreferenceManager.getDefaultSharedPreferences(context));
-            if (!mixes.isEmpty()) {
-                byte[] json = PonyMixes.encode(mixes).getBytes(Charset.forName("UTF-8"));
-                addBytesToZip(zip, MIXES_NAME, json);
+            if (options.mixes) {
+                List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(
+                        PreferenceManager.getDefaultSharedPreferences(context));
+                if (!mixes.isEmpty()) {
+                    byte[] json = PonyMixes.encode(mixes).getBytes(Charset.forName("UTF-8"));
+                    addBytesToZip(zip, MIXES_NAME, json);
+                }
             }
         } finally {
             zip.close();
@@ -186,11 +242,119 @@ final class CustomStorage {
     }
 
     /**
+     * Scan a library zip without writing. Validates pony XML the same way import
+     * does so the confirmation counts match what would be applied.
+     */
+    static ZipPeekResult peekZip(Context context, Uri source) {
+        ZipPeekResult result = new ZipPeekResult();
+        ZipInputStream zip = null;
+        File dir = localDir(context);
+        try {
+            InputStream in = context.getContentResolver().openInputStream(source);
+            if (in == null) {
+                result.error = "Could not open selected file";
+                return result;
+            }
+            zip = new ZipInputStream(in);
+            long total = 0;
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                if (entry.isDirectory()) {
+                    zip.closeEntry();
+                    continue;
+                }
+                long size = entry.getSize();
+                if (size > MAX_ZIP_ENTRY_BYTES) {
+                    zip.closeEntry();
+                    continue;
+                }
+                String baseName = zipEntryBaseName(entry.getName());
+                if (MIXES_NAME.equals(baseName)) {
+                    try {
+                        byte[] jsonBytes = readEntryLimited(zip, MAX_ZIP_ENTRY_BYTES);
+                        total += jsonBytes.length;
+                        if (total > MAX_ZIP_TOTAL_BYTES) {
+                            result.error = "Zip is larger than the import limit";
+                            break;
+                        }
+                        String json = new String(jsonBytes, Charset.forName("UTF-8"));
+                        List<PonyMixes.Mix> mixes = PonyMixes.parse(json);
+                        if (!mixes.isEmpty()) {
+                            result.mixCount = mixes.size();
+                        }
+                    } catch (IOException ignored) {
+                    }
+                    zip.closeEntry();
+                    continue;
+                }
+                String destName = zipEntryDestName(entry.getName());
+                if (destName == null) {
+                    zip.closeEntry();
+                    continue;
+                }
+                if (BACKGROUND_NAME.equals(destName)) {
+                    try {
+                        byte[] bytes = readEntryLimited(zip, MAX_ZIP_ENTRY_BYTES);
+                        total += bytes.length;
+                        if (total > MAX_ZIP_TOTAL_BYTES) {
+                            result.error = "Zip is larger than the import limit";
+                            break;
+                        }
+                        if (bytes.length > 0) {
+                            result.hasBackground = true;
+                        }
+                    } catch (IOException ignored) {
+                    }
+                    zip.closeEntry();
+                    continue;
+                }
+                File tmp = null;
+                try {
+                    if (dir == null) {
+                        zip.closeEntry();
+                        continue;
+                    }
+                    tmp = File.createTempFile("pppeek", ".tmp", dir);
+                    long written = copyStreamLimited(zip, tmp, MAX_ZIP_ENTRY_BYTES);
+                    total += written;
+                    if (total > MAX_ZIP_TOTAL_BYTES) {
+                        result.error = "Zip is larger than the import limit";
+                        break;
+                    }
+                    if (isValidCustomPonyFile(tmp)) {
+                        result.ponyCount++;
+                    }
+                } catch (IOException ignored) {
+                } finally {
+                    if (tmp != null) tmp.delete();
+                }
+                zip.closeEntry();
+            }
+        } catch (Exception e) {
+            result.error = "Could not read zip: " + e.getMessage();
+        } finally {
+            if (zip != null) {
+                try {
+                    zip.close();
+                } catch (IOException ignored) {
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
      * Merge a library zip into the working directory. Unknown or unsafe entries
      * are skipped. Invalid custom-pony XML is skipped rather than stored.
      * A mixes sidecar is merged into preferences and is not written locally.
+     * Categories disabled in {@code options} are skipped without writing.
      */
     static ZipImportResult importZip(Context context, Uri source) {
+        return importZip(context, source, ImportOptions.all());
+    }
+
+    static ZipImportResult importZip(Context context, Uri source, ImportOptions options) {
+        if (options == null) options = ImportOptions.all();
         ZipImportResult result = new ZipImportResult();
         ZipInputStream zip = null;
         try {
@@ -223,6 +387,10 @@ final class CustomStorage {
                             result.error = "Zip is larger than the import limit";
                             break;
                         }
+                        if (!options.mixes) {
+                            zip.closeEntry();
+                            continue;
+                        }
                         String json = new String(jsonBytes, Charset.forName("UTF-8"));
                         PonyMixes.MixMergeResult merged = PonyMixes.mergeImported(prefs, json);
                         if (merged.invalid) {
@@ -241,6 +409,22 @@ final class CustomStorage {
                 String destName = zipEntryDestName(entry.getName());
                 if (destName == null) {
                     result.skipped++;
+                    zip.closeEntry();
+                    continue;
+                }
+                boolean skipCategory = (BACKGROUND_NAME.equals(destName) && !options.background)
+                        || (!BACKGROUND_NAME.equals(destName) && !options.ponies);
+                if (skipCategory) {
+                    try {
+                        byte[] ignored = readEntryLimited(zip, MAX_ZIP_ENTRY_BYTES);
+                        total += ignored.length;
+                        if (total > MAX_ZIP_TOTAL_BYTES) {
+                            result.error = "Zip is larger than the import limit";
+                            break;
+                        }
+                    } catch (IOException e) {
+                        result.skipped++;
+                    }
                     zip.closeEntry();
                     continue;
                 }
@@ -762,6 +946,48 @@ final class CustomStorage {
         }
     }
 
+    /**
+     * Remove the shared background image from the working copy and, if linked,
+     * from the library folder. Clears both wallpaper and dream background toggles.
+     */
+    static RemoveResult clearBackground(Context context) {
+        synchronized (LIBRARY_LOCK) {
+            RemoveResult result = new RemoveResult();
+            Uri tree = getLibraryTreeUri(context);
+            if (tree != null) {
+                try {
+                    List<LibraryChild> children = listLibraryChildren(context, tree);
+                    LibraryChild existing = findChildByDestName(children, BACKGROUND_NAME);
+                    if (existing != null) {
+                        if (!deleteLibraryChild(context, children, existing)) {
+                            result.error = "Could not delete the file in the library folder.";
+                            return result;
+                        }
+                        result.libraryDeleted = true;
+                    }
+                } catch (SecurityException e) {
+                    result.error = "Lost access to the library folder. Reconnect it, or delete the file there.";
+                    return result;
+                } catch (Exception e) {
+                    result.error = e.getMessage() != null ? e.getMessage()
+                            : "Could not update the library folder.";
+                    return result;
+                }
+            }
+            if (!deleteLocalMember(context, BACKGROUND_NAME)) {
+                result.error = "Could not delete the working copy.";
+                return result;
+            }
+            result.localDeleted = true;
+            forgetLibraryName(context, BACKGROUND_NAME);
+            PreferenceManager.getDefaultSharedPreferences(context).edit()
+                    .remove("pref_select_background")
+                    .commit();
+            bumpGeneration(context);
+            return result;
+        }
+    }
+
     private static final class LibraryChild {
         Uri uri;
         String displayName;
@@ -843,6 +1069,7 @@ final class CustomStorage {
             if (BACKGROUND_NAME.equals(destName)) {
                 PreferenceManager.getDefaultSharedPreferences(context).edit()
                         .putBoolean("pref_background", false)
+                        .putBoolean(PonySceneController.PREF_DREAM_BACKGROUND, false)
                         .commit();
             } else {
                 clearPonyPreferences(context, destName);
