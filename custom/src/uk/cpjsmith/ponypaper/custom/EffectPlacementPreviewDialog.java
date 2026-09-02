@@ -204,6 +204,7 @@ public final class EffectPlacementPreviewDialog extends JDialog {
                 if (!updatingUi) {
                     stopPlaying();
                     syncCombosFromDraft();
+                    syncGridsAndAnyUi();
                     loadSources();
                     resetClocks();
                     refreshStage();
