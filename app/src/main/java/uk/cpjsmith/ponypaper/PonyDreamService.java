@@ -2,6 +2,7 @@ package uk.cpjsmith.ponypaper;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.os.Build;
@@ -61,11 +62,13 @@ import java.util.Random;
  * does not hard-cut against the lock screen, and so any OEM window wipe only
  * animates a solid black buffer instead of stretching live sprites.
  *
- * <p>After {@link PonySceneController#dreamIdleTimeoutMs} with no touch
- * interaction, the dream ends so the display can sleep, unless the preference
- * is never or the user opted to keep the screen on for this session. Touch
- * input resets that timer. Thermal hard-stop uses the same path — neither
- * should prompt for unlock.
+ * <p>After {@link PonySceneController#dreamIdleTimeoutMs} with no touch or
+ * portrait→landscape rotation, the dream ends so the display can sleep, unless
+ * the preference is never or the user opted to keep the screen on for this
+ * session. Touch and portrait→landscape both reset that timer and brighten a
+ * dim scene (same as contact). Landscape→portrait is left to the system, which
+ * ends the dream. Thermal hard-stop uses the same path — neither should prompt
+ * for unlock.
  *
  * <p>AOSP/Pixel treats {@link #finish()} after a timeout-started dream as
  * screen-off (AOD may run). Several OEMs, notably Samsung, return to keyguard
@@ -221,6 +224,11 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private long mixApplyBusyUntilMs = 0;
     /** Do not run switch listeners while syncing widgets from session state. */
     private boolean updatingChromeUi = false;
+    /**
+     * Last {@link Configuration#orientation} while dreaming. Used to treat
+     * portrait→landscape as user activity; landscape→portrait ends the dream.
+     */
+    private int lastOrientation = Configuration.ORIENTATION_UNDEFINED;
 
     private final SharedPreferences.OnSharedPreferenceChangeListener dreamPrefListener =
             new SharedPreferences.OnSharedPreferenceChangeListener() {
@@ -281,6 +289,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                     controller.allowHardwareCanvasRetry();
                     controller.onSurfaceSizeChanged();
                 }
+                // Dream window aspect is the reliable rotation signal (config
+                // callbacks can miss TYPE_DREAM). Portrait→landscape only.
+                noteOrientationFromSize(width, height);
                 updateActive();
                 maybeStartFadeIn();
             }
@@ -401,6 +412,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         dreamingStartedAtMs = SystemClock.uptimeMillis();
         gestureDown = false;
         lastCompletedGestureWasDrag = false;
+        lastOrientation = getResources().getConfiguration().orientation;
         if (surfaceView != null) {
             surfaceView.setVisibility(View.VISIBLE);
         }
@@ -431,6 +443,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         dreamingStartedAtMs = 0;
         gestureDown = false;
         lastCompletedGestureWasDrag = false;
+        lastOrientation = Configuration.ORIENTATION_UNDEFINED;
         fadeInStarted = false;
         resetSessionDisplayState();
         cancelReDim();
@@ -502,6 +515,18 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        int newOrientation = newConfig.orientation;
+        // Only portrait→landscape: the system ends the dream on landscape→portrait.
+        if (lastOrientation == Configuration.ORIENTATION_PORTRAIT
+                && newOrientation == Configuration.ORIENTATION_LANDSCAPE) {
+            onPortraitToLandscape();
+        }
+        lastOrientation = newOrientation;
+    }
+
+    @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (exiting) {
             return true;
@@ -523,6 +548,34 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             }
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    /**
+     * Portrait→landscape counts as interaction: brighten a dim scene, restart
+     * the idle sleep countdown, and (re)arm the 30s re-dim like a completed touch.
+     */
+    private void onPortraitToLandscape() {
+        if (!dreaming || exiting) return;
+        cancelReDim();
+        noteUserActivity();
+        maybeWakeFromContact();
+        maybeScheduleReDim();
+    }
+
+    /**
+     * Infer orientation from the dream surface size and wake on portrait→landscape.
+     * Idempotent with {@link #onConfigurationChanged} via {@link #lastOrientation}.
+     */
+    private void noteOrientationFromSize(int width, int height) {
+        if (width <= 0 || height <= 0 || width == height) return;
+        int orientation = width > height
+                ? Configuration.ORIENTATION_LANDSCAPE
+                : Configuration.ORIENTATION_PORTRAIT;
+        if (lastOrientation == Configuration.ORIENTATION_PORTRAIT
+                && orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            onPortraitToLandscape();
+        }
+        lastOrientation = orientation;
     }
 
     /**
@@ -665,8 +718,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     /**
-     * User touched the dream; restart the max-idle countdown so interaction
-     * keeps the screensaver running.
+     * User interacted with the dream (touch or portrait→landscape); restart the
+     * max-idle countdown so interaction keeps the screensaver running.
      */
     private void noteUserActivity() {
         if (!dreaming || exiting) return;
