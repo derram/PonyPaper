@@ -1085,9 +1085,8 @@ public class Pony {
 
     /** Hard vertical leave: top/bottom at the current X. */
     private Point randomOffScreenHardVertical() {
-        int s = (int)(30 * getScale());
         int x = Math.round(posX);
-        return new Point(x, random.nextBoolean() ? screenBounds.top - s : screenBounds.bottom + s);
+        return new Point(x, offScreenExitY(random.nextBoolean()));
     }
 
     /**
@@ -1099,7 +1098,26 @@ public class Pony {
         int x = usableW < 1
                 ? screenBounds.centerX()
                 : screenBounds.left + s + random.nextInt(usableW);
-        return new Point(x, random.nextBoolean() ? screenBounds.top - s : screenBounds.bottom + s);
+        return new Point(x, offScreenExitY(random.nextBoolean()));
+    }
+
+    /**
+     * Feet Y just past the top or bottom edge for a vertical leave.
+     * Top needs only a small pad (sprite hangs above the feet). Bottom must
+     * clear a full frame height plus pad so the body is fully off-screen when
+     * despawn runs.
+     *
+     * @param exitTop {@code true} for above the top edge, {@code false} for
+     *                below the bottom edge
+     */
+    private int offScreenExitY(boolean exitTop) {
+        float scale = getScale();
+        int pad = (int)(30 * scale);
+        if (exitTop) {
+            return screenBounds.top - pad;
+        }
+        int clear = (int)(maxUnscaledFrameHeight() * scale) + (int)(8 * scale);
+        return screenBounds.bottom + clear;
     }
 
     private int clampOnScreenX(int x) {
