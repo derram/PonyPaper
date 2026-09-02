@@ -427,6 +427,15 @@ public final class EffectPlacementPreviewDialog extends JDialog {
 
         setMinimumSize(new Dimension(640, 520));
         pack();
+        // Cap initial size so tall effects (trees, etc.) scroll inside the stage
+        // instead of pushing the dialog below the bottom of the display.
+        Dimension size = getSize();
+        Dimension screen = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
+        int maxW = Math.max(640, (int) (screen.width * 0.9));
+        int maxH = Math.max(520, (int) (screen.height * 0.85));
+        if (size.width > maxW || size.height > maxH) {
+            setSize(Math.min(size.width, maxW), Math.min(size.height, maxH));
+        }
         setLocationRelativeTo(parent);
     }
 
