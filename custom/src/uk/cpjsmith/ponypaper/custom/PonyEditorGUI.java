@@ -709,25 +709,23 @@ public class PonyEditorGUI extends JPanel {
             }, true);
             addFormRow(transitions, 2, new JLabel("Drag override:"), nextDragField, 1.0);
 
-            JPanel stack = new JPanel();
-            stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
+            // Two-column shell: spend width so a maximized window rarely needs
+            // a vertical scrollbar for the action inspector.
+            JPanel motionRow = sideBySide(identity, anchors);
+            JPanel spritesRow = sideBySide(leftSprites, rightSprites);
+
+            VerticalScrollForm stack = new VerticalScrollForm();
             stack.setBorder(BorderFactory.createEmptyBorder(4, 4, 8, 4));
-            stack.add(identity);
+            stack.add(motionRow);
             stack.add(Box.createVerticalStrut(2));
-            stack.add(anchors);
-            stack.add(Box.createVerticalStrut(2));
-            stack.add(leftSprites);
-            stack.add(Box.createVerticalStrut(2));
-            stack.add(rightSprites);
+            stack.add(spritesRow);
             stack.add(Box.createVerticalStrut(2));
             stack.add(transitions);
             stack.add(Box.createVerticalGlue());
 
             // Full width in the scroll pane, but keep natural section heights.
-            capSectionWidth(identity);
-            capSectionWidth(anchors);
-            capSectionWidth(leftSprites);
-            capSectionWidth(rightSprites);
+            capRowHeight(motionRow);
+            capRowHeight(spritesRow);
             capSectionWidth(transitions);
 
             JScrollPane scroll = new JScrollPane(stack);
@@ -749,9 +747,23 @@ public class PonyEditorGUI extends JPanel {
             return p;
         }
 
+        /** Equal-width pair for the denser full-window inspector. */
+        private static JPanel sideBySide(JComponent left, JComponent right) {
+            JPanel row = new JPanel(new GridLayout(1, 2, 6, 0));
+            row.setAlignmentX(Component.LEFT_ALIGNMENT);
+            row.add(left);
+            row.add(right);
+            return row;
+        }
+
         private static void capSectionWidth(JPanel section) {
             Dimension pref = section.getPreferredSize();
             section.setMaximumSize(new Dimension(Integer.MAX_VALUE, pref.height));
+        }
+
+        private static void capRowHeight(JPanel row) {
+            Dimension pref = row.getPreferredSize();
+            row.setMaximumSize(new Dimension(Integer.MAX_VALUE, pref.height));
         }
 
         private static void addFormRow(JPanel section, int row, JComponent label, JComponent field, double weighty) {
@@ -3015,8 +3027,10 @@ public class PonyEditorGUI extends JPanel {
     
     private static void createAndShowGUI(PonyEditor existing, File initialFile, boolean dirty) {
         JFrame frame = new JFrame();
-        frame.setMinimumSize(new Dimension(720, 640));
-        frame.setPreferredSize(new Dimension(960, 1000));
+        // Wider / shorter default matches the two-column inspector; first run
+        // still opens maximized so the layout uses available screen space.
+        frame.setMinimumSize(new Dimension(800, 560));
+        frame.setPreferredSize(new Dimension(1100, 760));
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         
         PonyEditorGUI contentPane = new PonyEditorGUI(frame, existing, initialFile, dirty);
@@ -3029,6 +3043,7 @@ public class PonyEditorGUI extends JPanel {
         frame.pack();
         if (!EditorWindowPrefs.apply(frame)) {
             frame.setLocationRelativeTo(null);
+            frame.setExtendedState(frame.getExtendedState() | JFrame.MAXIMIZED_BOTH);
         }
         EditorWindowPrefs.installPersistence(frame);
         frame.setVisible(true);

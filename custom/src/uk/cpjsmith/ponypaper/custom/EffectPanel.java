@@ -3,8 +3,10 @@ package uk.cpjsmith.ponypaper.custom;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Image;
 import java.awt.event.ActionEvent;
@@ -80,6 +82,8 @@ final class EffectPanel extends JPanel {
     private JLabel centeringLeftLabel;
     private JLabel placementRightLabel;
     private JLabel centeringRightLabel;
+    private JPanel placementLeftCol;
+    private JPanel placementRightCol;
     private JPanel spriteLeftBlock;
     private JPanel spriteRightBlock;
 
@@ -91,7 +95,7 @@ final class EffectPanel extends JPanel {
                 BorderFactory.createEmptyBorder(2, 4, 4, 4)));
         setMinimumSize(new Dimension(420, 200));
 
-        JPanel form = new JPanel(new GridBagLayout());
+        VerticalScrollForm form = new VerticalScrollForm(new GridBagLayout());
         int row = 0;
         row = addLabeled(form, row, "Trigger action:", triggerField,
                 "Action that starts this effect. Tab completes the name.");
@@ -112,7 +116,7 @@ final class EffectPanel extends JPanel {
             }
         });
 
-        row = addLabeled(form, row, "Duration (s):", durationField,
+        durationField.setToolTipText(
                 "0 = until the trigger action ends. Timed effects may outlive the action.");
         durationField.getDocument().addDocumentListener(new SimpleDoc() {
             @Override
@@ -120,8 +124,7 @@ final class EffectPanel extends JPanel {
                 commitFloat(durationField, true);
             }
         });
-
-        row = addLabeled(form, row, "Repeat delay (s):", repeatField,
+        repeatField.setToolTipText(
                 "0 = spawn once. Otherwise re-spawn while the trigger action is current.");
         repeatField.getDocument().addDocumentListener(new SimpleDoc() {
             @Override
@@ -129,6 +132,28 @@ final class EffectPanel extends JPanel {
                 commitFloat(repeatField, false);
             }
         });
+        // Duration + repeat share one row to cut vertical height.
+        JPanel timingRow = new JPanel(new GridBagLayout());
+        GridBagConstraints tc = constraints(0, 0);
+        tc.anchor = GridBagConstraints.WEST;
+        tc.insets = new Insets(0, 0, 0, 8);
+        timingRow.add(new JLabel("Duration (s):"), tc);
+        tc = constraints(1, 0);
+        tc.weightx = 0.5;
+        tc.fill = GridBagConstraints.HORIZONTAL;
+        tc.insets = new Insets(0, 0, 0, 12);
+        timingRow.add(durationField, tc);
+        tc = constraints(2, 0);
+        tc.anchor = GridBagConstraints.WEST;
+        tc.insets = new Insets(0, 0, 0, 8);
+        timingRow.add(new JLabel("Repeat delay (s):"), tc);
+        tc = constraints(3, 0);
+        tc.weightx = 0.5;
+        tc.fill = GridBagConstraints.HORIZONTAL;
+        timingRow.add(repeatField, tc);
+        GridBagConstraints c = fullWidth(row++);
+        c.insets = new Insets(2, 0, 2, 0);
+        form.add(timingRow, c);
 
         followCheck.setToolTipText("When checked, the effect stays glued to the pony; otherwise it is planted.");
         noLoopCheck.setToolTipText("Play the effect sheet once even if the image would loop.");
@@ -168,34 +193,31 @@ final class EffectPanel extends JPanel {
                 host.markDirty();
             }
         });
-        GridBagConstraints c = constraints(0, row);
-        c.gridwidth = 2;
+        JPanel checks = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        checks.add(followCheck);
+        checks.add(noLoopCheck);
+        checks.add(motionPlacementCheck);
+        c = fullWidth(row++);
+        c.insets = new Insets(2, 0, 2, 0);
         c.anchor = GridBagConstraints.WEST;
-        form.add(followCheck, c);
-        row++;
-        c = constraints(0, row);
-        c.gridwidth = 2;
-        c.anchor = GridBagConstraints.WEST;
-        form.add(noLoopCheck, c);
-        row++;
-        c = constraints(0, row);
-        c.gridwidth = 2;
-        c.anchor = GridBagConstraints.WEST;
-        form.add(motionPlacementCheck, c);
-        row++;
+        form.add(checks, c);
 
-        placementLeftLabel = new JLabel("Placement left:");
-        row = addCombo(form, row, placementLeftLabel, placementLeft,
-                "Point on the pony image when facing left.");
-        centeringLeftLabel = new JLabel("Centering left:");
-        row = addCombo(form, row, centeringLeftLabel, centeringLeft,
+        placementLeftLabel = new JLabel("Placement:");
+        centeringLeftLabel = new JLabel("Centering:");
+        placementRightLabel = new JLabel("Placement:");
+        centeringRightLabel = new JLabel("Centering:");
+        placementLeftCol = facingPlacementColumn(
+                "Facing left", placementLeftLabel, placementLeft, centeringLeftLabel, centeringLeft,
+                "Point on the pony image when facing left.",
                 "Point on the effect image aligned to placement (facing left).");
-        placementRightLabel = new JLabel("Placement right:");
-        row = addCombo(form, row, placementRightLabel, placementRight,
-                "Point on the pony image when facing right.");
-        centeringRightLabel = new JLabel("Centering right:");
-        row = addCombo(form, row, centeringRightLabel, centeringRight,
+        placementRightCol = facingPlacementColumn(
+                "Facing right", placementRightLabel, placementRight, centeringRightLabel, centeringRight,
+                "Point on the pony image when facing right.",
                 "Point on the effect image aligned to placement (facing right).");
+        JPanel placementRow = new JPanel(new GridLayout(1, 2, 6, 0));
+        placementRow.add(placementLeftCol);
+        placementRow.add(placementRightCol);
+        form.add(placementRow, fullWidth(row++));
 
         checkPlacementButton = button("Check placement…", e -> checkPlacement());
         checkPlacementButton.setToolTipText(
@@ -215,8 +237,10 @@ final class EffectPanel extends JPanel {
 
         spriteLeftBlock = spriteBlock("left", timingsLeftField, imageLeftStatus);
         spriteRightBlock = spriteBlock("right", timingsRightField, imageRightStatus);
-        form.add(spriteLeftBlock, fullWidth(row++));
-        form.add(spriteRightBlock, fullWidth(row++));
+        JPanel spritesRow = new JPanel(new GridLayout(1, 2, 6, 0));
+        spritesRow.add(spriteLeftBlock);
+        spritesRow.add(spriteRightBlock);
+        form.add(spritesRow, fullWidth(row++));
 
         c = constraints(0, row);
         c.weighty = 1.0;
@@ -225,9 +249,44 @@ final class EffectPanel extends JPanel {
 
         JScrollPane scroll = new JScrollPane(form);
         scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         add(scroll, BorderLayout.CENTER);
         setEffect(-1);
+    }
+
+    private static JPanel facingPlacementColumn(
+            String title,
+            JLabel placementLabel,
+            JComboBox<String> placement,
+            JLabel centeringLabel,
+            JComboBox<String> centering,
+            String placementTip,
+            String centeringTip) {
+        JPanel col = new JPanel(new GridBagLayout());
+        ((GridBagLayout) col.getLayout()).columnWeights = new double[] { 0.0, 1.0 };
+        col.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder(title),
+                BorderFactory.createEmptyBorder(2, 4, 4, 4)));
+        placement.setToolTipText(placementTip);
+        centering.setToolTipText(centeringTip);
+        GridBagConstraints c = constraints(0, 0);
+        c.anchor = GridBagConstraints.WEST;
+        c.insets = new Insets(2, 0, 2, 8);
+        col.add(placementLabel, c);
+        c = constraints(1, 0);
+        c.weightx = 1.0;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        col.add(placement, c);
+        c = constraints(0, 1);
+        c.anchor = GridBagConstraints.WEST;
+        c.insets = new Insets(2, 0, 2, 8);
+        col.add(centeringLabel, c);
+        c = constraints(1, 1);
+        c.weightx = 1.0;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        col.add(centering, c);
+        return col;
     }
 
     /**
@@ -239,10 +298,12 @@ final class EffectPanel extends JPanel {
                 WanderTarget.normalizeWander(host.editor().getWander()));
         String leftName = vertical ? "back" : "left";
         String rightName = vertical ? "front" : "right";
-        placementLeftLabel.setText("Placement " + leftName + ":");
-        centeringLeftLabel.setText("Centering " + leftName + ":");
-        placementRightLabel.setText("Placement " + rightName + ":");
-        centeringRightLabel.setText("Centering " + rightName + ":");
+        placementLeftLabel.setText("Placement:");
+        centeringLeftLabel.setText("Centering:");
+        placementRightLabel.setText("Placement:");
+        centeringRightLabel.setText("Centering:");
+        setTitledBorderTitle(placementLeftCol, "Facing " + leftName);
+        setTitledBorderTitle(placementRightCol, "Facing " + rightName);
         placementLeft.setToolTipText("Point on the pony image when facing " + leftName + ".");
         centeringLeft.setToolTipText(
                 "Point on the effect image aligned to placement (facing " + leftName + ").");
@@ -254,13 +315,17 @@ final class EffectPanel extends JPanel {
     }
 
     private static void setSpriteBlockTitle(JPanel block, String directionName) {
+        String title = directionName.substring(0, 1).toUpperCase()
+                + directionName.substring(1) + " sprite";
+        setTitledBorderTitle(block, title);
+    }
+
+    private static void setTitledBorderTitle(JPanel block, String title) {
         if (block == null || !(block.getBorder() instanceof CompoundBorder)) {
             return;
         }
         CompoundBorder compound = (CompoundBorder) block.getBorder();
         if (compound.getOutsideBorder() instanceof TitledBorder) {
-            String title = directionName.substring(0, 1).toUpperCase()
-                    + directionName.substring(1) + " sprite";
             ((TitledBorder) compound.getOutsideBorder()).setTitle(title);
             block.repaint();
         }
@@ -379,17 +444,13 @@ final class EffectPanel extends JPanel {
                         + direction.substring(1) + " sprite"),
                 BorderFactory.createEmptyBorder(4, 4, 4, 4)));
 
-        JPanel buttons = new JPanel();
-        buttons.setLayout(new BoxLayout(buttons, BoxLayout.X_AXIS));
+        // 2×3 grid fits half-width columns without a horizontal scrollbar.
+        JPanel buttons = new JPanel(new GridLayout(2, 3, 4, 4));
         buttons.setAlignmentX(Component.LEFT_ALIGNMENT);
         buttons.add(button("Import image", e -> importImage(direction)));
-        buttons.add(Box.createHorizontalStrut(4));
         buttons.add(button("Import frames", e -> importFrames(direction)));
-        buttons.add(Box.createHorizontalStrut(4));
         buttons.add(button("Mirror →", e -> mirrorFacing(direction)));
-        buttons.add(Box.createHorizontalStrut(4));
         buttons.add(button("Preview", e -> previewImage(direction)));
-        buttons.add(Box.createHorizontalStrut(4));
         buttons.add(button("Export", e -> exportSpritesheet(direction)));
         block.add(buttons);
 
