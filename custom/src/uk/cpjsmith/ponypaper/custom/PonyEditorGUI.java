@@ -589,20 +589,11 @@ public class PonyEditorGUI extends JPanel {
             timingsLeftField = new JTextField();
             constrainGrowableField(timingsLeftField);
             timingsLeftField.getDocument().addDocumentListener(timingsLeftListener);
-            timingsLeftMinus = createTimingsAdjustButton("−", "Subtract 1 from all frame timings (Shift: −5)");
-            timingsLeftPlus = createTimingsAdjustButton("+", "Add 1 to all frame timings (Shift: +5)");
-            timingsLeftMinus.addActionListener(new ActionListener() {
-                public void actionPerformed(ActionEvent e) {
-                    adjustTimingsField(timingsLeftField, e, -1);
-                }
-            });
-            timingsLeftPlus.addActionListener(new ActionListener() {
-                public void actionPerformed(ActionEvent e) {
-                    adjustTimingsField(timingsLeftField, e, 1);
-                }
-            });
+            JButton[] timingsLeftAdjust = TimingsAdjust.createPair(timingsLeftField, this);
+            timingsLeftMinus = timingsLeftAdjust[0];
+            timingsLeftPlus = timingsLeftAdjust[1];
             addFormRow(leftSprites, 3, new JLabel("Timings:"),
-                    wrapTimingsField(timingsLeftField, timingsLeftMinus, timingsLeftPlus), 1.0);
+                    TimingsAdjust.wrapField(timingsLeftField, timingsLeftMinus, timingsLeftPlus), 1.0);
 
             // --- Right sprites ---
             imageRightField = new JTextField();
@@ -647,20 +638,11 @@ public class PonyEditorGUI extends JPanel {
             timingsRightField = new JTextField();
             constrainGrowableField(timingsRightField);
             timingsRightField.getDocument().addDocumentListener(timingsRightListener);
-            timingsRightMinus = createTimingsAdjustButton("−", "Subtract 1 from all frame timings (Shift: −5)");
-            timingsRightPlus = createTimingsAdjustButton("+", "Add 1 to all frame timings (Shift: +5)");
-            timingsRightMinus.addActionListener(new ActionListener() {
-                public void actionPerformed(ActionEvent e) {
-                    adjustTimingsField(timingsRightField, e, -1);
-                }
-            });
-            timingsRightPlus.addActionListener(new ActionListener() {
-                public void actionPerformed(ActionEvent e) {
-                    adjustTimingsField(timingsRightField, e, 1);
-                }
-            });
+            JButton[] timingsRightAdjust = TimingsAdjust.createPair(timingsRightField, this);
+            timingsRightMinus = timingsRightAdjust[0];
+            timingsRightPlus = timingsRightAdjust[1];
             addFormRow(rightSprites, 3, new JLabel("Timings:"),
-                    wrapTimingsField(timingsRightField, timingsRightMinus, timingsRightPlus), 1.0);
+                    TimingsAdjust.wrapField(timingsRightField, timingsRightMinus, timingsRightPlus), 1.0);
 
             // --- Transitions ---
             nextWaitingField = new JTextField();
@@ -1018,37 +1000,6 @@ public class PonyEditorGUI extends JPanel {
             return formatSpeed(anchor);
         }
 
-        /**
-         * Add {@code delta} to every comma-separated integer timing, clamping each
-         * result to a minimum of 1. Throws {@link NumberFormatException} if the
-         * field is empty or any token is not an integer.
-         */
-        static String adjustAllTimings(String timings, int delta) {
-            if (timings == null || timings.trim().isEmpty()) {
-                throw new NumberFormatException("empty");
-            }
-            String[] parts = timings.split(",");
-            StringBuilder out = new StringBuilder();
-            for (int i = 0; i < parts.length; i++) {
-                int v = Integer.parseInt(parts[i].trim()) + delta;
-                if (v < 1) {
-                    v = 1;
-                }
-                if (i > 0) {
-                    out.append(',');
-                }
-                out.append(v);
-            }
-            return out.toString();
-        }
-
-        private static JButton createTimingsAdjustButton(String label, String tooltip) {
-            JButton button = new JButton(label);
-            button.setToolTipText(tooltip);
-            button.setMargin(new java.awt.Insets(2, 6, 2, 6));
-            return button;
-        }
-
         private static JPanel wrapTwoButtons(JButton left, JButton right) {
             JPanel row = new JPanel(new GridLayout(1, 2, 4, 0));
             row.add(left);
@@ -1069,42 +1020,7 @@ public class PonyEditorGUI extends JPanel {
             return grid;
         }
 
-        private static JPanel wrapTimingsField(JTextField field, JButton minus, JButton plus) {
-            JPanel buttons = new JPanel();
-            buttons.setLayout(new BoxLayout(buttons, BoxLayout.X_AXIS));
-            buttons.add(minus);
-            buttons.add(Box.createHorizontalStrut(2));
-            buttons.add(plus);
-
-            JPanel row = new JPanel(new BorderLayout(4, 0));
-            row.add(field, BorderLayout.CENTER);
-            row.add(buttons, BorderLayout.EAST);
-            // BorderLayout reports the center's preferred width; keep it column-sized
-            // so long timing lists do not stretch the Sprites section / button rows.
-            Dimension pref = row.getPreferredSize();
-            row.setPreferredSize(pref);
-            row.setMinimumSize(new Dimension(120, pref.height));
-            row.setMaximumSize(new Dimension(Integer.MAX_VALUE, pref.height));
-            return row;
-        }
-
-        private void adjustTimingsField(JTextField field, ActionEvent e, int sign) {
-            int step = ((e.getModifiers() & ActionEvent.SHIFT_MASK) != 0) ? 5 : 1;
-            int delta = sign * step;
-            try {
-                String adjusted = adjustAllTimings(field.getText(), delta);
-                if (!adjusted.equals(field.getText())) {
-                    field.setText(adjusted);
-                }
-            } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(
-                        this,
-                        "Timings must be a comma-separated list of integers.",
-                        "Invalid Timings",
-                        JOptionPane.WARNING_MESSAGE);
-            }
-        }
-        
+       
         void previewImage(String direction) {
             if (currentIndex < 0) {
                 return;

@@ -9,6 +9,7 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Image;
+import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
@@ -75,6 +76,10 @@ final class EffectPanel extends JPanel {
     private final JComboBox<String> centeringRight = new JComboBox<String>(centeringTokens());
     private final JTextField timingsLeftField = new JTextField();
     private final JTextField timingsRightField = new JTextField();
+    private final JButton timingsLeftMinus;
+    private final JButton timingsLeftPlus;
+    private final JButton timingsRightMinus;
+    private final JButton timingsRightPlus;
     private final JLabel imageLeftStatus = new JLabel(" ");
     private final JLabel imageRightStatus = new JLabel(" ");
     private final JButton checkPlacementButton;
@@ -235,8 +240,17 @@ final class EffectPanel extends JPanel {
         wireCombo(placementRight, true, true);
         wireCombo(centeringRight, false, true);
 
-        spriteLeftBlock = spriteBlock("left", timingsLeftField, imageLeftStatus);
-        spriteRightBlock = spriteBlock("right", timingsRightField, imageRightStatus);
+        JButton[] leftAdjust = TimingsAdjust.createPair(timingsLeftField, this);
+        timingsLeftMinus = leftAdjust[0];
+        timingsLeftPlus = leftAdjust[1];
+        JButton[] rightAdjust = TimingsAdjust.createPair(timingsRightField, this);
+        timingsRightMinus = rightAdjust[0];
+        timingsRightPlus = rightAdjust[1];
+
+        spriteLeftBlock = spriteBlock("left", timingsLeftField, timingsLeftMinus, timingsLeftPlus,
+                imageLeftStatus);
+        spriteRightBlock = spriteBlock("right", timingsRightField, timingsRightMinus, timingsRightPlus,
+                imageRightStatus);
         JPanel spritesRow = new JPanel(new GridLayout(1, 2, 6, 0));
         spritesRow.add(spriteLeftBlock);
         spritesRow.add(spriteRightBlock);
@@ -388,7 +402,11 @@ final class EffectPanel extends JPanel {
         centeringRight.setEnabled(enabled);
         checkPlacementButton.setEnabled(enabled);
         timingsLeftField.setEnabled(enabled);
+        timingsLeftMinus.setEnabled(enabled);
+        timingsLeftPlus.setEnabled(enabled);
         timingsRightField.setEnabled(enabled);
+        timingsRightMinus.setEnabled(enabled);
+        timingsRightPlus.setEnabled(enabled);
     }
 
     private void commitFloat(JTextField field, boolean duration) {
@@ -436,7 +454,8 @@ final class EffectPanel extends JPanel {
         });
     }
 
-    private JPanel spriteBlock(String direction, JTextField timingsField, JLabel status) {
+    private JPanel spriteBlock(String direction, JTextField timingsField, JButton timingsMinus,
+            JButton timingsPlus, JLabel status) {
         JPanel block = new JPanel();
         block.setLayout(new BoxLayout(block, BoxLayout.Y_AXIS));
         block.setBorder(BorderFactory.createCompoundBorder(
@@ -472,7 +491,9 @@ final class EffectPanel extends JPanel {
                 host.markDirty();
             }
         });
-        timingsRow.add(timingsField, BorderLayout.CENTER);
+        JPanel fieldWithAdjust = TimingsAdjust.wrapField(timingsField, timingsMinus, timingsPlus);
+        fieldWithAdjust.setAlignmentX(Component.LEFT_ALIGNMENT);
+        timingsRow.add(fieldWithAdjust, BorderLayout.CENTER);
         block.add(Box.createVerticalStrut(4));
         block.add(timingsRow);
         return block;
@@ -665,13 +686,102 @@ final class EffectPanel extends JPanel {
             }
             int frames = Math.max(1, ImageImport.countTimings(timings));
             SpriteSheetPreview preview = new SpriteSheetPreview(image, frames);
-            JOptionPane.showMessageDialog(this, wrapPreview(preview), "Image Preview",
-                    JOptionPane.PLAIN_MESSAGE);
+            String[] options = { "Open in Packer", "OK" };
+            int choice = JOptionPane.showOptionDialog(
+                    this,
+                    wrapPreview(preview),
+                    "Image Preview",
+                    JOptionPane.DEFAULT_OPTION,
+                    JOptionPane.PLAIN_MESSAGE,
+                    null,
+                    options,
+                    options[1]);
+            if (choice == 0) {
+                openSheetInPacker(direction, image, frames, timings);
+            }
         } catch (IllegalArgumentException | IOException e) {
             JOptionPane.showMessageDialog(this,
                     "The image could not be decoded. Please load a new image.",
                     "Image Error", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    /**
+     * Splits the previewed strip into cells and opens the pack dialog so the
+     * sheet can be reordered, lifted, or scaled (same path as Actions Preview).
+     */
+    private void openSheetInPacker(String direction, Image image, int frameCount, String timings) {
+        try {
+            BufferedImage sheet = SpriteSheetPreview.toBufferedImage(image);
+            List<BufferedImage> frames = ImageImport.splitSheet(sheet, frameCount);
+            int existingCount = ImageImport.countTimings(timings);
+            StringBuilder notes = new StringBuilder();
+            notes.append("Split this ").append(direction)
+                    .append(" spritesheet into ").append(frames.size())
+                    .append(" cell").append(frames.size() == 1 ? "" : "s")
+                    .append(" using the current timings.");
+            if (existingCount == frames.size()) {
+                notes.append("\n\nExisting timings (").append(existingCount)
+                        .append(" entries) will be kept if you leave the imported order.");
+            } else {
+                notes.append("\n\nTimings will be set to ").append(frames.size())
+                        .append(" × ").append(ImageImport.DEFAULT_FRAME_TIMING_CS)
+                        .append(" (hundredths of a second).");
+            }
+            notes.append("\n\nList order is playback order — Move up/down, Reverse, or Alt+↑/↓.");
+            notes.append("\n\n").append(ImageImport.packerScaleNotes());
+            notes.append("\n\nLift is pixels of air under a cell (0 = keep the sprite grounded). ");
+
+            String[] names = new String[frames.size()];
+            for (int i = 0; i < names.length; i++) {
+                names[i] = "frame " + (i + 1);
+            }
+            FramePackDialog.Result packed = FramePackDialog.showDialog(
+                    this,
+                    "Pack Spritesheet (" + direction + ")",
+                    names,
+                    frames,
+                    notes.toString(),
+                    ImageImport.SCALE_DIVISOR_NATIVE);
+            if (packed == null) {
+                return;
+            }
+
+            applyPackedFrames(direction, frames, timingsCsForPack(timings, frames.size()), packed);
+        } catch (PonyEditor.GenericException e) {
+            JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this, e.getMessage(), "Open in Packer Failed",
+                    JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private static int[] timingsCsForPack(String timings, int frameCount) {
+        int[] parsed = ActionFrameSource.parseTimings(timings);
+        if (parsed.length == frameCount) {
+            return parsed;
+        }
+        return null;
+    }
+
+    private void applyPackedFrames(String direction, List<BufferedImage> sourceFrames,
+            int[] sourceTimingsCs, FramePackDialog.Result packed)
+            throws IOException, PonyEditor.GenericException {
+        List<BufferedImage> frames = ImageImport.permute(sourceFrames, packed.order);
+        ImageImport.PackOptions options = new ImageImport.PackOptions();
+        options.lifts = packed.lifts;
+        options.scaleDivisor = packed.scaleDivisor;
+        if (sourceTimingsCs != null) {
+            options.timingsCs = ImageImport.permute(sourceTimingsCs, packed.order);
+        }
+        ImageImport imported = host.editor().loadEffectSpriteFromFrames(
+                currentIndex, direction, frames, options);
+        if (!ImageImport.isIdentityOrder(packed.order)) {
+            host.editor().setEffectTimings(currentIndex, direction, imported.timings);
+        }
+        setEffect(currentIndex);
+        host.markDirty();
+        previewImage(direction);
     }
 
     private void exportSpritesheet(String direction) {
@@ -723,9 +833,21 @@ final class EffectPanel extends JPanel {
         }
     }
 
+    /**
+     * Caps the preview pane so wide or tall sheets scroll instead of forcing
+     * {@link JOptionPane} to pack to the full spritesheet size.
+     */
     private static JComponent wrapPreview(SpriteSheetPreview preview) {
         JScrollPane scroll = new JScrollPane(preview);
-        scroll.setPreferredSize(new Dimension(520, 360));
+        scroll.getHorizontalScrollBar().setUnitIncrement(16);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        Dimension sheet = preview.getPreferredSize();
+        Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
+        int maxW = Math.max(480, (int) (screen.width * 0.9) - 80);
+        int maxH = Math.max(200, (int) (screen.height * 0.7));
+        scroll.setPreferredSize(new Dimension(
+                Math.min(sheet.width + 4, maxW),
+                Math.min(sheet.height + 4, maxH)));
         return scroll;
     }
 
