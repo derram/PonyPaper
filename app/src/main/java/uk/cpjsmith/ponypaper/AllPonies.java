@@ -78,6 +78,17 @@ public class AllPonies {
     }
     
     /**
+     * True when {@link #createPony} would return non-null for {@code ponyKey}.
+     * Allocation-free probe for Tableau cap math; PR4 expands with the catalog.
+     */
+    public static boolean canCreatePony(String ponyKey) {
+        if (ponyKey == null) return false;
+        return "pref_ts".equals(ponyKey)
+                || "pref_fs".equals(ponyKey)
+                || "pref_aj".equals(ponyKey);
+    }
+
+    /**
      * Checkbox-free factory for a single built-in (or later custom) pony.
      * PR1 covers only the Tableau demo keys; PR4 expands to the full catalog.
      *
@@ -85,7 +96,7 @@ public class AllPonies {
      * @return a new pony instance, or {@code null} if the key is unknown here
      */
     public static Pony createPony(Context context, String ponyKey) {
-        if (context == null || ponyKey == null) {
+        if (context == null || !canCreatePony(ponyKey)) {
             return null;
         }
         Resources res = context.getResources();

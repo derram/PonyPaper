@@ -1253,7 +1253,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         // min(cap, slotCount) so rebuilds skip when the cap moves but stays
         // above the resolved scene size (demo is 3 until PR3).
         if (SceneMode.isTableau(prefs)) {
-            return TableauBuilder.effectiveCount(appContext, prefs,
+            return TableauBuilder.effectiveCount(prefs,
                     shouldApplyBatterySaverLimits(prefs),
                     shouldUseDefaultPoniesOnBattery(prefs),
                     shouldApplySoftwareCanvasLimits(),

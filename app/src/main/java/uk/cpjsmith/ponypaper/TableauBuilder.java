@@ -63,26 +63,26 @@ final class TableauBuilder {
 
     /**
      * Resolved slot count before cap truncation (same drop rules as build).
-     * Rebuild comparisons use this so mid-list create failures do not disagree
-     * with the installed herd size.
+     * Uses a cheap key probe — not {@link AllPonies#createPony} — so power /
+     * thermal rebuild comparisons stay allocation-free.
      */
-    static int slotCountBeforeCap(Context context, SharedPreferences prefs) {
+    static int slotCountBeforeCap(SharedPreferences prefs) {
         PonyScenes.TableauScene scene = PonyScenes.loadActiveScene(prefs);
-        return countResolvable(context, scene);
+        return countResolvable(scene);
     }
 
     /**
      * On-screen Tableau count after applying {@link #getTableauCap} to the
      * resolved slot list (document-order prefix length).
      */
-    static int effectiveCount(Context context, SharedPreferences prefs,
+    static int effectiveCount(SharedPreferences prefs,
             boolean batterySaverLimits,
             boolean defaultPoniesOnBattery,
             boolean softwareCanvasLimits,
             boolean thermalThrottle) {
         return Math.min(getTableauCap(batterySaverLimits, defaultPoniesOnBattery,
                 softwareCanvasLimits, thermalThrottle),
-                slotCountBeforeCap(context, prefs));
+                slotCountBeforeCap(prefs));
     }
 
     /**
@@ -134,26 +134,26 @@ final class TableauBuilder {
         return new ResolvedHerd(live, jsonToLive);
     }
 
-    /** How many slots would survive resolve (no cap). Does not pin. */
-    static int countResolvable(Context context, PonyScenes.TableauScene scene) {
-        if (context == null || scene == null) return 0;
+    /** How many slots would survive resolve (no cap). Allocation-free. */
+    static int countResolvable(PonyScenes.TableauScene scene) {
+        if (scene == null) return 0;
         int n = Math.min(scene.slots.size(), MAX_SLOTS);
         int count = 0;
         for (int i = 0; i < n; i++) {
-            if (canResolveSlot(context, scene.slots.get(i))) count++;
+            if (canResolveSlot(scene.slots.get(i))) count++;
         }
         return count;
     }
 
-    /** True when {@link #tryResolveSlot} would return non-null (no pin). */
-    static boolean canResolveSlot(Context context, PonyScenes.TableauSlot slot) {
-        if (context == null || slot == null || slot.ponyKey.length() == 0) {
-            return false;
-        }
-        Pony pony = AllPonies.createPony(context, slot.ponyKey);
-        if (pony == null) return false;
-        PonyAction[] bag = resolveWaitBag(pony, slot.actions);
-        return bag != null && bag.length > 0;
+    /**
+     * True when {@link #tryResolveSlot} would return non-null. Uses
+     * {@link AllPonies#canCreatePony} only — until PR4, wait-bag resolve always
+     * falls back to {@code allActions[0]} for creatable ponies.
+     */
+    static boolean canResolveSlot(PonyScenes.TableauSlot slot) {
+        return slot != null
+                && slot.ponyKey.length() > 0
+                && AllPonies.canCreatePony(slot.ponyKey);
     }
 
     /**
