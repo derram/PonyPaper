@@ -137,6 +137,14 @@ public class PonyAction {
     private PonyAction[] nextWaiting;
     private PonyAction[] nextMoving;
     private PonyAction[] nextDrag;
+
+    /**
+     * Stable catalog / scene id. Built-ins: semantic stem from
+     * {@link BuiltInActionIds#stem}. Customs: XML {@code <action name>}.
+     * Speed aliases inherit the sprite owner's id and are not separate catalog
+     * entries.
+     */
+    private String actionId = "";
     
     /**
      * Constructs an action of type {@code NORMAL} at {@link #DEFAULT_SPEED}.
@@ -245,6 +253,8 @@ public class PonyAction {
         this.anchorX[RIGHT] = this.spriteSource.anchorX[RIGHT];
         this.anchorY[LEFT] = this.spriteSource.anchorY[LEFT];
         this.anchorY[RIGHT] = this.spriteSource.anchorY[RIGHT];
+        // Inherit for gait/idle variants; named custom aliases overwrite via setActionId.
+        this.actionId = this.spriteSource.actionId;
     }
     
     /**
@@ -258,8 +268,31 @@ public class PonyAction {
         this.speed = sanitizeSpeed(definition.speed);
         this.loops = definition.loops;
         this.movement = WanderTarget.normalizeMovement(definition.movement);
+        if (definition.name != null) {
+            this.actionId = definition.name;
+        }
         copyDefinitionAnchors(definition);
         validateDefinitionBitmaps(definition);
+    }
+
+    /** Stable action id for catalog / Tableau JSON (empty when unset). */
+    public String actionId() {
+        return actionId != null ? actionId : "";
+    }
+
+    /**
+     * Sets the stable action id at {@code make*} / custom build time.
+     *
+     * @return this action (for chaining)
+     */
+    PonyAction setActionId(String actionId) {
+        this.actionId = actionId != null ? actionId : "";
+        return this;
+    }
+
+    /** True when this action borrows another action's sprite sheets. */
+    boolean isAlias() {
+        return spriteSource != null;
     }
 
     /**

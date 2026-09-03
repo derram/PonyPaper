@@ -146,9 +146,8 @@ final class TableauBuilder {
     }
 
     /**
-     * True when {@link #tryResolveSlot} would return non-null. Uses
-     * {@link AllPonies#canCreatePony} only — until PR4, wait-bag resolve always
-     * falls back to {@code allActions[0]} for creatable ponies.
+     * True when {@link #tryResolveSlot} would return non-null for a creatable
+     * pony key (wait-bag still falls back via catalog / {@code allActions[0]}).
      */
     static boolean canResolveSlot(PonyScenes.TableauSlot slot) {
         return slot != null
@@ -173,28 +172,35 @@ final class TableauBuilder {
     }
 
     /**
-     * Interim wait-bag resolution until PR4 {@code ActionCatalog} /
-     * {@code BuiltInActionIds}. Prefers matching by provisional
-     * {@link PonyAction} action id when present; otherwise falls back to
-     * {@code pony.getAllActions()[0]} (stand owner for built-ins). De-dupes
-     * and caps at {@link PonyScenes#MAX_ACTIONS_PER_SLOT}.
+     * Resolve wait-bag action ids through {@link AllPonies#buildActionCatalog}.
+     * Unknown / empty lists fall back to preferred stand (then first selectable);
+     * if the catalog is empty, {@code allActions[0]}. De-dupes and caps at
+     * {@link PonyScenes#MAX_ACTIONS_PER_SLOT}.
      */
     static PonyAction[] resolveWaitBag(Pony pony, String[] actionIds) {
         if (pony == null) return null;
+        AllPonies.ActionCatalog catalog = AllPonies.buildActionCatalog(pony);
         ArrayList<PonyAction> matched = new ArrayList<PonyAction>(
                 PonyScenes.MAX_ACTIONS_PER_SLOT);
         HashSetByIdentity seen = new HashSetByIdentity();
-        if (actionIds != null) {
+        if (actionIds != null && catalog != null) {
             for (int i = 0; i < actionIds.length
                     && matched.size() < PonyScenes.MAX_ACTIONS_PER_SLOT; i++) {
                 String id = actionIds[i];
                 if (id == null || id.length() == 0) continue;
-                PonyAction action = findActionById(pony, id);
+                PonyAction action = catalog.byId.get(id);
+                if (action == null) {
+                    action = findActionById(pony, id);
+                }
                 if (action == null) continue;
                 if (seen.add(action)) matched.add(action);
             }
         }
         if (matched.isEmpty()) {
+            PonyAction preferred = AllPonies.preferredDefaultAction(catalog);
+            if (preferred != null) {
+                return new PonyAction[] { preferred };
+            }
             PonyAction[] all = pony.getAllActions();
             if (all == null || all.length == 0) return null;
             return new PonyAction[] { all[0] };
@@ -203,15 +209,24 @@ final class TableauBuilder {
     }
 
     /**
-     * Match a catalog / provisional action id. Returns null until PR4 wires
-     * {@code PonyAction.actionId()}; callers fall back to {@code allActions[0]}.
+     * Match a stable action id on the pony's action list, preferring the
+     * sprite-owning instance when gait aliases share the same id.
      */
     static PonyAction findActionById(Pony pony, String actionId) {
         if (pony == null || actionId == null || actionId.length() == 0) {
             return null;
         }
-        // PR4: iterate pony.getAllActions() and compare action.actionId().
-        return null;
+        PonyAction[] all = pony.getAllActions();
+        if (all == null) return null;
+        PonyAction aliasHit = null;
+        for (int i = 0; i < all.length; i++) {
+            PonyAction action = all[i];
+            if (action == null) continue;
+            if (!actionId.equals(action.actionId())) continue;
+            if (!action.isAlias()) return action;
+            if (aliasHit == null) aliasHit = action;
+        }
+        return aliasHit;
     }
 
     /** Identity set without allocating HashSet&lt;PonyAction&gt; wrappers heavily. */
