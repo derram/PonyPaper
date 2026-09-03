@@ -157,7 +157,10 @@ final class TableauBuilder {
             kept = resolved.size();
         }
         for (int live = 0; live < kept; live++) {
-            jsonToLive[resolvedFromJson[live]] = live;
+            int jsonIndex = resolvedFromJson[live];
+            jsonToLive[jsonIndex] = live;
+            // Stable across Ponies Y-sort of the live array.
+            resolved.get(live).setTableauSlotIndex(jsonIndex);
         }
         List<Pony> live = kept == 0
                 ? Collections.<Pony>emptyList()

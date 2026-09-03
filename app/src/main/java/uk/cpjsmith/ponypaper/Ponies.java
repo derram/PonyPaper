@@ -197,17 +197,16 @@ public class Ponies implements Pony.EffectHost {
 
     /**
      * Hot-path Tableau slot update. {@code index} is the full active-JSON slot
-     * index; dropped or cap-clipped slots ({@code jsonToLive[index] == -1}) are
-     * persist-only no-ops. Idempotent: unchanged norms / facing / actions do
-     * not restart the wait timer, re-roll random facing, or rewrite bags.
+     * index; looks up the pony by {@link Pony#tableauSlotIndex} (stable across
+     * Y-sort). Dropped or cap-clipped slots are persist-only no-ops.
+     * Idempotent: unchanged norms / facing / actions do not restart the wait
+     * timer, re-roll random facing, or rewrite bags.
      */
     void applyTableauHotSlot(int index, PonyScenes.TableauSlot slot, Rect clip) {
         if (slot == null || tableauJsonToLive == null) return;
-        if (index < 0 || index >= tableauJsonToLive.length) return;
-        int live = tableauJsonToLive[index];
-        if (live < 0 || live >= activeCount) return;
-        Pony pony = activePonies[live];
-        if (pony == null || !pony.isPinned()) return;
+        if (index < 0) return;
+        Pony pony = findPinnedByTableauSlot(index);
+        if (pony == null) return;
 
         boolean normsChanged = pony.pinXNorm != slot.xNorm
                 || pony.pinYNorm != slot.yNorm;
@@ -672,23 +671,26 @@ public class Ponies implements Pony.EffectHost {
     /**
      * After a pinned drag release, write the pony's new pin norms into the
      * matching full-JSON slot via {@link PonyScenes#writeActiveSlotNormsHot}.
+     * Uses {@link Pony#tableauSlotIndex} so Y-sort cannot cross-wire slots.
      */
     private void persistTableauDragNorms(Pony pony) {
-        if (tableauJsonToLive == null || tableauPrefs == null || pony == null
-                || !pony.isPinned()) {
-            return;
-        }
-        int jsonIndex = -1;
-        for (int j = 0; j < tableauJsonToLive.length; j++) {
-            int live = tableauJsonToLive[j];
-            if (live >= 0 && live < activeCount && activePonies[live] == pony) {
-                jsonIndex = j;
-                break;
-            }
-        }
+        if (tableauPrefs == null || pony == null || !pony.isPinned()) return;
+        int jsonIndex = pony.getTableauSlotIndex();
         if (jsonIndex < 0) return;
         PonyScenes.writeActiveSlotNormsHot(tableauPrefs, jsonIndex,
                 pony.pinXNorm, pony.pinYNorm);
+    }
+
+    /** Live pinned pony for a full-JSON slot index, or null if clipped/absent. */
+    private Pony findPinnedByTableauSlot(int jsonIndex) {
+        for (int i = 0; i < activeCount; i++) {
+            Pony pony = activePonies[i];
+            if (pony != null && pony.isPinned()
+                    && pony.getTableauSlotIndex() == jsonIndex) {
+                return pony;
+            }
+        }
+        return null;
     }
     
     /**

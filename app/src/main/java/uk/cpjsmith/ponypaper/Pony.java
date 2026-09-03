@@ -67,6 +67,11 @@ public class Pony {
     boolean pinned;
     float pinXNorm;
     float pinYNorm;
+    /**
+     * Full active-JSON slot index for this pinned pony, or {@code -1}. Stable
+     * across Y-sort of the live herd array.
+     */
+    int tableauSlotIndex = -1;
     String facingPolicy = FACING_RANDOM;
     int lockedDirection;
     PonyAction[] waitBag;
@@ -265,6 +270,14 @@ public class Pony {
         pinYNorm = yNorm;
     }
 
+    void setTableauSlotIndex(int index) {
+        tableauSlotIndex = index;
+    }
+
+    int getTableauSlotIndex() {
+        return tableauSlotIndex;
+    }
+
     /**
      * Move feet to current pin norms × {@code clip} without resetting wait
      * timer, facing, or action.
@@ -383,8 +396,8 @@ public class Pony {
     }
 
     /**
-     * Write current feet into pin norms (clamped 0..1) and resume waiting in
-     * place — no snap-back, no leave. Used by Tableau drag-nudge on release.
+     * Write current feet into pin norms (clamped 0..1), snap feet to that pin
+     * so off-clip releases match JSON, and resume waiting — no leave.
      */
     private void commitDraggedPin() {
         if (screenBounds != null && screenBounds.width() > 0
@@ -393,6 +406,8 @@ public class Pony {
                     (posX - screenBounds.left) / screenBounds.width());
             pinYNorm = clamp01(
                     (posY - screenBounds.top) / screenBounds.height());
+            posX = pinnedFeetX();
+            posY = pinnedFeetY();
         }
         resumePinnedWaiting();
     }
