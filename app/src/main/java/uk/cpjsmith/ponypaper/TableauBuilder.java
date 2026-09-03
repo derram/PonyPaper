@@ -3,17 +3,35 @@ package uk.cpjsmith.ponypaper;
 import android.content.Context;
 import android.content.SharedPreferences;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
  * Builds a Tableau herd: ensure active scene prefs, resolve slots, truncate to
- * the live power/thermal cap (document-order prefix), then {@link Ponies} with
- * an empty inactive pool.
+ * the live power/thermal cap (document-order prefix of the resolved list), then
+ * {@link Ponies} with an empty inactive pool. Keeps a JSON-index → live-index
+ * map so hot edits use full active-JSON indices after mid-list drops.
  */
 final class TableauBuilder {
 
     /** Hard ceiling on Tableau slots (matches {@link PonyScenes#MAX_SLOTS}). */
     static final int MAX_SLOTS = 16;
+
+    /**
+     * Resolved live ponies (compressed, then capped) plus JSON→live mapping.
+     * {@code jsonToLive[j] == -1} when JSON slot {@code j} was dropped or
+     * clipped by the cap.
+     */
+    static final class ResolvedHerd {
+        final List<Pony> live;
+        final int[] jsonToLive;
+
+        ResolvedHerd(List<Pony> live, int[] jsonToLive) {
+            this.live = live != null ? live : Collections.<Pony>emptyList();
+            this.jsonToLive = jsonToLive != null ? jsonToLive : new int[0];
+        }
+    }
 
     private TableauBuilder() {
     }
@@ -44,26 +62,27 @@ final class TableauBuilder {
     }
 
     /**
-     * Slot count before cap truncation. Used so rebuild comparisons do not
-     * churn when the power cap moves but stays above the resolved scene size.
+     * Resolved slot count before cap truncation (same drop rules as build).
+     * Rebuild comparisons use this so mid-list create failures do not disagree
+     * with the installed herd size.
      */
-    static int slotCountBeforeCap(SharedPreferences prefs) {
+    static int slotCountBeforeCap(Context context, SharedPreferences prefs) {
         PonyScenes.TableauScene scene = PonyScenes.loadActiveScene(prefs);
-        if (scene == null) return 0;
-        return scene.slots.size();
+        return countResolvable(context, scene);
     }
 
     /**
      * On-screen Tableau count after applying {@link #getTableauCap} to the
      * resolved slot list (document-order prefix length).
      */
-    static int effectiveCount(SharedPreferences prefs,
+    static int effectiveCount(Context context, SharedPreferences prefs,
             boolean batterySaverLimits,
             boolean defaultPoniesOnBattery,
             boolean softwareCanvasLimits,
             boolean thermalThrottle) {
         return Math.min(getTableauCap(batterySaverLimits, defaultPoniesOnBattery,
-                softwareCanvasLimits, thermalThrottle), slotCountBeforeCap(prefs));
+                softwareCanvasLimits, thermalThrottle),
+                slotCountBeforeCap(context, prefs));
     }
 
     /**
@@ -74,36 +93,83 @@ final class TableauBuilder {
     static Ponies build(Context context, SharedPreferences prefs, int cap) {
         PonyScenes.ensureActiveScene(prefs);
         PonyScenes.TableauScene scene = PonyScenes.loadActiveScene(prefs);
-        ArrayList<Pony> slots = resolveSlots(context, scene);
-        int kept = cap < 0 ? 0 : cap;
-        if (kept > slots.size()) {
-            kept = slots.size();
-        }
-        List<Pony> prefix = slots.subList(0, kept);
-        return new Ponies(context, prefix, prefs);
+        ResolvedHerd resolved = resolveAndCap(context, scene, cap);
+        return new Ponies(context, resolved.live, prefs, resolved.jsonToLive);
     }
 
     /**
-     * Instantiate and pin one pony per slot. Drops slots whose
-     * {@link AllPonies#createPony} returns null or whose wait bag cannot be
-     * resolved.
+     * Resolve (drop failures), then keep the first {@code cap} resolved ponies.
+     * Builds {@code jsonToLive} so full JSON indices map to live herd slots.
      */
-    static ArrayList<Pony> resolveSlots(Context context,
-            PonyScenes.TableauScene scene) {
-        ArrayList<Pony> out = new ArrayList<Pony>();
-        if (context == null || scene == null) return out;
-        int n = Math.min(scene.slots.size(), MAX_SLOTS);
-        for (int i = 0; i < n; i++) {
-            PonyScenes.TableauSlot slot = scene.slots.get(i);
-            if (slot == null || slot.ponyKey.length() == 0) continue;
-            Pony pony = AllPonies.createPony(context, slot.ponyKey);
-            if (pony == null) continue;
-            PonyAction[] bag = resolveWaitBag(pony, slot.actions);
-            if (bag == null || bag.length == 0) continue;
-            TableauPin.pin(pony, slot.xNorm, slot.yNorm, bag, slot.facing);
-            out.add(pony);
+    static ResolvedHerd resolveAndCap(Context context,
+            PonyScenes.TableauScene scene, int cap) {
+        int jsonCount = scene != null ? Math.min(scene.slots.size(), MAX_SLOTS) : 0;
+        int[] jsonToLive = new int[jsonCount];
+        Arrays.fill(jsonToLive, -1);
+        if (context == null || scene == null || jsonCount == 0) {
+            return new ResolvedHerd(Collections.<Pony>emptyList(), jsonToLive);
         }
-        return out;
+
+        ArrayList<Pony> resolved = new ArrayList<Pony>(jsonCount);
+        int[] resolvedFromJson = new int[jsonCount];
+        int resolvedCount = 0;
+        for (int i = 0; i < jsonCount; i++) {
+            Pony pony = tryResolveSlot(context, scene.slots.get(i));
+            if (pony == null) continue;
+            resolvedFromJson[resolvedCount] = i;
+            resolved.add(pony);
+            resolvedCount++;
+        }
+
+        int kept = cap < 0 ? 0 : cap;
+        if (kept > resolved.size()) {
+            kept = resolved.size();
+        }
+        for (int live = 0; live < kept; live++) {
+            jsonToLive[resolvedFromJson[live]] = live;
+        }
+        List<Pony> live = kept == 0
+                ? Collections.<Pony>emptyList()
+                : new ArrayList<Pony>(resolved.subList(0, kept));
+        return new ResolvedHerd(live, jsonToLive);
+    }
+
+    /** How many slots would survive resolve (no cap). Does not pin. */
+    static int countResolvable(Context context, PonyScenes.TableauScene scene) {
+        if (context == null || scene == null) return 0;
+        int n = Math.min(scene.slots.size(), MAX_SLOTS);
+        int count = 0;
+        for (int i = 0; i < n; i++) {
+            if (canResolveSlot(context, scene.slots.get(i))) count++;
+        }
+        return count;
+    }
+
+    /** True when {@link #tryResolveSlot} would return non-null (no pin). */
+    static boolean canResolveSlot(Context context, PonyScenes.TableauSlot slot) {
+        if (context == null || slot == null || slot.ponyKey.length() == 0) {
+            return false;
+        }
+        Pony pony = AllPonies.createPony(context, slot.ponyKey);
+        if (pony == null) return false;
+        PonyAction[] bag = resolveWaitBag(pony, slot.actions);
+        return bag != null && bag.length > 0;
+    }
+
+    /**
+     * Instantiate and pin one pony for a slot, or {@code null} when the pony
+     * cannot be created or the wait bag cannot be resolved.
+     */
+    static Pony tryResolveSlot(Context context, PonyScenes.TableauSlot slot) {
+        if (context == null || slot == null || slot.ponyKey.length() == 0) {
+            return null;
+        }
+        Pony pony = AllPonies.createPony(context, slot.ponyKey);
+        if (pony == null) return null;
+        PonyAction[] bag = resolveWaitBag(pony, slot.actions);
+        if (bag == null || bag.length == 0) return null;
+        TableauPin.pin(pony, slot.xNorm, slot.yNorm, bag, slot.facing);
+        return pony;
     }
 
     /**

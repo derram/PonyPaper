@@ -1253,7 +1253,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         // min(cap, slotCount) so rebuilds skip when the cap moves but stays
         // above the resolved scene size (demo is 3 until PR3).
         if (SceneMode.isTableau(prefs)) {
-            return TableauBuilder.effectiveCount(prefs,
+            return TableauBuilder.effectiveCount(appContext, prefs,
                     shouldApplyBatterySaverLimits(prefs),
                     shouldUseDefaultPoniesOnBattery(prefs),
                     shouldApplySoftwareCanvasLimits(),
@@ -1677,12 +1677,21 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             return;
         }
         List<PonyScenes.TableauSlot> slots = scene.slots;
+        if (slots.size() != lastAppliedSlots.size()) {
+            scheduleDropHerd();
+            return;
+        }
         int n = slots.size();
         for (int i = 0; i < n; i++) {
+            if (!slots.get(i).ponyKey.equals(lastAppliedSlots.get(i).ponyKey)) {
+                scheduleDropHerd();
+                return;
+            }
+        }
+        for (int i = 0; i < n; i++) {
             PonyScenes.TableauSlot slot = slots.get(i);
-            PonyScenes.TableauSlot prev = i < lastAppliedSlots.size()
-                    ? lastAppliedSlots.get(i) : null;
-            if (prev != null && prev.sameHot(slot)) continue;
+            PonyScenes.TableauSlot prev = lastAppliedSlots.get(i);
+            if (prev.sameHot(slot)) continue;
             ponies.applyTableauHotSlot(i, slot, clipRect);
         }
         lastAppliedSlots = PonyScenes.snapshotSlots(scene);

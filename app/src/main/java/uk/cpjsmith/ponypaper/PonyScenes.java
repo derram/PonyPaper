@@ -259,13 +259,14 @@ final class PonyScenes {
     }
 
     /**
-     * When active JSON is empty: restore {@link #PREF_PREVIOUS_JSON} else
-     * install {@link #demoScene()}. Writes JSON + epoch (+ cleared id) in one
-     * editor batch. Returns true when prefs were written.
+     * When active JSON is empty or unparseable: restore
+     * {@link #PREF_PREVIOUS_JSON} else install {@link #demoScene()}. Writes
+     * JSON + epoch (+ cleared id) in one editor batch. Returns true when prefs
+     * were written.
      */
     static boolean ensureActiveScene(SharedPreferences prefs) {
         if (prefs == null) return false;
-        if (hasActiveJson(prefs)) return false;
+        if (hasActiveJson(prefs) && loadActiveScene(prefs) != null) return false;
         TableauScene scene = null;
         if (hasPreviousJson(prefs)) {
             scene = parseSceneObject(prefs.getString(PREF_PREVIOUS_JSON, ""));
@@ -300,8 +301,8 @@ final class PonyScenes {
     }
 
     /**
-     * Load a library scene into active (id + json + epoch) in one batch.
-     * Returns false when the id is missing.
+     * Load a library scene into active (previous snapshot + id + json + epoch)
+     * in one batch. Returns false when the id is missing.
      */
     static boolean loadSceneById(SharedPreferences prefs, String id) {
         if (prefs == null || id == null || id.length() == 0) return false;
@@ -309,7 +310,16 @@ final class PonyScenes {
         for (int i = 0; i < scenes.size(); i++) {
             TableauScene scene = scenes.get(i);
             if (id.equals(scene.id)) {
-                writeActiveStructural(prefs, scene.id, scene);
+                int epoch = prefs.getInt(PREF_ACTIVE_EPOCH, 0) + 1;
+                SharedPreferences.Editor editor = prefs.edit();
+                String active = prefs.getString(PREF_ACTIVE_JSON, "");
+                if (active != null && active.length() > 0) {
+                    editor.putString(PREF_PREVIOUS_JSON, active);
+                }
+                editor.putString(PREF_ACTIVE_JSON, encodeScene(scene));
+                editor.putString(PREF_ACTIVE_ID, scene.id);
+                editor.putInt(PREF_ACTIVE_EPOCH, epoch);
+                editor.commit();
                 return true;
             }
         }

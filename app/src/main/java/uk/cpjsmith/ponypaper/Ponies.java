@@ -43,6 +43,12 @@ public class Ponies implements Pony.EffectHost {
     
     private ArrayList<Pony> inactivePonies;
     private Pony[] activePonies;
+    /**
+     * Tableau only: maps full active-JSON slot index → live {@link #activePonies}
+     * index, or {@code -1} when the JSON slot was dropped or cap-clipped.
+     * Null for wander herds.
+     */
+    private final int[] tableauJsonToLive;
     private final Rect clipBounds = new Rect();
     private final Rect spriteSrc = new Rect();
     private final Rect spriteDst = new Rect();
@@ -138,6 +144,7 @@ public class Ponies implements Pony.EffectHost {
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         String rawWaifu = prefs.getString("pref_waifu", "");
         waifuKey = rawWaifu != null ? rawWaifu : "";
+        tableauJsonToLive = null;
 
         if (desiredCount < 0) desiredCount = 0;
         activeCount = Math.min(inactivePonies.size(), desiredCount);
@@ -158,15 +165,18 @@ public class Ponies implements Pony.EffectHost {
      * pool is empty so gone-off-screen cannot swap in a replacement.
      *
      * @param context      used for touch slop
-     * @param pinnedPonies already-pinned ponies (document order)
+     * @param pinnedPonies already-pinned ponies (resolved document order)
      * @param prefs        size and related prefs
+     * @param jsonToLive   full JSON slot index → live index, or {@code -1}
      */
-    public Ponies(Context context, List<Pony> pinnedPonies, SharedPreferences prefs) {
+    public Ponies(Context context, List<Pony> pinnedPonies, SharedPreferences prefs,
+            int[] jsonToLive) {
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         randomSizeMode = false;
         waifuKey = "";
         inactivePonies = new ArrayList<Pony>();
         random = new Random();
+        tableauJsonToLive = jsonToLive;
 
         activeCount = pinnedPonies != null ? pinnedPonies.size() : 0;
         activePonies = new Pony[activeCount];
@@ -183,13 +193,16 @@ public class Ponies implements Pony.EffectHost {
 
     /**
      * Hot-path Tableau slot update. {@code index} is the full active-JSON slot
-     * index; when {@code index >= activeCount} (cap-clipped) this is a no-op.
-     * Idempotent: unchanged norms / facing / actions do not restart the wait
-     * timer, re-roll random facing, or rewrite bags.
+     * index; dropped or cap-clipped slots ({@code jsonToLive[index] == -1}) are
+     * persist-only no-ops. Idempotent: unchanged norms / facing / actions do
+     * not restart the wait timer, re-roll random facing, or rewrite bags.
      */
     void applyTableauHotSlot(int index, PonyScenes.TableauSlot slot, Rect clip) {
-        if (slot == null || index < 0 || index >= activeCount) return;
-        Pony pony = activePonies[index];
+        if (slot == null || tableauJsonToLive == null) return;
+        if (index < 0 || index >= tableauJsonToLive.length) return;
+        int live = tableauJsonToLive[index];
+        if (live < 0 || live >= activeCount) return;
+        Pony pony = activePonies[live];
         if (pony == null || !pony.isPinned()) return;
 
         boolean normsChanged = pony.pinXNorm != slot.xNorm
