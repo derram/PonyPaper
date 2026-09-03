@@ -16,6 +16,7 @@ output.json
 .cxx/
 
 # IDE / local
+docs/
 .idea/
 *.iml
 .DS_Store
