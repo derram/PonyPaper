@@ -267,7 +267,8 @@ public class Pony {
 
     /**
      * @param policy {@link #FACING_RANDOM}, {@link #FACING_LEFT}, or {@link #FACING_RIGHT}
-     * @param lockedDirectionOrIgnored used only when policy is random (ignored)
+     * @param lockedDirectionOrIgnored stored when policy is random (unused by runtime);
+     *                                 ignored when left/right (lock comes from {@code policy})
      */
     void setFacingPolicy(String policy, int lockedDirectionOrIgnored) {
         if (FACING_LEFT.equals(policy)) {
@@ -335,15 +336,32 @@ public class Pony {
         }
     }
 
+    private float pinnedFeetX() {
+        return screenBounds.left + pinXNorm * screenBounds.width();
+    }
+
+    private float pinnedFeetY() {
+        return screenBounds.top + pinYNorm * screenBounds.height();
+    }
+
+    /**
+     * Snap feet to slot norms; restore locked facing or keep current if random.
+     * Resumes waiting without the wait-cycle facing re-roll.
+     */
     private void snapBackToPin() {
         if (screenBounds != null) {
-            posX = pinXNorm * screenBounds.width();
-            posY = pinYNorm * screenBounds.height();
+            posX = pinnedFeetX();
+            posY = pinnedFeetY();
         }
         if (isFacingLocked()) {
             setFacingDirection(lockedDirection);
         }
-        beginWaitingInPlace();
+        motion = MOTION_WAITING;
+        targetPos = null;
+        travelX = 0;
+        travelY = 0;
+        waitTimerMs = WAIT_MIN_MS + random.nextInt(WAIT_EXTRA_MS);
+        setWaiting(false);
     }
     
     /**
@@ -463,9 +481,8 @@ public class Pony {
                 leavingMode = LM_GONE;
                 return;
             }
-            float feetX = pinXNorm * screenBounds.width();
-            float feetY = pinYNorm * screenBounds.height();
-            pinAt(feetX, feetY, bag[random.nextInt(bag.length)], resolvePinnedFacing());
+            pinAt(pinnedFeetX(), pinnedFeetY(),
+                    bag[random.nextInt(bag.length)], resolvePinnedFacing());
         } else if (motion == MOTION_INIT) {
             loadActions();
             if (actionsFailed()) {
@@ -782,11 +799,19 @@ public class Pony {
      * @return true if {@link #currentAction} was changed (or re-selected)
      */
     private boolean setWaiting() {
+        return setWaiting(true);
+    }
+
+    /**
+     * @param applyFacingPolicy when false, skip the pinned wait-cycle facing
+     *                          hook (drag snap-back keeps current random facing)
+     */
+    private boolean setWaiting(boolean applyFacingPolicy) {
         if (!currentAction.hasNextWaiting()) {
             return false;
         }
         changeAction(currentAction.getNextWaiting(random));
-        if (pinned) {
+        if (pinned && applyFacingPolicy) {
             applyFacingAfterWait();
         }
         return true;

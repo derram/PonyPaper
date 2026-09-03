@@ -190,6 +190,10 @@ public class Ponies implements Pony.EffectHost {
         Pony ts = AllPonies.createPony(context, "pref_ts");
         Pony fs = AllPonies.createPony(context, "pref_fs");
         Pony aj = AllPonies.createPony(context, "pref_aj");
+        if (ts == null || fs == null || aj == null) {
+            throw new IllegalStateException(
+                    "Tableau demo requires pref_ts, pref_fs, and pref_aj");
+        }
         // Demo stands: first allActions entry is the stand owner for these make*.
         TableauPin.pin(ts, 0.25f, 0.72f,
                 new PonyAction[] { ts.getAllActions()[0] }, Pony.FACING_RANDOM);
