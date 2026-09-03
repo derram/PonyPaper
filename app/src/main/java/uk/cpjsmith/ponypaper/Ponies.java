@@ -182,30 +182,63 @@ public class Ponies implements Pony.EffectHost {
     }
 
     /**
-     * Hardcoded 3-pony lower-third demo slots (document order = truncation
-     * priority). {@link TableauBuilder} truncates to the live cap then
-     * constructs the herd.
+     * Hot-path Tableau slot update. {@code index} is the full active-JSON slot
+     * index; when {@code index >= activeCount} (cap-clipped) this is a no-op.
+     * Idempotent: unchanged norms / facing / actions do not restart the wait
+     * timer, re-roll random facing, or rewrite bags.
      */
-    static ArrayList<Pony> createTableauDemoSlots(Context context) {
-        ArrayList<Pony> slots = new ArrayList<Pony>(3);
-        Pony ts = AllPonies.createPony(context, "pref_ts");
-        Pony fs = AllPonies.createPony(context, "pref_fs");
-        Pony aj = AllPonies.createPony(context, "pref_aj");
-        if (ts == null || fs == null || aj == null) {
-            throw new IllegalStateException(
-                    "Tableau demo requires pref_ts, pref_fs, and pref_aj");
+    void applyTableauHotSlot(int index, PonyScenes.TableauSlot slot, Rect clip) {
+        if (slot == null || index < 0 || index >= activeCount) return;
+        Pony pony = activePonies[index];
+        if (pony == null || !pony.isPinned()) return;
+
+        boolean normsChanged = pony.pinXNorm != slot.xNorm
+                || pony.pinYNorm != slot.yNorm;
+        boolean facingChanged = !slot.facing.equals(pony.facingPolicy);
+        PonyAction[] newBag = TableauBuilder.resolveWaitBag(pony, slot.actions);
+        if (newBag == null || newBag.length == 0) return;
+        boolean actionsChanged = !sameActionBag(pony.waitBag, newBag);
+
+        if (!normsChanged && !facingChanged && !actionsChanged) return;
+
+        if (normsChanged) {
+            pony.setPinNorms(slot.xNorm, slot.yNorm);
+            pony.moveFeetToPin(clip);
         }
-        // Demo stands: first allActions entry is the stand owner for these make*.
-        TableauPin.pin(ts, 0.25f, 0.72f,
-                new PonyAction[] { ts.getAllActions()[0] }, Pony.FACING_RANDOM);
-        TableauPin.pin(fs, 0.50f, 0.74f,
-                new PonyAction[] { fs.getAllActions()[0] }, Pony.FACING_RANDOM);
-        TableauPin.pin(aj, 0.75f, 0.72f,
-                new PonyAction[] { aj.getAllActions()[0] }, Pony.FACING_LEFT);
-        slots.add(ts);
-        slots.add(fs);
-        slots.add(aj);
-        return slots;
+        if (facingChanged) {
+            pony.setFacingPolicy(slot.facing, PonyAction.LEFT);
+            if (Pony.FACING_LEFT.equals(slot.facing)) {
+                pony.setFacingDirection(PonyAction.LEFT);
+            } else if (Pony.FACING_RIGHT.equals(slot.facing)) {
+                pony.setFacingDirection(PonyAction.RIGHT);
+            }
+            // Switching to random: keep current direction until next setWaiting.
+        }
+        if (actionsChanged) {
+            TableauPin.pin(pony, pony.pinXNorm, pony.pinYNorm, newBag,
+                    pony.facingPolicy);
+            if (!actionInBag(pony.getCurrentAction(), newBag)) {
+                pony.changeActionKeepingWait(newBag[0]);
+            }
+        }
+        invalidateVisualStamp();
+    }
+
+    private static boolean sameActionBag(PonyAction[] a, PonyAction[] b) {
+        if (a == b) return true;
+        if (a == null || b == null || a.length != b.length) return false;
+        for (int i = 0; i < a.length; i++) {
+            if (a[i] != b[i]) return false;
+        }
+        return true;
+    }
+
+    private static boolean actionInBag(PonyAction action, PonyAction[] bag) {
+        if (action == null || bag == null) return false;
+        for (int i = 0; i < bag.length; i++) {
+            if (bag[i] == action) return true;
+        }
+        return false;
     }
 
     private void wireEffectHosts(ArrayList<Pony> ponies) {

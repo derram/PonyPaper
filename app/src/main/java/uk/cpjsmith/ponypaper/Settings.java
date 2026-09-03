@@ -388,8 +388,18 @@ public class Settings extends AppCompatActivity
         if (sceneMode != null) {
             sceneMode.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
                 public boolean onPreferenceChange(Preference preference, Object newValue) {
-                    refreshSceneModeDependentPrefs(
-                            newValue != null ? newValue.toString() : SceneMode.WANDER);
+                    SharedPreferences sp =
+                            PreferenceManager.getDefaultSharedPreferences(Settings.this);
+                    String oldMode = SceneMode.mode(sp);
+                    String next = newValue != null ? newValue.toString() : SceneMode.WANDER;
+                    if (SceneMode.TABLEAU.equals(oldMode)
+                            && !SceneMode.TABLEAU.equals(next)) {
+                        PonyScenes.snapshotActiveToPrevious(sp);
+                    } else if (SceneMode.TABLEAU.equals(next)
+                            && !SceneMode.TABLEAU.equals(oldMode)) {
+                        PonyScenes.ensureActiveScene(sp);
+                    }
+                    refreshSceneModeDependentPrefs(next);
                     return true;
                 }
             });

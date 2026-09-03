@@ -266,6 +266,32 @@ public class Pony {
     }
 
     /**
+     * Move feet to current pin norms × {@code clip} without resetting wait
+     * timer, facing, or action.
+     */
+    void moveFeetToPin(Rect clip) {
+        if (clip != null) {
+            if (screenBounds == null) {
+                screenBounds = new Rect();
+            }
+            screenBounds.set(clip);
+        }
+        if (screenBounds == null) return;
+        posX = pinnedFeetX();
+        posY = pinnedFeetY();
+    }
+
+    PonyAction getCurrentAction() {
+        return currentAction;
+    }
+
+    /** Switch action without touching {@link #waitTimerMs}. */
+    void changeActionKeepingWait(PonyAction action) {
+        if (action == null) return;
+        changeAction(action);
+    }
+
+    /**
      * @param policy {@link #FACING_RANDOM}, {@link #FACING_LEFT}, or {@link #FACING_RIGHT}
      * @param lockedDirectionOrIgnored stored when policy is random (unused by runtime);
      *                                 ignored when left/right (lock comes from {@code policy})
