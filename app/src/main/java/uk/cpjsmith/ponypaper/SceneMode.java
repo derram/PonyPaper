@@ -22,6 +22,8 @@ final class SceneMode {
     static final String BERRY_PUNCH = "berry_punch";
     /** Each pony rolls a random size from the Character size ladder on enter. */
     static final String MY_QUESTION = "my_question";
+    /** Fixed posed slots; herd checkboxes and num-ponies prefs are ignored. */
+    static final String TABLEAU = "tableau";
 
     private SceneMode() {}
 
@@ -65,6 +67,7 @@ final class SceneMode {
         } catch (ClassCastException e) {
             return WANDER;
         }
+        if (TABLEAU.equals(raw)) return TABLEAU;
         if (BERRY_PUNCH.equals(raw)) return BERRY_PUNCH;
         if (MY_QUESTION.equals(raw)) return MY_QUESTION;
         return WANDER;
@@ -78,5 +81,10 @@ final class SceneMode {
     /** True when each pony gets a random Character-size ladder step on enter. */
     static boolean isRandomSize(SharedPreferences prefs) {
         return MY_QUESTION.equals(mode(prefs));
+    }
+
+    /** True when fixed Tableau poses are active (not wander / Berry / random-size). */
+    static boolean isTableau(SharedPreferences prefs) {
+        return TABLEAU.equals(mode(prefs));
     }
 }

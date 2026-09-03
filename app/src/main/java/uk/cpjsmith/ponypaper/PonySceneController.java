@@ -24,6 +24,8 @@ import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import java.io.File;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Host-agnostic scene controller: frame loop, power policy, thermal policy,
@@ -108,7 +110,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /** Maximum FPS while system Battery Saver is active. */
     private static final int BATTERY_SAVER_MAX_FPS = 25;
     /** Maximum on-screen ponies while system Battery Saver is active. */
-    private static final int BATTERY_SAVER_MAX_PONIES = 3;
+    static final int BATTERY_SAVER_MAX_PONIES = 3;
 
     /**
      * Thermal status codes matching {@link PowerManager} (API 29+). Inlined so
@@ -125,7 +127,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      */
     private static final int THERMAL_MODERATE_MAX_FPS = 15;
     /** Maximum on-screen ponies while effective thermal status is MODERATE or SEVERE. */
-    private static final int THERMAL_MODERATE_MAX_PONIES = 2;
+    static final int THERMAL_MODERATE_MAX_PONIES = 2;
     /**
      * Battery {@link BatteryManager#EXTRA_TEMPERATURE} (tenths of °C) treated as
      * MODERATE when the Thermal API is unavailable or cooler than the pack.
@@ -217,6 +219,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private final FrameSurface surface;
 
     private Ponies ponies = null;
+    /**
+     * Synced to {@link PonyScenes#PREF_ACTIVE_EPOCH} only after a successful
+     * Tableau herd install. Starts unset so the first JSON notification before
+     * install cannot take the hot path.
+     */
+    private static final int EPOCH_UNSET = Integer.MIN_VALUE;
+    private int lastAppliedEpoch = EPOCH_UNSET;
+    /** Snapshot of active-JSON slots used for the live Tableau herd. */
+    private List<PonyScenes.TableauSlot> lastAppliedSlots = Collections.emptyList();
+    /** True while {@link #ponies} was built via {@link TableauBuilder}. */
+    private boolean tableauHerd = false;
     private Bitmap background = null;
     private RenderNodeSupport backgroundNode = RenderNodeSupport.create();
     private boolean drunkMode = false;
@@ -497,6 +510,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         sceneLoadGeneration++;
         sceneLoadInFlight = false;
         sceneLoadFailed = false;
+        tableauHerd = false;
         if (ponies != null) {
             ponies.unloadSprites();
             ponies = null;
@@ -547,6 +561,15 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         drunkMode = SceneMode.isBerryPunch(prefs);
         applyBackgroundColour(prefs, true);
 
+        final boolean buildTableau = SceneMode.isTableau(prefs);
+        if (buildTableau) {
+            // Seed demo / restore previous before the worker runs. Swallow the
+            // coalesced drop our own structural write would schedule.
+            handler.removeCallbacks(coalescedDropHerd);
+            PonyScenes.ensureActiveScene(prefs);
+            handler.removeCallbacks(coalescedDropHerd);
+        }
+
         final int ponyCount = getEffectivePonyCount(prefs);
         final boolean wantBg = preferredBackgroundEnabled(prefs)
                 && !shouldDisableBackgroundImage(prefs);
@@ -563,7 +586,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 Ponies herd = null;
                 Bitmap bg = null;
                 try {
-                    herd = new Ponies(appContext, prefs, ponyCount);
+                    if (buildTableau) {
+                        herd = TableauBuilder.build(appContext, prefs, ponyCount);
+                    } else {
+                        herd = new Ponies(appContext, prefs, ponyCount);
+                    }
                     herd.preloadActiveSprites();
                 } catch (RuntimeException e) {
                     Log.e("PonyPaper", "Failed to build pony herd", e);
@@ -605,6 +632,16 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                             return;
                         }
                         ponies = readyHerd;
+                        if (buildTableau) {
+                            tableauHerd = true;
+                            lastAppliedEpoch = PonyScenes.activeEpoch(prefs);
+                            lastAppliedSlots = PonyScenes.snapshotSlots(
+                                    PonyScenes.loadActiveScene(prefs));
+                        } else {
+                            tableauHerd = false;
+                            lastAppliedEpoch = EPOCH_UNSET;
+                            lastAppliedSlots = Collections.emptyList();
+                        }
                         replaceBackground(readyBg);
                         if (active && !frozen && !thermalEmergency) {
                             lastFrameUptimeMs = 0;
@@ -1211,6 +1248,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     private int getEffectivePonyCount(SharedPreferences prefs) {
+        // Tableau ignores pref_num_ponies / pref_dream_num_ponies; slot list +
+        // the same power/thermal/software clamps decide how many stay on screen.
+        // min(cap, slotCount) so rebuilds skip when the cap moves but stays
+        // above the resolved scene size (demo is 3 until PR3).
+        if (SceneMode.isTableau(prefs)) {
+            return TableauBuilder.effectiveCount(prefs,
+                    shouldApplyBatterySaverLimits(prefs),
+                    shouldUseDefaultPoniesOnBattery(prefs),
+                    shouldApplySoftwareCanvasLimits(),
+                    shouldApplyThermalThrottle());
+        }
         int count = preferredPonyCount(prefs);
         if (count < 1) count = DEFAULT_NUM_PONIES;
         if (shouldApplyBatterySaverLimits(prefs)) {
@@ -1588,12 +1636,67 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             reapplyPowerProfilePrefs(prefs);
             return;
         }
+        if (PREF_NUM_PONIES.equals(key) && SceneMode.isTableau(prefs)) {
+            return;
+        }
+        if (PonyScenes.PREF_ACTIVE_EPOCH.equals(key)) {
+            // Structural/load batch in flight — do not assign lastAppliedEpoch.
+            if (SceneMode.isTableau(prefs)) scheduleDropHerd();
+            return;
+        }
+        if (PonyScenes.PREF_ACTIVE_JSON.equals(key)) {
+            onTableauActiveJsonChanged(prefs);
+            return;
+        }
         if (useDreamDisplayOverrides(prefs)
                 && (PREF_NUM_PONIES.equals(key) || PREF_BACKGROUND.equals(key))) {
             return;
         }
         if (isHerdMetadataKey(key)) return;
         scheduleDropHerd();
+    }
+
+    /**
+     * Hot vs rebuild for {@link PonyScenes#PREF_ACTIVE_JSON}. Epoch mismatch or
+     * missing Tableau herd → {@link #scheduleDropHerd()} without touching
+     * {@link #lastAppliedEpoch}. Same epoch → idempotent per-slot hot apply.
+     */
+    private void onTableauActiveJsonChanged(SharedPreferences prefs) {
+        if (!SceneMode.isTableau(prefs) || ponies == null || !tableauHerd) {
+            scheduleDropHerd();
+            return;
+        }
+        int epoch = PonyScenes.activeEpoch(prefs);
+        if (lastAppliedEpoch == EPOCH_UNSET || epoch != lastAppliedEpoch) {
+            scheduleDropHerd();
+            return;
+        }
+        PonyScenes.TableauScene scene = PonyScenes.loadActiveScene(prefs);
+        if (scene == null) {
+            scheduleDropHerd();
+            return;
+        }
+        List<PonyScenes.TableauSlot> slots = scene.slots;
+        if (slots.size() != lastAppliedSlots.size()) {
+            scheduleDropHerd();
+            return;
+        }
+        int n = slots.size();
+        for (int i = 0; i < n; i++) {
+            if (!slots.get(i).ponyKey.equals(lastAppliedSlots.get(i).ponyKey)) {
+                scheduleDropHerd();
+                return;
+            }
+        }
+        for (int i = 0; i < n; i++) {
+            PonyScenes.TableauSlot slot = slots.get(i);
+            PonyScenes.TableauSlot prev = lastAppliedSlots.get(i);
+            if (prev.sameHot(slot)) continue;
+            ponies.applyTableauHotSlot(i, slot, clipRect);
+        }
+        lastAppliedSlots = PonyScenes.snapshotSlots(scene);
+        forceSceneRedraw = true;
+        redrawIfActive();
     }
 
     /**
@@ -1614,7 +1717,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             applyTargetFpsAndRedraw(prefs);
             return;
         }
-        if (PREF_DREAM_NUM_PONIES.equals(key) || PREF_DREAM_BACKGROUND.equals(key)) {
+        if (PREF_DREAM_NUM_PONIES.equals(key)) {
+            if (SceneMode.isTableau(prefs)) return;
+            if (!useDreamDisplayOverrides(prefs)) return;
+            scheduleDropHerd();
+            return;
+        }
+        if (PREF_DREAM_BACKGROUND.equals(key)) {
             if (!useDreamDisplayOverrides(prefs)) return;
             scheduleDropHerd();
             return;
@@ -1634,7 +1743,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 || PonyMixes.PREF_VIEWING_LOADED_MIX.equals(key)
                 || CustomStorage.PREF_LIBRARY_TREE_URI.equals(key)
                 || CustomStorage.PREF_LIBRARY_SEEN_TREE.equals(key)
-                || CustomStorage.PREF_LIBRARY_SEEN_NAMES.equals(key);
+                || CustomStorage.PREF_LIBRARY_SEEN_NAMES.equals(key)
+                || PonyScenes.PREF_SCENES_JSON.equals(key)
+                || PonyScenes.PREF_PREVIOUS_JSON.equals(key)
+                || PonyScenes.PREF_ACTIVE_ID.equals(key);
     }
 
     private void applyTargetFpsAndRedraw(SharedPreferences prefs) {

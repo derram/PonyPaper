@@ -18,10 +18,16 @@ public class Pony {
     private static final int MOTION_MOVING = 2;
     private static final int MOTION_DRAGGED = 3;
     private static final int MOTION_SPECIAL = 4;
+    /** Pinned re-entry after {@link #reset()}: wait for sheets then {@link #pinAt}. */
+    private static final int MOTION_INIT_PINNED = 5;
     
     private static final int LM_NORMAL = 0;
     private static final int LM_GOING = 1;
     private static final int LM_GONE = 2;
+
+    static final String FACING_RANDOM = "random";
+    static final String FACING_LEFT = "left";
+    static final String FACING_RIGHT = "right";
     
     /**
      * Sprite timings are stored in centiseconds (1/100 s). Animation time is
@@ -44,7 +50,7 @@ public class Pony {
     private static final PonyEffectDef[] NO_EFFECTS = new PonyEffectDef[0];
 
     private final PonyAction[] allActions;
-    private final PonyAction[] startActions;
+    private PonyAction[] startActions;
     private final PonyEffectDef[] effectDefs;
     /**
      * Soft destination preference for actions that inherit movement.
@@ -56,6 +62,19 @@ public class Pony {
      * {@code pref_custom_foo.xml}). Used for waifu / priority selection.
      */
     private String prefKey = "";
+
+    /** When true, suppress travel/leave and re-pin after {@link #reset()}. */
+    boolean pinned;
+    float pinXNorm;
+    float pinYNorm;
+    /**
+     * Full active-JSON slot index for this pinned pony, or {@code -1}. Stable
+     * across Y-sort of the live herd array.
+     */
+    int tableauSlotIndex = -1;
+    String facingPolicy = FACING_RANDOM;
+    int lockedDirection;
+    PonyAction[] waitBag;
 
     /** Scene that owns live effect instances; null until {@link Ponies} wires it. */
     private EffectHost effectHost;
@@ -224,13 +243,200 @@ public class Pony {
             sizeFactor = factor;
         }
     }
+
+    PonyAction[] getAllActions() {
+        return allActions;
+    }
+
+    void setStartActions(PonyAction[] actions) {
+        if (actions != null && actions.length > 0) {
+            startActions = actions;
+        }
+    }
+
+    public boolean isPinned() {
+        return pinned;
+    }
+
+    void setPinned(boolean pinned) {
+        this.pinned = pinned;
+        if (pinned && (motion == MOTION_INIT || currentAction == null)) {
+            motion = MOTION_INIT_PINNED;
+        }
+    }
+
+    void setPinNorms(float xNorm, float yNorm) {
+        pinXNorm = xNorm;
+        pinYNorm = yNorm;
+    }
+
+    void setTableauSlotIndex(int index) {
+        tableauSlotIndex = index;
+    }
+
+    int getTableauSlotIndex() {
+        return tableauSlotIndex;
+    }
+
+    /**
+     * Move feet to current pin norms × {@code clip} without resetting wait
+     * timer, facing, or action.
+     */
+    void moveFeetToPin(Rect clip) {
+        if (clip != null) {
+            if (screenBounds == null) {
+                screenBounds = new Rect();
+            }
+            screenBounds.set(clip);
+        }
+        if (screenBounds == null) return;
+        posX = pinnedFeetX();
+        posY = pinnedFeetY();
+    }
+
+    PonyAction getCurrentAction() {
+        return currentAction;
+    }
+
+    /** Switch action without touching {@link #waitTimerMs}. */
+    void changeActionKeepingWait(PonyAction action) {
+        if (action == null) return;
+        changeAction(action);
+    }
+
+    /**
+     * @param policy {@link #FACING_RANDOM}, {@link #FACING_LEFT}, or {@link #FACING_RIGHT}
+     * @param lockedDirectionOrIgnored stored when policy is random (unused by runtime);
+     *                                 ignored when left/right (lock comes from {@code policy})
+     */
+    void setFacingPolicy(String policy, int lockedDirectionOrIgnored) {
+        if (FACING_LEFT.equals(policy)) {
+            facingPolicy = FACING_LEFT;
+            lockedDirection = PonyAction.LEFT;
+        } else if (FACING_RIGHT.equals(policy)) {
+            facingPolicy = FACING_RIGHT;
+            lockedDirection = PonyAction.RIGHT;
+        } else {
+            facingPolicy = FACING_RANDOM;
+            lockedDirection = lockedDirectionOrIgnored;
+        }
+    }
+
+    void setFacingDirection(int direction) {
+        if (this.direction != direction) {
+            this.direction = direction;
+            frameTime = 0;
+        }
+    }
+
+    void maybeRandomizeFacing(Random rng) {
+        if (rng != null && rng.nextBoolean()) {
+            setFacingDirection(direction == PonyAction.LEFT
+                    ? PonyAction.RIGHT : PonyAction.LEFT);
+        }
+    }
+
+    /**
+     * Places feet at the given pixels, starts waiting on {@code start}, and
+     * clears leave/travel state. Used by Tableau pin and pinned re-entry.
+     */
+    void pinAt(float feetX, float feetY, PonyAction start, int direction) {
+        posX = feetX;
+        posY = feetY;
+        this.direction = direction;
+        targetPos = null;
+        travelX = 0;
+        travelY = 0;
+        leavingMode = LM_NORMAL;
+        motion = MOTION_WAITING;
+        waitTimerMs = WAIT_MIN_MS + random.nextInt(WAIT_EXTRA_MS);
+        changeAction(start);
+    }
+
+    private boolean isFacingLocked() {
+        return FACING_LEFT.equals(facingPolicy) || FACING_RIGHT.equals(facingPolicy);
+    }
+
+    private int resolvePinnedFacing() {
+        if (FACING_LEFT.equals(facingPolicy)) {
+            return PonyAction.LEFT;
+        }
+        if (FACING_RIGHT.equals(facingPolicy)) {
+            return PonyAction.RIGHT;
+        }
+        return random.nextBoolean() ? PonyAction.LEFT : PonyAction.RIGHT;
+    }
+
+    private void applyFacingAfterWait() {
+        if (FACING_RANDOM.equals(facingPolicy)) {
+            maybeRandomizeFacing(random);
+        } else {
+            setFacingDirection(lockedDirection);
+        }
+    }
+
+    private float pinnedFeetX() {
+        return screenBounds.left + pinXNorm * screenBounds.width();
+    }
+
+    private float pinnedFeetY() {
+        return screenBounds.top + pinYNorm * screenBounds.height();
+    }
+
+    /**
+     * Snap feet to slot norms; restore locked facing or keep current if random.
+     * Resumes waiting without the wait-cycle facing re-roll.
+     */
+    private void snapBackToPin() {
+        if (screenBounds != null) {
+            posX = pinnedFeetX();
+            posY = pinnedFeetY();
+        }
+        resumePinnedWaiting();
+    }
+
+    /**
+     * Write current feet into pin norms (clamped 0..1), snap feet to that pin
+     * so off-clip releases match JSON, and resume waiting — no leave.
+     */
+    private void commitDraggedPin() {
+        if (screenBounds != null && screenBounds.width() > 0
+                && screenBounds.height() > 0) {
+            pinXNorm = clamp01(
+                    (posX - screenBounds.left) / screenBounds.width());
+            pinYNorm = clamp01(
+                    (posY - screenBounds.top) / screenBounds.height());
+            posX = pinnedFeetX();
+            posY = pinnedFeetY();
+        }
+        resumePinnedWaiting();
+    }
+
+    /** Locked facing restored; random keeps current. Skips wait-cycle re-roll. */
+    private void resumePinnedWaiting() {
+        if (isFacingLocked()) {
+            setFacingDirection(lockedDirection);
+        }
+        motion = MOTION_WAITING;
+        targetPos = null;
+        travelX = 0;
+        travelY = 0;
+        waitTimerMs = WAIT_MIN_MS + random.nextInt(WAIT_EXTRA_MS);
+        setWaiting(false);
+    }
+
+    private static float clamp01(float v) {
+        if (v < 0f) return 0f;
+        if (v > 1f) return 1f;
+        return v;
+    }
     
     /**
      * Clears the current state of the pony.
      */
     public void reset() {
         waitTimerMs = 0;
-        motion = MOTION_INIT;
+        motion = pinned ? MOTION_INIT_PINNED : MOTION_INIT;
         leavingMode = LM_NORMAL;
         currentAction = null;
         posX = 0;
@@ -327,7 +533,24 @@ public class Pony {
         
         float scale = getScale();
         
-        if (motion == MOTION_INIT) {
+        if (motion == MOTION_INIT_PINNED) {
+            loadActions();
+            if (actionsFailed()) {
+                leavingMode = LM_GONE;
+                return;
+            }
+            if (!actionsReady()) {
+                return;
+            }
+            PonyAction[] bag = startActions != null && startActions.length > 0
+                    ? startActions : waitBag;
+            if (bag == null || bag.length == 0) {
+                leavingMode = LM_GONE;
+                return;
+            }
+            pinAt(pinnedFeetX(), pinnedFeetY(),
+                    bag[random.nextInt(bag.length)], resolvePinnedFacing());
+        } else if (motion == MOTION_INIT) {
             loadActions();
             if (actionsFailed()) {
                 leavingMode = LM_GONE;
@@ -530,7 +753,8 @@ public class Pony {
      * lower redraw rate is enough until a sprite frame or wait expiry.
      */
     boolean isVisuallyIdle() {
-        return motion == MOTION_WAITING || motion == MOTION_INIT;
+        return motion == MOTION_WAITING || motion == MOTION_INIT
+                || motion == MOTION_INIT_PINNED;
     }
 
     private int clampedAnimTime() {
@@ -602,8 +826,13 @@ public class Pony {
      * Brings the pony back out of the dragged state. If the pony has been
      * dragged to the edge of the screen, it will immediately walk (fly, etc.)
      * off screen. Otherwise it will resume normal behaviour.
+     * Pinned ponies keep the dragged feet as the new pin (no leave).
      */
     public void stopDrag() {
+        if (pinned) {
+            commitDraggedPin();
+            return;
+        }
         int s = (int)(30 * getScale());
         int x = Math.round(posX);
         int y = Math.round(posY);
@@ -637,10 +866,21 @@ public class Pony {
      * @return true if {@link #currentAction} was changed (or re-selected)
      */
     private boolean setWaiting() {
+        return setWaiting(true);
+    }
+
+    /**
+     * @param applyFacingPolicy when false, skip the pinned wait-cycle facing
+     *                          hook (drag snap-back keeps current random facing)
+     */
+    private boolean setWaiting(boolean applyFacingPolicy) {
         if (!currentAction.hasNextWaiting()) {
             return false;
         }
         changeAction(currentAction.getNextWaiting(random));
+        if (pinned && applyFacingPolicy) {
+            applyFacingAfterWait();
+        }
         return true;
     }
     
@@ -688,6 +928,9 @@ public class Pony {
      *                   (drag-to-edge already chose to leave)
      */
     private boolean tryBeginMoving(boolean alwaysNewTarget, boolean forceLeave) {
+        if (pinned) {
+            return false;
+        }
         if (!currentAction.hasNextMoving()) {
             return false;
         }
@@ -733,8 +976,13 @@ public class Pony {
     /**
      * Drag-to-edge: leave now. A {@code screen-out} clip plays in place;
      * interpolating movers walk/fly/teleport to {@code offScreenTarget}.
+     * Pinned ponies snap back instead of leaving.
      */
     private void beginForcedExit(Point offScreenTarget) {
+        if (pinned) {
+            snapBackToPin();
+            return;
+        }
         if (tryBeginMoving(false, true)) {
             leavingMode = LM_GOING;
             if (currentAction.type != PonyAction.SCREEN_OUT) {
@@ -815,6 +1063,10 @@ public class Pony {
             if (effectHost != null && effectDefs.length > 0) {
                 effectHost.onPonyActionChanged(this, previous, newAction);
             }
+        }
+        // Keep mid-drag facing free; re-assert lock on idle / action changes.
+        if (pinned && isFacingLocked() && motion != MOTION_DRAGGED) {
+            direction = lockedDirection;
         }
     }
     

@@ -27,6 +27,7 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -247,6 +248,15 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                         if (sheetExpanded) {
                             syncChromeWidgets();
                             if (mixListVisible) populateMixItems();
+                        }
+                    }
+                    if (SceneMode.PREF_KEY.equals(key)) {
+                        if (SceneMode.isTableau(sharedPreferences)) {
+                            stopShuffle();
+                            if (mixListVisible) hideMixList();
+                        }
+                        if (sheetExpanded) {
+                            syncChromeWidgets();
                         }
                     }
                 }
@@ -863,6 +873,10 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 @Override
                 public void onClick(View v) {
                     noteChromeActivity();
+                    if (mixesBlockedByTableau()) {
+                        toastTableauMixBlocked();
+                        return;
+                    }
                     showMixList();
                 }
             });
@@ -937,6 +951,17 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                     if (updatingChromeUi) return;
                     noteChromeActivity();
+                    if (mixesBlockedByTableau()) {
+                        toastTableauMixBlocked();
+                        updatingChromeUi = true;
+                        try {
+                            buttonView.setChecked(false);
+                        } finally {
+                            updatingChromeUi = false;
+                        }
+                        stopShuffle();
+                        return;
+                    }
                     if (isChecked) {
                         startShuffle();
                     } else {
@@ -1063,7 +1088,13 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             if (disableAutoDimSwitch != null) {
                 disableAutoDimSwitch.setChecked(disableAutoDim);
             }
-            boolean canShuffle = canShuffleUserMixes();
+            boolean tableau = mixesBlockedByTableau();
+            if (tableau && shuffleMixes) {
+                shuffleMixes = false;
+                shuffleBag.clear();
+                cancelShuffle();
+            }
+            boolean canShuffle = !tableau && canShuffleUserMixes();
             if (!canShuffle && shuffleMixes) {
                 shuffleMixes = false;
                 shuffleBag.clear();
@@ -1074,12 +1105,24 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 shuffleMixesSwitch.setChecked(shuffleMixes);
             }
             if (shuffleSummary != null) {
-                shuffleSummary.setText(canShuffle
-                        ? R.string.dream_shuffle_summary
-                        : R.string.dream_shuffle_need_two);
+                if (tableau) {
+                    shuffleSummary.setText(R.string.dream_mix_tableau_toast);
+                } else {
+                    shuffleSummary.setText(canShuffle
+                            ? R.string.dream_shuffle_summary
+                            : R.string.dream_shuffle_need_two);
+                }
             }
             if (mixSummary != null) {
-                mixSummary.setText(currentMixLabel());
+                mixSummary.setText(tableau
+                        ? getString(R.string.dream_mix_tableau_toast)
+                        : currentMixLabel());
+            }
+            View mixRow = chromeRoot != null
+                    ? chromeRoot.findViewById(R.id.dream_mix) : null;
+            if (mixRow != null) {
+                mixRow.setEnabled(!tableau);
+                mixRow.setAlpha(tableau ? 0.45f : 1f);
             }
             updateReloadHerdRow();
         } finally {
@@ -1105,6 +1148,10 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void showMixList() {
         if (sheetMain == null || sheetMixPage == null) return;
+        if (mixesBlockedByTableau()) {
+            toastTableauMixBlocked();
+            return;
+        }
         populateMixItems();
         sheetMain.setVisibility(View.GONE);
         sheetMixPage.setVisibility(View.VISIBLE);
@@ -1316,6 +1363,10 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void onUserMixPicked(PonyMixes.Mix mix) {
         if (exiting || !dreaming || mixApplyBusy() || mix == null) return;
+        if (mixesBlockedByTableau()) {
+            toastTableauMixBlocked();
+            return;
+        }
         stopShuffle();
         PonyMixes.applyUserMix(this, mix);
         lastUserMixId = mix.id;
@@ -1324,6 +1375,10 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void onStockMixPicked(AllPonies.StockGroup group) {
         if (exiting || !dreaming || mixApplyBusy() || group == null) return;
+        if (mixesBlockedByTableau()) {
+            toastTableauMixBlocked();
+            return;
+        }
         stopShuffle();
         HashSet<String> keys = new HashSet<String>();
         for (int i = 0; i < group.keys.length; i++) {
@@ -1336,6 +1391,10 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void onPreviousHerdPicked() {
         if (exiting || !dreaming || mixApplyBusy()) return;
+        if (mixesBlockedByTableau()) {
+            toastTableauMixBlocked();
+            return;
+        }
         stopShuffle();
         if (PonyMixes.applyPreviousHerd(this) == null) return;
         lastUserMixId = "";
@@ -1344,6 +1403,10 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void onShuffleNowClicked() {
         if (exiting || !dreaming || mixApplyBusy()) return;
+        if (mixesBlockedByTableau()) {
+            toastTableauMixBlocked();
+            return;
+        }
         if (!applyShuffleHop()) return;
         if (shuffleMixes) scheduleShuffle(SHUFFLE_INTERVAL_MS);
         markMixApplied();
@@ -1353,8 +1416,17 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         return PonyMixes.loadUserMixes(getDreamPreferences()).size() >= 2;
     }
 
+    /** Mix / shuffle rewrite herd checkboxes — no-op while Tableau owns the scene. */
+    private boolean mixesBlockedByTableau() {
+        return SceneMode.isTableau(getDreamPreferences());
+    }
+
+    private void toastTableauMixBlocked() {
+        Toast.makeText(this, R.string.dream_mix_tableau_toast, Toast.LENGTH_SHORT).show();
+    }
+
     private void startShuffle() {
-        if (!canShuffleUserMixes()) {
+        if (mixesBlockedByTableau() || !canShuffleUserMixes()) {
             shuffleMixes = false;
             cancelShuffle();
             return;
@@ -1372,7 +1444,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void scheduleShuffle(long delayMs) {
         handler.removeCallbacks(shuffleMixRunnable);
-        if (!dreaming || exiting || !shuffleMixes) return;
+        if (!dreaming || exiting || !shuffleMixes || mixesBlockedByTableau()) return;
         handler.postDelayed(shuffleMixRunnable, delayMs);
     }
 
@@ -1386,6 +1458,11 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      * when a mix was applied, or when shuffle was turned off for lack of mixes.
      */
     private boolean applyShuffleHop() {
+        if (mixesBlockedByTableau()) {
+            stopShuffle();
+            if (sheetExpanded) syncChromeWidgets();
+            return true;
+        }
         List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(getDreamPreferences());
         if (mixes.size() < 2) {
             stopShuffle();

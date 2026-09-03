@@ -13,6 +13,7 @@ import android.view.ViewConfiguration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Random;
 
 /**
@@ -42,6 +43,14 @@ public class Ponies implements Pony.EffectHost {
     
     private ArrayList<Pony> inactivePonies;
     private Pony[] activePonies;
+    /**
+     * Tableau only: maps full active-JSON slot index → live {@link #activePonies}
+     * index, or {@code -1} when the JSON slot was dropped or cap-clipped.
+     * Null for wander herds.
+     */
+    private final int[] tableauJsonToLive;
+    /** Tableau only: prefs for hot-writing slot norms after drag; null for wander. */
+    private final SharedPreferences tableauPrefs;
     private final Rect clipBounds = new Rect();
     private final Rect spriteSrc = new Rect();
     private final Rect spriteDst = new Rect();
@@ -137,6 +146,8 @@ public class Ponies implements Pony.EffectHost {
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         String rawWaifu = prefs.getString("pref_waifu", "");
         waifuKey = rawWaifu != null ? rawWaifu : "";
+        tableauJsonToLive = null;
+        tableauPrefs = null;
 
         if (desiredCount < 0) desiredCount = 0;
         activeCount = Math.min(inactivePonies.size(), desiredCount);
@@ -150,6 +161,100 @@ public class Ponies implements Pony.EffectHost {
         for (int i = 0; i < activeCount; i++) {
             activePonies[i] = takeFromInactive();
         }
+    }
+
+    /**
+     * Active-only Tableau herd: every list member is on-screen; the inactive
+     * pool is empty so gone-off-screen cannot swap in a replacement.
+     *
+     * @param context      used for touch slop
+     * @param pinnedPonies already-pinned ponies (resolved document order)
+     * @param prefs        size and related prefs
+     * @param jsonToLive   full JSON slot index → live index, or {@code -1}
+     */
+    public Ponies(Context context, List<Pony> pinnedPonies, SharedPreferences prefs,
+            int[] jsonToLive) {
+        touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+        randomSizeMode = false;
+        waifuKey = "";
+        inactivePonies = new ArrayList<Pony>();
+        random = new Random();
+        tableauJsonToLive = jsonToLive;
+        tableauPrefs = prefs;
+
+        activeCount = pinnedPonies != null ? pinnedPonies.size() : 0;
+        activePonies = new Pony[activeCount];
+        ArrayList<Pony> wired = new ArrayList<Pony>(activeCount);
+        float size = PonySize.factor(prefs);
+        for (int i = 0; i < activeCount; i++) {
+            Pony pony = pinnedPonies.get(i);
+            pony.setSizeFactor(size);
+            activePonies[i] = pony;
+            wired.add(pony);
+        }
+        wireEffectHosts(wired);
+    }
+
+    /**
+     * Hot-path Tableau slot update. {@code index} is the full active-JSON slot
+     * index; looks up the pony by {@link Pony#tableauSlotIndex} (stable across
+     * Y-sort). Dropped or cap-clipped slots are persist-only no-ops.
+     * Idempotent: unchanged norms / facing / actions do not restart the wait
+     * timer, re-roll random facing, or rewrite bags.
+     */
+    void applyTableauHotSlot(int index, PonyScenes.TableauSlot slot, Rect clip) {
+        if (slot == null || tableauJsonToLive == null) return;
+        if (index < 0) return;
+        Pony pony = findPinnedByTableauSlot(index);
+        if (pony == null) return;
+
+        boolean normsChanged = pony.pinXNorm != slot.xNorm
+                || pony.pinYNorm != slot.yNorm;
+        boolean facingChanged = !slot.facing.equals(pony.facingPolicy);
+        PonyAction[] newBag = TableauBuilder.resolveWaitBag(pony, slot.actions);
+        if (newBag == null || newBag.length == 0) return;
+        boolean actionsChanged = !sameActionBag(pony.waitBag, newBag);
+
+        if (!normsChanged && !facingChanged && !actionsChanged) return;
+
+        if (normsChanged) {
+            pony.setPinNorms(slot.xNorm, slot.yNorm);
+            pony.moveFeetToPin(clip);
+        }
+        if (facingChanged) {
+            pony.setFacingPolicy(slot.facing, PonyAction.LEFT);
+            if (Pony.FACING_LEFT.equals(slot.facing)) {
+                pony.setFacingDirection(PonyAction.LEFT);
+            } else if (Pony.FACING_RIGHT.equals(slot.facing)) {
+                pony.setFacingDirection(PonyAction.RIGHT);
+            }
+            // Switching to random: keep current direction until next setWaiting.
+        }
+        if (actionsChanged) {
+            TableauPin.pin(pony, pony.pinXNorm, pony.pinYNorm, newBag,
+                    pony.facingPolicy);
+            if (!actionInBag(pony.getCurrentAction(), newBag)) {
+                pony.changeActionKeepingWait(newBag[0]);
+            }
+        }
+        invalidateVisualStamp();
+    }
+
+    private static boolean sameActionBag(PonyAction[] a, PonyAction[] b) {
+        if (a == b) return true;
+        if (a == null || b == null || a.length != b.length) return false;
+        for (int i = 0; i < a.length; i++) {
+            if (a[i] != b[i]) return false;
+        }
+        return true;
+    }
+
+    private static boolean actionInBag(PonyAction action, PonyAction[] bag) {
+        if (action == null || bag == null) return false;
+        for (int i = 0; i < bag.length; i++) {
+            if (bag[i] == action) return true;
+        }
+        return false;
     }
 
     private void wireEffectHosts(ArrayList<Pony> ponies) {
@@ -556,9 +661,36 @@ public class Ponies implements Pony.EffectHost {
     
     private void endDrag() {
         if (draggedPony != null) {
-            draggedPony.stopDrag();
+            Pony pony = draggedPony;
+            pony.stopDrag();
             draggedPony = null;
+            persistTableauDragNorms(pony);
         }
+    }
+
+    /**
+     * After a pinned drag release, write the pony's new pin norms into the
+     * matching full-JSON slot via {@link PonyScenes#writeActiveSlotNormsHot}.
+     * Uses {@link Pony#tableauSlotIndex} so Y-sort cannot cross-wire slots.
+     */
+    private void persistTableauDragNorms(Pony pony) {
+        if (tableauPrefs == null || pony == null || !pony.isPinned()) return;
+        int jsonIndex = pony.getTableauSlotIndex();
+        if (jsonIndex < 0) return;
+        PonyScenes.writeActiveSlotNormsHot(tableauPrefs, jsonIndex,
+                pony.pinXNorm, pony.pinYNorm);
+    }
+
+    /** Live pinned pony for a full-JSON slot index, or null if clipped/absent. */
+    private Pony findPinnedByTableauSlot(int jsonIndex) {
+        for (int i = 0; i < activeCount; i++) {
+            Pony pony = activePonies[i];
+            if (pony != null && pony.isPinned()
+                    && pony.getTableauSlotIndex() == jsonIndex) {
+                return pony;
+            }
+        }
+        return null;
     }
     
     /**

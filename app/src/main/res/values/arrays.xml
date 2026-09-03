@@ -56,11 +56,13 @@
         <item>@string/pref_scene_mode_wander</item>
         <item>@string/pref_scene_mode_berry_punch</item>
         <item>@string/pref_scene_mode_my_question</item>
+        <item>@string/pref_scene_mode_tableau</item>
     </string-array>
     <string-array name="pref_scene_mode_values">
         <item>wander</item>
         <item>berry_punch</item>
         <item>my_question</item>
+        <item>tableau</item>
     </string-array>
     <!-- Built-in favorites for pref_waifu; Settings appends custom ponies at runtime. -->
     <string-array name="pref_waifu_entries">

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:custom="http://cpjsmith.uk/ponypaper/custom">
 
     <Preference
@@ -71,6 +72,13 @@
             android:entries="@array/pref_scene_mode_entries"
             android:entryValues="@array/pref_scene_mode_values"
             android:defaultValue="wander" />
+        <Preference
+            android:key="pref_screen_tableau"
+            android:title="@string/pref_screen_tableau_title"
+            android:summary="@string/pref_screen_tableau_summary"
+            android:persistent="false"
+            app:fragment="uk.cpjsmith.ponypaper.TableauPreferencesFragment"
+            app:isPreferenceVisible="false" />
     </PreferenceCategory>
 
     <PreferenceCategory

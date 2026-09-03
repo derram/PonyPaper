@@ -83,6 +83,12 @@ public class Settings extends AppCompatActivity
     /** Categories for the in-flight export SAF create-document callback; null = all. */
     private CustomStorage.ExportOptions pendingExportOptions;
 
+    /** Kind tags for library export/import category checklists. */
+    private static final int LIBRARY_KIND_PONIES = 0;
+    private static final int LIBRARY_KIND_BACKGROUND = 1;
+    private static final int LIBRARY_KIND_MIXES = 2;
+    private static final int LIBRARY_KIND_SCENES = 3;
+
     private final Runnable dreamAdminRefreshRunnable = new Runnable() {
         @Override
         public void run() {
@@ -388,8 +394,18 @@ public class Settings extends AppCompatActivity
         if (sceneMode != null) {
             sceneMode.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
                 public boolean onPreferenceChange(Preference preference, Object newValue) {
-                    refreshCharacterSizeAvailability(
-                            newValue != null ? newValue.toString() : SceneMode.WANDER);
+                    SharedPreferences sp =
+                            PreferenceManager.getDefaultSharedPreferences(Settings.this);
+                    String oldMode = SceneMode.mode(sp);
+                    String next = newValue != null ? newValue.toString() : SceneMode.WANDER;
+                    if (SceneMode.TABLEAU.equals(oldMode)
+                            && !SceneMode.TABLEAU.equals(next)) {
+                        PonyScenes.snapshotActiveToPrevious(sp);
+                    } else if (SceneMode.TABLEAU.equals(next)
+                            && !SceneMode.TABLEAU.equals(oldMode)) {
+                        PonyScenes.ensureActiveScene(sp);
+                    }
+                    refreshSceneModeDependentPrefs(next);
                     return true;
                 }
             });
@@ -406,23 +422,59 @@ public class Settings extends AppCompatActivity
         refreshSharedBackgroundControls();
         refreshDreamIdleSettings();
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
-        refreshCharacterSizeAvailability(SceneMode.mode(prefs));
+        refreshSceneModeDependentPrefs(SceneMode.mode(prefs));
     }
 
     /**
-     * Character size is unused under My ??? Pony; disable it and explain why.
+     * Scene-mode side effects on Display prefs. Character size is unused under
+     * My ??? Pony; Tableau keeps it enabled (global size) but owns population
+     * via slots + caps, so num-ponies pickers are disabled.
      * {@code mode} is the scene-mode value that will apply (may be the pending
      * preference change before SharedPreferences has stored it).
      */
-    private void refreshCharacterSizeAvailability(String mode) {
-        ListPreference size = (ListPreference) findPreference(PonySize.PREF_KEY);
-        if (size == null) return;
+    private void refreshSceneModeDependentPrefs(String mode) {
         boolean random = SceneMode.MY_QUESTION.equals(mode);
-        size.setEnabled(!random);
-        if (random) {
-            size.setSummary(R.string.pref_pony_size_randomized_summary);
-        } else {
-            size.setSummary("%s");
+        boolean tableau = SceneMode.TABLEAU.equals(mode);
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+
+        ListPreference size = (ListPreference) findPreference(PonySize.PREF_KEY);
+        if (size != null) {
+            size.setEnabled(!random);
+            if (random) {
+                size.setSummary(R.string.pref_pony_size_randomized_summary);
+            } else {
+                size.setSummary("%s");
+            }
+        }
+
+        Preference numPonies = findPreference(PonySceneController.PREF_NUM_PONIES);
+        if (numPonies != null) {
+            numPonies.setEnabled(!tableau);
+            if (tableau) {
+                numPonies.setSummary(R.string.pref_num_ponies_tableau_summary);
+            } else if (numPonies instanceof NumberPickerPreference) {
+                // Restore the numeric summary; setSummary(null) would blank it
+                // until the user next changes the value.
+                ((NumberPickerPreference) numPonies).reloadFromPersisted();
+            }
+        }
+        Preference dreamNumPonies =
+                findPreference(PonySceneController.PREF_DREAM_NUM_PONIES);
+        if (dreamNumPonies != null) {
+            // Parent dependency on pref_dream_custom_display still applies when
+            // enabled; force off while Tableau owns population.
+            dreamNumPonies.setEnabled(!tableau);
+            if (tableau) {
+                dreamNumPonies.setSummary(R.string.pref_num_ponies_tableau_summary);
+            } else if (dreamNumPonies instanceof NumberPickerPreference
+                    && prefs.contains(PonySceneController.PREF_DREAM_NUM_PONIES)) {
+                ((NumberPickerPreference) dreamNumPonies).reloadFromPersisted();
+            }
+        }
+
+        Preference editTableau = findPreference("pref_screen_tableau");
+        if (editTableau != null) {
+            editTableau.setVisible(tableau);
         }
     }
 
@@ -1893,10 +1945,12 @@ public class Settings extends AppCompatActivity
     private void showExportChooseDialog() {
         final boolean hasPonies = CustomStorage.listCustomXml(this).length > 0;
         final boolean hasBackground = CustomStorage.hasLocalBackground(this);
-        final int mixCount = PonyMixes.loadUserMixes(
-                PreferenceManager.getDefaultSharedPreferences(this)).size();
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        final int mixCount = PonyMixes.loadUserMixes(prefs).size();
         final boolean hasMixes = mixCount > 0;
-        if (!hasPonies && !hasBackground && !hasMixes) {
+        final int sceneCount = PonyScenes.loadUserScenes(prefs).size();
+        final boolean hasScenes = sceneCount > 0;
+        if (!hasPonies && !hasBackground && !hasMixes && !hasScenes) {
             showAlertDialog(getString(R.string.library_export_empty_title),
                     getString(R.string.library_export_empty_message));
             return;
@@ -1907,15 +1961,19 @@ public class Settings extends AppCompatActivity
         if (hasPonies) {
             labels.add(getString(R.string.library_export_item_ponies,
                     CustomStorage.listCustomXml(this).length));
-            kinds.add(0);
+            kinds.add(LIBRARY_KIND_PONIES);
         }
         if (hasBackground) {
             labels.add(getString(R.string.library_export_item_background));
-            kinds.add(1);
+            kinds.add(LIBRARY_KIND_BACKGROUND);
         }
         if (hasMixes) {
             labels.add(getString(R.string.library_export_item_mixes, mixCount));
-            kinds.add(2);
+            kinds.add(LIBRARY_KIND_MIXES);
+        }
+        if (hasScenes) {
+            labels.add(getString(R.string.library_export_item_scenes, sceneCount));
+            kinds.add(LIBRARY_KIND_SCENES);
         }
         final boolean[] checked = new boolean[labels.size()];
         for (int i = 0; i < checked.length; i++) checked[i] = true;
@@ -1936,14 +1994,12 @@ public class Settings extends AppCompatActivity
                 options.ponies = false;
                 options.background = false;
                 options.mixes = false;
+                options.scenes = false;
                 for (int i = 0; i < checked.length; i++) {
                     if (!checked[i]) continue;
-                    int kind = kinds.get(i);
-                    if (kind == 0) options.ponies = true;
-                    else if (kind == 1) options.background = true;
-                    else if (kind == 2) options.mixes = true;
+                    applyLibraryExportKind(options, kinds.get(i));
                 }
-                if (!options.ponies && !options.background && !options.mixes) {
+                if (!options.ponies && !options.background && !options.mixes && !options.scenes) {
                     showAlertDialog(getString(R.string.library_export_nothing_selected_title),
                             getString(R.string.library_export_nothing_selected_message));
                     return;
@@ -1992,6 +2048,7 @@ public class Settings extends AppCompatActivity
     /** Human list of categories that an export options object asked for (and that exist). */
     private String formatLibraryCategoryList(CustomStorage.ExportOptions options) {
         ArrayList<String> parts = new ArrayList<String>();
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         if (options.ponies) {
             int n = CustomStorage.listCustomXml(this).length;
             if (n > 0) {
@@ -2002,13 +2059,21 @@ public class Settings extends AppCompatActivity
             }
         }
         if (options.mixes) {
-            int n = PonyMixes.loadUserMixes(
-                    PreferenceManager.getDefaultSharedPreferences(this)).size();
+            int n = PonyMixes.loadUserMixes(prefs).size();
             if (n > 0) {
                 String mixWord = n == 1
                         ? getString(R.string.library_import_mix_one)
                         : getString(R.string.library_import_mix_many);
                 parts.add(getString(R.string.library_import_mixes, n, mixWord));
+            }
+        }
+        if (options.scenes) {
+            int n = PonyScenes.loadUserScenes(prefs).size();
+            if (n > 0) {
+                String sceneWord = n == 1
+                        ? getString(R.string.library_import_scene_one)
+                        : getString(R.string.library_import_scene_many);
+                parts.add(getString(R.string.library_import_scenes, n, sceneWord));
             }
         }
         if (options.background && CustomStorage.hasLocalBackground(this)) {
@@ -2025,7 +2090,22 @@ public class Settings extends AppCompatActivity
         if (parts.size() == 2) {
             return getString(R.string.library_import_list_two, parts.get(0), parts.get(1));
         }
-        return getString(R.string.library_import_list_three, parts.get(0), parts.get(1), parts.get(2));
+        if (parts.size() == 3) {
+            return getString(R.string.library_import_list_three,
+                    parts.get(0), parts.get(1), parts.get(2));
+        }
+        if (parts.size() == 4) {
+            return getString(R.string.library_import_list_four,
+                    parts.get(0), parts.get(1), parts.get(2), parts.get(3));
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < parts.size(); i++) {
+            if (i > 0) {
+                sb.append(i == parts.size() - 1 ? ", and " : ", ");
+            }
+            sb.append(parts.get(i));
+        }
+        return sb.toString();
     }
 
     /**
@@ -2061,18 +2141,22 @@ public class Settings extends AppCompatActivity
         final ArrayList<Integer> kinds = new ArrayList<Integer>();
         if (peek.ponyCount > 0) {
             labels.add(getString(R.string.library_import_item_ponies, peek.ponyCount));
-            kinds.add(0);
+            kinds.add(LIBRARY_KIND_PONIES);
         }
         if (peek.hasBackground) {
             boolean willReplaceBg = CustomStorage.hasLocalBackground(this);
             labels.add(willReplaceBg
                     ? getString(R.string.library_import_item_background_replace)
                     : getString(R.string.library_import_item_background));
-            kinds.add(1);
+            kinds.add(LIBRARY_KIND_BACKGROUND);
         }
         if (peek.mixCount > 0) {
             labels.add(getString(R.string.library_import_item_mixes, peek.mixCount));
-            kinds.add(2);
+            kinds.add(LIBRARY_KIND_MIXES);
+        }
+        if (peek.sceneCount > 0) {
+            labels.add(getString(R.string.library_import_item_scenes, peek.sceneCount));
+            kinds.add(LIBRARY_KIND_SCENES);
         }
         final boolean[] checked = new boolean[labels.size()];
         for (int i = 0; i < checked.length; i++) checked[i] = true;
@@ -2094,14 +2178,12 @@ public class Settings extends AppCompatActivity
                 options.ponies = false;
                 options.background = false;
                 options.mixes = false;
+                options.scenes = false;
                 for (int i = 0; i < checked.length; i++) {
                     if (!checked[i]) continue;
-                    int kind = kinds.get(i);
-                    if (kind == 0) options.ponies = true;
-                    else if (kind == 1) options.background = true;
-                    else if (kind == 2) options.mixes = true;
+                    applyLibraryImportKind(options, kinds.get(i));
                 }
-                if (!options.ponies && !options.background && !options.mixes) {
+                if (!options.ponies && !options.background && !options.mixes && !options.scenes) {
                     showAlertDialog(getString(R.string.library_import_nothing_selected_title),
                             getString(R.string.library_import_nothing_selected_message));
                     return;
@@ -2111,6 +2193,20 @@ public class Settings extends AppCompatActivity
         });
         builder.setNegativeButton(R.string.dialog_cancel, null);
         builder.create().show();
+    }
+
+    private static void applyLibraryExportKind(CustomStorage.ExportOptions options, int kind) {
+        if (kind == LIBRARY_KIND_PONIES) options.ponies = true;
+        else if (kind == LIBRARY_KIND_BACKGROUND) options.background = true;
+        else if (kind == LIBRARY_KIND_MIXES) options.mixes = true;
+        else if (kind == LIBRARY_KIND_SCENES) options.scenes = true;
+    }
+
+    private static void applyLibraryImportKind(CustomStorage.ImportOptions options, int kind) {
+        if (kind == LIBRARY_KIND_PONIES) options.ponies = true;
+        else if (kind == LIBRARY_KIND_BACKGROUND) options.background = true;
+        else if (kind == LIBRARY_KIND_MIXES) options.mixes = true;
+        else if (kind == LIBRARY_KIND_SCENES) options.scenes = true;
     }
 
     private void runImportLibraryZip(final Uri source, final CustomStorage.ImportOptions options) {
@@ -2154,10 +2250,20 @@ public class Settings extends AppCompatActivity
             return;
         }
         int mixCount = result.mixesAdded + result.mixesReplaced;
-        int skippedCount = result.skipped + result.mixesSkipped;
-        if (result.poniesAdded == 0 && !result.backgroundImported && mixCount == 0) {
+        int sceneCount = result.scenesAdded + result.scenesReplaced;
+        int skippedCount = result.skipped + result.mixesSkipped + result.scenesSkipped;
+        if (result.poniesAdded == 0 && !result.backgroundImported
+                && mixCount == 0 && sceneCount == 0) {
+            if (skippedCount <= 0) {
+                showAlertDialog(getString(R.string.library_import_ok_title),
+                        getString(R.string.library_import_nothing));
+                return;
+            }
+            // Cap-full / invalid entries: peek found content, but nothing was kept.
             showAlertDialog(getString(R.string.library_import_ok_title),
-                    getString(R.string.library_import_nothing));
+                    getString(R.string.library_import_ok_message,
+                            getString(R.string.library_import_none_kept),
+                            getString(R.string.library_import_skipped, skippedCount)));
             return;
         }
         ArrayList<String> parts = new ArrayList<String>();
@@ -2172,6 +2278,12 @@ public class Settings extends AppCompatActivity
                     ? getString(R.string.library_import_mix_one)
                     : getString(R.string.library_import_mix_many);
             parts.add(getString(R.string.library_import_mixes, mixCount, mixWord));
+        }
+        if (sceneCount > 0) {
+            String sceneWord = sceneCount == 1
+                    ? getString(R.string.library_import_scene_one)
+                    : getString(R.string.library_import_scene_many);
+            parts.add(getString(R.string.library_import_scenes, sceneCount, sceneWord));
         }
         if (result.backgroundImported) {
             parts.add(getString(R.string.library_import_background));
