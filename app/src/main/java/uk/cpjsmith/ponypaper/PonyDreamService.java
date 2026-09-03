@@ -1313,7 +1313,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         for (int i = 0; i < groups.length; i++) {
             final AllPonies.StockGroup group = groups[i];
             String label = getString(R.string.pref_load_mix_stock_item, getString(group.titleRes));
-            addMixRow(label, null, new View.OnClickListener() {
+            addMixRow(label, getString(R.string.pref_load_mix_stock_summary),
+                    new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     onStockMixPicked(group);

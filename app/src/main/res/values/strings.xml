@@ -11,7 +11,7 @@
     <string name="pref_herd_summary_live_placeholder">Counting ponies…</string>
     <string name="pref_herd_summary_live">%1$d built-in, %2$d custom on</string>
     <string name="pref_herd_summary_named">\"%1$s\" — %2$d built-in, %3$d custom on</string>
-    <string name="pref_herd_summary_stock">%1$s (built-in only) — %2$d built-in, %3$d custom on</string>
+    <string name="pref_herd_summary_stock">%1$s — %2$d built-in, %3$d custom on</string>
     <string name="pref_screen_builtin_title">Built-in ponies</string>
     <string name="pref_screen_builtin_summary_placeholder">Built-in character list</string>
     <string name="pref_screen_builtin_summary">%1$d of %2$d on</string>
@@ -34,10 +34,11 @@
     <string name="pref_save_mix_ok_title">Mix saved</string>
     <string name="pref_save_mix_ok_message">Saved \"%1$s\" (%2$d built-in, %3$d custom).</string>
     <string name="pref_load_mix_title">Load mix</string>
-    <string name="pref_load_mix_summary">Replace the herd with a saved mix or a built-in group, or return to the previous herd</string>
+    <string name="pref_load_mix_summary">Load a saved mix or previous herd, or apply a built-in group without changing custom ponies</string>
     <string name="pref_load_mix_previous_item">Previous herd — %1$d built-in, %2$d custom</string>
     <string name="pref_load_mix_previous_name">Previous herd</string>
-    <string name="pref_load_mix_stock_item">%1$s (built-in only)</string>
+    <string name="pref_load_mix_stock_item">%1$s — built-in group</string>
+    <string name="pref_load_mix_stock_summary">Custom ponies stay as they are</string>
     <string name="pref_load_mix_user_item">%1$s — %2$d built-in, %3$d custom</string>
     <string name="pref_load_mix_delete_item">Delete a saved mix…</string>
     <string name="pref_load_mix_delete_title">Delete mix</string>
