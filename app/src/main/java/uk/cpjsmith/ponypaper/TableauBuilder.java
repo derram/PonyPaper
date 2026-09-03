@@ -173,9 +173,10 @@ final class TableauBuilder {
 
     /**
      * Resolve wait-bag action ids through {@link AllPonies#buildActionCatalog}.
-     * Unknown / empty lists fall back to preferred stand (then first selectable);
-     * if the catalog is empty, {@code allActions[0]}. De-dupes and caps at
-     * {@link PonyScenes#MAX_ACTIONS_PER_SLOT}.
+     * Unknown and non-selectable ids are skipped. Empty results fall back to
+     * preferred stand (then first selectable); if nothing selectable remains,
+     * returns null so {@link #tryResolveSlot} drops the slot. De-dupes and caps
+     * at {@link PonyScenes#MAX_ACTIONS_PER_SLOT}.
      */
     static PonyAction[] resolveWaitBag(Pony pony, String[] actionIds) {
         if (pony == null) return null;
@@ -183,50 +184,24 @@ final class TableauBuilder {
         ArrayList<PonyAction> matched = new ArrayList<PonyAction>(
                 PonyScenes.MAX_ACTIONS_PER_SLOT);
         HashSetByIdentity seen = new HashSetByIdentity();
-        if (actionIds != null && catalog != null) {
+        if (actionIds != null) {
             for (int i = 0; i < actionIds.length
                     && matched.size() < PonyScenes.MAX_ACTIONS_PER_SLOT; i++) {
                 String id = actionIds[i];
                 if (id == null || id.length() == 0) continue;
+                // Only selectable catalog ids (drops drag / teleport / unknown).
+                if (!catalog.selectableIds.contains(id)) continue;
                 PonyAction action = catalog.byId.get(id);
-                if (action == null) {
-                    action = findActionById(pony, id);
-                }
                 if (action == null) continue;
                 if (seen.add(action)) matched.add(action);
             }
         }
         if (matched.isEmpty()) {
             PonyAction preferred = AllPonies.preferredDefaultAction(catalog);
-            if (preferred != null) {
-                return new PonyAction[] { preferred };
-            }
-            PonyAction[] all = pony.getAllActions();
-            if (all == null || all.length == 0) return null;
-            return new PonyAction[] { all[0] };
+            if (preferred == null) return null;
+            return new PonyAction[] { preferred };
         }
         return matched.toArray(new PonyAction[matched.size()]);
-    }
-
-    /**
-     * Match a stable action id on the pony's action list, preferring the
-     * sprite-owning instance when gait aliases share the same id.
-     */
-    static PonyAction findActionById(Pony pony, String actionId) {
-        if (pony == null || actionId == null || actionId.length() == 0) {
-            return null;
-        }
-        PonyAction[] all = pony.getAllActions();
-        if (all == null) return null;
-        PonyAction aliasHit = null;
-        for (int i = 0; i < all.length; i++) {
-            PonyAction action = all[i];
-            if (action == null) continue;
-            if (!actionId.equals(action.actionId())) continue;
-            if (!action.isAlias()) return action;
-            if (aliasHit == null) aliasHit = action;
-        }
-        return aliasHit;
     }
 
     /** Identity set without allocating HashSet&lt;PonyAction&gt; wrappers heavily. */

@@ -1,6 +1,11 @@
 package uk.cpjsmith.ponypaper;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Stable semantic stems for built-in pony actions. Catalog / scene JSON use
@@ -77,6 +82,18 @@ final class BuiltInActionIds {
     }
 
     /**
+     * Every built-in pref key (prefix table + Twilight). Canonical set for
+     * {@link #isBuiltInKey} / factory sync checks.
+     */
+    static List<String> allKeys() {
+        ArrayList<String> keys = new ArrayList<String>(SIMPLE_PREFIX.size() + 1);
+        keys.add("pref_ts");
+        keys.addAll(SIMPLE_PREFIX.keySet());
+        Collections.sort(keys);
+        return keys;
+    }
+
+    /**
      * Maps a resource entry stem (e.g. {@code lyra_sit}, {@code pts_stand}) to
      * the stable action id stored on the sprite-owning {@link PonyAction}.
      */
@@ -115,16 +132,24 @@ final class BuiltInActionIds {
         return false;
     }
 
-    /** Built-in stems never offered in the Tableau action multi-choice. */
+    /**
+     * Stems never offered in the Tableau action multi-choice: bare
+     * {@code drag}/{@code teleport*} and remapped forms ({@code unicorn_drag},
+     * {@code alicorn_teleportout}, …).
+     */
     static boolean isExcludedSelectableStem(String actionId) {
+        if (actionId == null || actionId.length() == 0) return false;
         return "drag".equals(actionId)
                 || "teleportout".equals(actionId)
-                || "teleportin".equals(actionId);
+                || "teleportin".equals(actionId)
+                || actionId.endsWith("_drag")
+                || actionId.endsWith("_teleportout")
+                || actionId.endsWith("_teleportin");
     }
 
     /**
-     * Golden checks for stem remap and mover classification. Returns null when
-     * all assertions pass; otherwise a short failure description.
+     * Golden checks for stem remap, mover classification, and exclusions.
+     * Returns null when all assertions pass; otherwise a short failure description.
      */
     static String selfCheck() {
         if (!"sit".equals(stem("pref_lyra", "lyra_sit"))) {
@@ -133,20 +158,49 @@ final class BuiltInActionIds {
         if (!"stand".equals(stem("pref_aj", "aj_stand"))) {
             return "aj_stand→stand";
         }
+        if (!"stand".equals(stem("pref_sunburst", "sunburst_stand"))
+                || !"trot".equals(stem("pref_sunburst", "sunburst_trot"))) {
+            return "sunburst stand/trot";
+        }
         if (!"cape_stand".equals(stem("pref_sunburst", "sunburst_cape_stand"))) {
             return "sunburst_cape_stand→cape_stand";
         }
         if (!"cape_trot".equals(stem("pref_sunburst", "sunburst_cape_trot"))) {
             return "sunburst_cape_trot→cape_trot";
         }
-        if (!"alicorn_stand".equals(stem("pref_ts", "pts_stand"))) {
-            return "pts_stand→alicorn_stand";
+        // Twilight full dual-sheet set.
+        if (!"alicorn_stand".equals(stem("pref_ts", "pts_stand"))
+                || !"alicorn_trot".equals(stem("pref_ts", "pts_trot"))
+                || !"alicorn_fly".equals(stem("pref_ts", "pts_fly"))
+                || !"alicorn_teleportout".equals(stem("pref_ts", "pts_teleportout"))
+                || !"alicorn_teleportin".equals(stem("pref_ts", "pts_teleportin"))) {
+            return "pts_* remap";
         }
-        if (!"unicorn_trot".equals(stem("pref_ts", "ts_trot"))) {
-            return "ts_trot→unicorn_trot";
+        if (!"unicorn_stand".equals(stem("pref_ts", "ts_stand"))
+                || !"unicorn_trot".equals(stem("pref_ts", "ts_trot"))
+                || !"unicorn_teleportout".equals(stem("pref_ts", "ts_teleportout"))
+                || !"unicorn_teleportin".equals(stem("pref_ts", "ts_teleportin"))
+                || !"unicorn_drag".equals(stem("pref_ts", "ts_drag"))) {
+            return "ts_* remap";
         }
-        if (!"unicorn_drag".equals(stem("pref_ts", "ts_drag"))) {
-            return "ts_drag→unicorn_drag";
+        // Sunset teleports.
+        if (!"teleportout".equals(stem("pref_ss", "ss_teleportout"))
+                || !"teleportin".equals(stem("pref_ss", "ss_teleportin"))) {
+            return "ss teleport stems";
+        }
+        // Vinyl / Berry / Derpy samples.
+        if (!"dance".equals(stem("pref_vinyl", "vinyl_dance"))
+                || !"moonwalk".equals(stem("pref_vinyl", "vinyl_moonwalk"))) {
+            return "vinyl stems";
+        }
+        if (!"standdrunk".equals(stem("pref_bp", "bp_standdrunk"))
+                || !"trotdrunk".equals(stem("pref_bp", "bp_trotdrunk"))) {
+            return "berry stems";
+        }
+        if (!"hover".equals(stem("pref_derpy", "derpy_hover"))
+                || !"hoverud".equals(stem("pref_derpy", "derpy_hoverud"))
+                || !"flyud".equals(stem("pref_derpy", "derpy_flyud"))) {
+            return "derpy stems";
         }
         if (!isInPlaceMover("trot") || !isInPlaceMover("walk")
                 || !isInPlaceMover("fly") || !isInPlaceMover("flyud")
@@ -166,13 +220,33 @@ final class BuiltInActionIds {
         }
         if (!isExcludedSelectableStem("drag")
                 || !isExcludedSelectableStem("teleportout")
-                || !isExcludedSelectableStem("teleportin")) {
+                || !isExcludedSelectableStem("teleportin")
+                || !isExcludedSelectableStem("unicorn_drag")
+                || !isExcludedSelectableStem("alicorn_teleportout")
+                || !isExcludedSelectableStem("alicorn_teleportin")
+                || !isExcludedSelectableStem("unicorn_teleportout")) {
             return "exclusion stems";
         }
         if (!isBuiltInKey("pref_ts") || !isBuiltInKey("pref_sunburst")
                 || isBuiltInKey("pref_custom_foo.xml")) {
             return "isBuiltInKey";
         }
+        if (allKeys().size() != SIMPLE_PREFIX.size() + 1) {
+            return "allKeys size";
+        }
         return null;
+    }
+
+    /**
+     * Assert {@code otherKeys} is exactly the built-in key set. Returns null on
+     * match; otherwise a short mismatch description.
+     */
+    static String selfCheckKeySetEquals(List<String> otherKeys, String label) {
+        if (otherKeys == null) return label + " null";
+        Set<String> expected = new HashSet<String>(allKeys());
+        Set<String> actual = new HashSet<String>(otherKeys);
+        if (expected.equals(actual)) return null;
+        return label + " key mismatch (expected " + expected.size()
+                + ", got " + actual.size() + ")";
     }
 }

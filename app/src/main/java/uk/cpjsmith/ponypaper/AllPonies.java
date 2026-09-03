@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import javax.xml.parsers.DocumentBuilder;
 import org.w3c.dom.Document;
 
@@ -118,8 +119,8 @@ public class AllPonies {
     }
 
     /**
-     * Sprite-owning actions keyed by stable id, plus idle / in-place / selectable
-     * lists for the Tableau editor. {@code null} when the pony cannot be created.
+     * Actions keyed by stable id, plus idle / in-place / selectable lists for
+     * the Tableau editor. {@code null} when the pony cannot be created.
      */
     public static ActionCatalog actionCatalog(Context context, String ponyKey) {
         Pony pony = createPony(context, ponyKey);
@@ -128,10 +129,12 @@ public class AllPonies {
     }
 
     /**
-     * Catalog of selectable poses for one pony. Speed aliases share an id with
-     * their sprite owner and are not listed separately.
+     * Catalog of poses for one pony. Speed aliases share an id with their
+     * sprite owner and are not listed separately; named custom
+     * {@code spritesfrom} aliases keep distinct XML ids.
      */
     public static final class ActionCatalog {
+        /** Id'd actions; sprite owner preferred when ids collide. */
         public final Map<String, PonyAction> byId;
         /** Idle-oriented poses (stand, sit, hover, …). */
         public final List<String> idlePoseIds;
@@ -149,7 +152,11 @@ public class AllPonies {
         }
     }
 
-    /** Build catalog from an already-constructed pony (sprite owners only). */
+    /**
+     * Build catalog from an already-constructed pony. Id'd actions only;
+     * sprite owner preferred when ids collide; named custom aliases are
+     * distinct entries.
+     */
     static ActionCatalog buildActionCatalog(Pony pony) {
         LinkedHashMap<String, PonyAction> byId = new LinkedHashMap<String, PonyAction>();
         if (pony == null) {
@@ -201,14 +208,7 @@ public class AllPonies {
 
     private static boolean isSelectableCatalogAction(PonyAction action, String id) {
         if (action.type != PonyAction.NORMAL) return false;
-        if (BuiltInActionIds.isExcludedSelectableStem(id)) return false;
-        // Twilight dual-sheet teleports / drag use remapped stems; still exclude
-        // when the bare stem matches, and type already drops PORT_*/SCREEN_*.
-        if (id.endsWith("_drag") || id.endsWith("_teleportout")
-                || id.endsWith("_teleportin")) {
-            return false;
-        }
-        return true;
+        return !BuiltInActionIds.isExcludedSelectableStem(id);
     }
 
     /**
@@ -227,49 +227,84 @@ public class AllPonies {
         return catalog.byId.get(first);
     }
 
+    /**
+     * Single factory table for built-ins — kept in sync with
+     * {@link BuiltInActionIds#allKeys()} and {@link #stockGroups()} via
+     * {@link #selfCheck()}.
+     */
+    private static final Map<String, Function<Resources, Pony>> BUILTIN_BY_KEY;
+
+    static {
+        HashMap<String, Function<Resources, Pony>> m =
+                new HashMap<String, Function<Resources, Pony>>();
+        m.put("pref_ab", AllPonies::makeAppleBloom);
+        m.put("pref_aj", AllPonies::makeApplejack);
+        m.put("pref_babs", AllPonies::makeBabsSeed);
+        m.put("pref_bp", AllPonies::makeBerryPunch);
+        m.put("pref_bigmac", AllPonies::makeBigMcIntosh);
+        m.put("pref_derpy", AllPonies::makeDerpyHooves);
+        m.put("pref_doctor", AllPonies::makeDoctorHooves);
+        m.put("pref_ember", AllPonies::makeEmber);
+        m.put("pref_fs", AllPonies::makeFluttershy);
+        m.put("pref_gallus", AllPonies::makeGallus);
+        m.put("pref_gilda", AllPonies::makeGilda);
+        m.put("pref_lyra", AllPonies::makeLyraHeartstrings);
+        m.put("pref_minuette", AllPonies::makeMinuette);
+        m.put("pref_ocellus", AllPonies::makeOcellus);
+        m.put("pref_octavia", AllPonies::makeOctavia);
+        m.put("pref_pp", AllPonies::makePinkiePie);
+        m.put("pref_cadance", AllPonies::makePrincessCadance);
+        m.put("pref_celestia", AllPonies::makePrincessCelestia);
+        m.put("pref_luna", AllPonies::makePrincessLuna);
+        m.put("pref_rd", AllPonies::makeRainbowDash);
+        m.put("pref_rainbowshine", AllPonies::makeRainbowshine);
+        m.put("pref_rarity", AllPonies::makeRarity);
+        m.put("pref_roseluck", AllPonies::makeRoseluck);
+        m.put("pref_sandbar", AllPonies::makeSandbar);
+        m.put("pref_scootaloo", AllPonies::makeScootaloo);
+        m.put("pref_sa", AllPonies::makeShiningArmor);
+        m.put("pref_silverstream", AllPonies::makeSilverstream);
+        m.put("pref_smolder", AllPonies::makeSmolder);
+        m.put("pref_soarin", AllPonies::makeSoarin);
+        m.put("pref_spike", AllPonies::makeSpike);
+        m.put("pref_spitfire", AllPonies::makeSpitfire);
+        m.put("pref_sg", AllPonies::makeStarlightGlimmer);
+        m.put("pref_ss", AllPonies::makeSunsetShimmer);
+        m.put("pref_sunburst", AllPonies::makeSunburst);
+        m.put("pref_sb", AllPonies::makeSweetieBelle);
+        m.put("pref_sd", AllPonies::makeSweetieDrops);
+        m.put("pref_thorax", AllPonies::makeThorax);
+        m.put("pref_trixie", AllPonies::makeTrixie);
+        m.put("pref_ts", AllPonies::makeTwilightSparkle);
+        m.put("pref_vinyl", AllPonies::makeVinylScratch);
+        m.put("pref_yona", AllPonies::makeYona);
+        m.put("pref_zecora", AllPonies::makeZecora);
+        BUILTIN_BY_KEY = Collections.unmodifiableMap(m);
+        if (BuildConfig.DEBUG) {
+            String fail = selfCheck();
+            if (fail != null) {
+                throw new AssertionError("AllPonies.selfCheck: " + fail);
+            }
+        }
+    }
+
     private static Pony makeBuiltIn(Resources res, String ponyKey) {
-        if ("pref_ab".equals(ponyKey)) return makeAppleBloom(res);
-        if ("pref_aj".equals(ponyKey)) return makeApplejack(res);
-        if ("pref_babs".equals(ponyKey)) return makeBabsSeed(res);
-        if ("pref_bp".equals(ponyKey)) return makeBerryPunch(res);
-        if ("pref_bigmac".equals(ponyKey)) return makeBigMcIntosh(res);
-        if ("pref_derpy".equals(ponyKey)) return makeDerpyHooves(res);
-        if ("pref_doctor".equals(ponyKey)) return makeDoctorHooves(res);
-        if ("pref_ember".equals(ponyKey)) return makeEmber(res);
-        if ("pref_fs".equals(ponyKey)) return makeFluttershy(res);
-        if ("pref_gallus".equals(ponyKey)) return makeGallus(res);
-        if ("pref_gilda".equals(ponyKey)) return makeGilda(res);
-        if ("pref_lyra".equals(ponyKey)) return makeLyraHeartstrings(res);
-        if ("pref_minuette".equals(ponyKey)) return makeMinuette(res);
-        if ("pref_ocellus".equals(ponyKey)) return makeOcellus(res);
-        if ("pref_octavia".equals(ponyKey)) return makeOctavia(res);
-        if ("pref_pp".equals(ponyKey)) return makePinkiePie(res);
-        if ("pref_cadance".equals(ponyKey)) return makePrincessCadance(res);
-        if ("pref_celestia".equals(ponyKey)) return makePrincessCelestia(res);
-        if ("pref_luna".equals(ponyKey)) return makePrincessLuna(res);
-        if ("pref_rd".equals(ponyKey)) return makeRainbowDash(res);
-        if ("pref_rainbowshine".equals(ponyKey)) return makeRainbowshine(res);
-        if ("pref_rarity".equals(ponyKey)) return makeRarity(res);
-        if ("pref_roseluck".equals(ponyKey)) return makeRoseluck(res);
-        if ("pref_sandbar".equals(ponyKey)) return makeSandbar(res);
-        if ("pref_scootaloo".equals(ponyKey)) return makeScootaloo(res);
-        if ("pref_sa".equals(ponyKey)) return makeShiningArmor(res);
-        if ("pref_silverstream".equals(ponyKey)) return makeSilverstream(res);
-        if ("pref_smolder".equals(ponyKey)) return makeSmolder(res);
-        if ("pref_soarin".equals(ponyKey)) return makeSoarin(res);
-        if ("pref_spike".equals(ponyKey)) return makeSpike(res);
-        if ("pref_spitfire".equals(ponyKey)) return makeSpitfire(res);
-        if ("pref_sg".equals(ponyKey)) return makeStarlightGlimmer(res);
-        if ("pref_ss".equals(ponyKey)) return makeSunsetShimmer(res);
-        if ("pref_sunburst".equals(ponyKey)) return makeSunburst(res);
-        if ("pref_sb".equals(ponyKey)) return makeSweetieBelle(res);
-        if ("pref_sd".equals(ponyKey)) return makeSweetieDrops(res);
-        if ("pref_thorax".equals(ponyKey)) return makeThorax(res);
-        if ("pref_trixie".equals(ponyKey)) return makeTrixie(res);
-        if ("pref_ts".equals(ponyKey)) return makeTwilightSparkle(res);
-        if ("pref_vinyl".equals(ponyKey)) return makeVinylScratch(res);
-        if ("pref_yona".equals(ponyKey)) return makeYona(res);
-        if ("pref_zecora".equals(ponyKey)) return makeZecora(res);
+        Function<Resources, Pony> maker = BUILTIN_BY_KEY.get(ponyKey);
+        return maker != null ? maker.apply(res) : null;
+    }
+
+    /**
+     * Stem / mover goldens plus factory ↔ prefix ↔ stockGroups key sync.
+     * Invoked from the debug static initializer so mismatches fail closed.
+     */
+    static String selfCheck() {
+        String fail = BuiltInActionIds.selfCheck();
+        if (fail != null) return fail;
+        fail = BuiltInActionIds.selfCheckKeySetEquals(
+                new ArrayList<String>(BUILTIN_BY_KEY.keySet()), "factory");
+        if (fail != null) return fail;
+        fail = BuiltInActionIds.selfCheckKeySetEquals(builtInPrefKeys(), "stockGroups");
+        if (fail != null) return fail;
         return null;
     }
 
