@@ -49,6 +49,8 @@ public class Ponies implements Pony.EffectHost {
      * Null for wander herds.
      */
     private final int[] tableauJsonToLive;
+    /** Tableau only: prefs for hot-writing slot norms after drag; null for wander. */
+    private final SharedPreferences tableauPrefs;
     private final Rect clipBounds = new Rect();
     private final Rect spriteSrc = new Rect();
     private final Rect spriteDst = new Rect();
@@ -145,6 +147,7 @@ public class Ponies implements Pony.EffectHost {
         String rawWaifu = prefs.getString("pref_waifu", "");
         waifuKey = rawWaifu != null ? rawWaifu : "";
         tableauJsonToLive = null;
+        tableauPrefs = null;
 
         if (desiredCount < 0) desiredCount = 0;
         activeCount = Math.min(inactivePonies.size(), desiredCount);
@@ -177,6 +180,7 @@ public class Ponies implements Pony.EffectHost {
         inactivePonies = new ArrayList<Pony>();
         random = new Random();
         tableauJsonToLive = jsonToLive;
+        tableauPrefs = prefs;
 
         activeCount = pinnedPonies != null ? pinnedPonies.size() : 0;
         activePonies = new Pony[activeCount];
@@ -658,9 +662,33 @@ public class Ponies implements Pony.EffectHost {
     
     private void endDrag() {
         if (draggedPony != null) {
-            draggedPony.stopDrag();
+            Pony pony = draggedPony;
+            pony.stopDrag();
             draggedPony = null;
+            persistTableauDragNorms(pony);
         }
+    }
+
+    /**
+     * After a pinned drag release, write the pony's new pin norms into the
+     * matching full-JSON slot via {@link PonyScenes#writeActiveSlotNormsHot}.
+     */
+    private void persistTableauDragNorms(Pony pony) {
+        if (tableauJsonToLive == null || tableauPrefs == null || pony == null
+                || !pony.isPinned()) {
+            return;
+        }
+        int jsonIndex = -1;
+        for (int j = 0; j < tableauJsonToLive.length; j++) {
+            int live = tableauJsonToLive[j];
+            if (live >= 0 && live < activeCount && activePonies[live] == pony) {
+                jsonIndex = j;
+                break;
+            }
+        }
+        if (jsonIndex < 0) return;
+        PonyScenes.writeActiveSlotNormsHot(tableauPrefs, jsonIndex,
+                pony.pinXNorm, pony.pinYNorm);
     }
     
     /**

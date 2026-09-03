@@ -340,6 +340,24 @@ final class PonyScenes {
                 .commit();
     }
 
+    /**
+     * Hot path: update one active slot's xNorm/yNorm only (no epoch bump).
+     * No-op when the index is missing or norms are already equal after clamp.
+     */
+    static void writeActiveSlotNormsHot(SharedPreferences prefs, int index,
+            float xNorm, float yNorm) {
+        if (prefs == null || index < 0) return;
+        TableauScene scene = loadActiveScene(prefs);
+        if (scene == null || index >= scene.slots.size()) return;
+        TableauSlot old = scene.slots.get(index);
+        TableauSlot updated = new TableauSlot(old.ponyKey, xNorm, yNorm,
+                old.actions, old.facing);
+        if (old.sameHot(updated)) return;
+        ArrayList<TableauSlot> slots = new ArrayList<TableauSlot>(scene.slots);
+        slots.set(index, updated);
+        writeActiveHot(prefs, new TableauScene(scene.id, scene.name, slots));
+    }
+
     static String encode(List<TableauScene> scenes) {
         JSONObject root = new JSONObject();
         JSONArray arr = new JSONArray();

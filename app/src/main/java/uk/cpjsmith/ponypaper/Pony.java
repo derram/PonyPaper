@@ -379,6 +379,26 @@ public class Pony {
             posX = pinnedFeetX();
             posY = pinnedFeetY();
         }
+        resumePinnedWaiting();
+    }
+
+    /**
+     * Write current feet into pin norms (clamped 0..1) and resume waiting in
+     * place — no snap-back, no leave. Used by Tableau drag-nudge on release.
+     */
+    private void commitDraggedPin() {
+        if (screenBounds != null && screenBounds.width() > 0
+                && screenBounds.height() > 0) {
+            pinXNorm = clamp01(
+                    (posX - screenBounds.left) / screenBounds.width());
+            pinYNorm = clamp01(
+                    (posY - screenBounds.top) / screenBounds.height());
+        }
+        resumePinnedWaiting();
+    }
+
+    /** Locked facing restored; random keeps current. Skips wait-cycle re-roll. */
+    private void resumePinnedWaiting() {
         if (isFacingLocked()) {
             setFacingDirection(lockedDirection);
         }
@@ -388,6 +408,12 @@ public class Pony {
         travelY = 0;
         waitTimerMs = WAIT_MIN_MS + random.nextInt(WAIT_EXTRA_MS);
         setWaiting(false);
+    }
+
+    private static float clamp01(float v) {
+        if (v < 0f) return 0f;
+        if (v > 1f) return 1f;
+        return v;
     }
     
     /**
@@ -785,11 +811,11 @@ public class Pony {
      * Brings the pony back out of the dragged state. If the pony has been
      * dragged to the edge of the screen, it will immediately walk (fly, etc.)
      * off screen. Otherwise it will resume normal behaviour.
-     * Pinned ponies always snap back to their slot feet.
+     * Pinned ponies keep the dragged feet as the new pin (no leave).
      */
     public void stopDrag() {
         if (pinned) {
-            snapBackToPin();
+            commitDraggedPin();
             return;
         }
         int s = (int)(30 * getScale());
