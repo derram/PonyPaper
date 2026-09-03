@@ -471,6 +471,11 @@ public class Settings extends AppCompatActivity
                 ((NumberPickerPreference) dreamNumPonies).reloadFromPersisted();
             }
         }
+
+        Preference editTableau = findPreference("pref_screen_tableau");
+        if (editTableau != null) {
+            editTableau.setVisible(tableau);
+        }
     }
 
     void bindPoniesPreferences(PreferenceFragmentCompat fragment) {

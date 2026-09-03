@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <Preference
+        android:key="pref_tableau_summary"
+        android:title="@string/pref_tableau_summary_title"
+        android:summary="@string/pref_tableau_summary_placeholder"
+        android:selectable="false"
+        android:persistent="false" />
+
+    <Preference
+        android:key="pref_tableau_herd_banner"
+        android:title="@string/pref_tableau_herd_banner_title"
+        android:summary="@string/pref_tableau_herd_banner_summary"
+        android:selectable="false"
+        android:persistent="false" />
+
+    <PreferenceCategory
+        android:key="pref_tableau_library_category"
+        android:title="@string/pref_tableau_library_category">
+        <Preference
+            android:key="pref_tableau_load"
+            android:title="@string/pref_tableau_load_title"
+            android:summary="@string/pref_tableau_load_summary"
+            android:persistent="false" />
+        <Preference
+            android:key="pref_tableau_save"
+            android:title="@string/pref_tableau_save_title"
+            android:summary="@string/pref_tableau_save_summary"
+            android:persistent="false" />
+        <Preference
+            android:key="pref_tableau_save_as"
+            android:title="@string/pref_tableau_save_as_title"
+            android:summary="@string/pref_tableau_save_as_summary"
+            android:persistent="false" />
+        <Preference
+            android:key="pref_tableau_delete"
+            android:title="@string/pref_tableau_delete_title"
+            android:summary="@string/pref_tableau_delete_summary"
+            android:persistent="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="pref_tableau_slots_category"
+        android:title="@string/pref_tableau_slots_category">
+        <Preference
+            android:key="pref_tableau_add_slot"
+            android:title="@string/pref_tableau_add_slot_title"
+            android:summary="@string/pref_tableau_add_slot_summary"
+            android:persistent="false" />
+    </PreferenceCategory>
+
+</PreferenceScreen>

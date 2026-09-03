@@ -1,7 +1,11 @@
 package uk.cpjsmith.ponypaper;
 
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.os.BatteryManager;
+import android.os.PowerManager;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -59,6 +63,32 @@ final class TableauBuilder {
             cap = Math.min(cap, PonySceneController.THERMAL_MODERATE_MAX_PONIES);
         }
         return cap;
+    }
+
+    /**
+     * Best-effort cap for Settings UI dimming. Uses power-save / on-battery
+     * prefs; software-canvas and thermal state are unknown here so left off.
+     */
+    static int estimateCapForSettings(Context context, SharedPreferences prefs) {
+        if (context == null || prefs == null) return MAX_SLOTS;
+        boolean powerSave = false;
+        PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        if (pm != null) powerSave = pm.isPowerSaveMode();
+        boolean batterySaverLimits = powerSave
+                && prefs.getBoolean(PonySceneController.PREF_RESPECT_BATTERY_SAVER, true);
+        boolean onBattery = true;
+        try {
+            Intent status = context.registerReceiver(null,
+                    new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (status != null) {
+                int plugged = status.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0);
+                onBattery = plugged == 0;
+            }
+        } catch (Exception ignored) {
+        }
+        boolean defaultPoniesOnBattery = onBattery
+                && prefs.getBoolean(PonySceneController.PREF_BATTERY_DEFAULT_PONIES, false);
+        return getTableauCap(batterySaverLimits, defaultPoniesOnBattery, false, false);
     }
 
     /**
