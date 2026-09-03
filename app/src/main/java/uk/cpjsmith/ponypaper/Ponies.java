@@ -13,6 +13,7 @@ import android.view.ViewConfiguration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Random;
 
 /**
@@ -150,6 +151,56 @@ public class Ponies implements Pony.EffectHost {
         for (int i = 0; i < activeCount; i++) {
             activePonies[i] = takeFromInactive();
         }
+    }
+
+    /**
+     * Active-only Tableau herd: every list member is on-screen; the inactive
+     * pool is empty so gone-off-screen cannot swap in a replacement.
+     *
+     * @param context      used for touch slop
+     * @param pinnedPonies already-pinned ponies (document order)
+     * @param prefs        size and related prefs
+     */
+    public Ponies(Context context, List<Pony> pinnedPonies, SharedPreferences prefs) {
+        touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+        randomSizeMode = false;
+        waifuKey = "";
+        inactivePonies = new ArrayList<Pony>();
+        random = new Random();
+
+        activeCount = pinnedPonies != null ? pinnedPonies.size() : 0;
+        activePonies = new Pony[activeCount];
+        ArrayList<Pony> wired = new ArrayList<Pony>(activeCount);
+        float size = PonySize.factor(prefs);
+        for (int i = 0; i < activeCount; i++) {
+            Pony pony = pinnedPonies.get(i);
+            pony.setSizeFactor(size);
+            activePonies[i] = pony;
+            wired.add(pony);
+        }
+        wireEffectHosts(wired);
+    }
+
+    /**
+     * Hardcoded 3-pony lower-third demo for Tableau runtime verification.
+     * PR2's {@code TableauBuilder} replaces this entry point.
+     */
+    static Ponies createTableauDemo(Context context, SharedPreferences prefs) {
+        ArrayList<Pony> slots = new ArrayList<Pony>(3);
+        Pony ts = AllPonies.createPony(context, "pref_ts");
+        Pony fs = AllPonies.createPony(context, "pref_fs");
+        Pony aj = AllPonies.createPony(context, "pref_aj");
+        // Demo stands: first allActions entry is the stand owner for these make*.
+        TableauPin.pin(ts, 0.25f, 0.72f,
+                new PonyAction[] { ts.getAllActions()[0] }, Pony.FACING_RANDOM);
+        TableauPin.pin(fs, 0.50f, 0.74f,
+                new PonyAction[] { fs.getAllActions()[0] }, Pony.FACING_RANDOM);
+        TableauPin.pin(aj, 0.75f, 0.72f,
+                new PonyAction[] { aj.getAllActions()[0] }, Pony.FACING_LEFT);
+        slots.add(ts);
+        slots.add(fs);
+        slots.add(aj);
+        return new Ponies(context, slots, prefs);
     }
 
     private void wireEffectHosts(ArrayList<Pony> ponies) {

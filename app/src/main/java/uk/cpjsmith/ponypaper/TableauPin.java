@@ -1,0 +1,49 @@
+package uk.cpjsmith.ponypaper;
+
+/**
+ * Rewires a {@link Pony}'s action graph for Tableau: waiting bag only, no
+ * movers, drag snaps back via the first bag action.
+ */
+final class TableauPin {
+
+    private static final PonyAction[] EMPTY_MOVERS = new PonyAction[0];
+
+    private TableauPin() {
+    }
+
+    /**
+     * Stores pin metadata, replaces next-lists / start actions with
+     * {@code bag}, and marks the pony pinned for in-place re-entry.
+     * Pixel placement is deferred until {@link Pony#doUpdate} has clip bounds
+     * and sheets are ready ({@code MOTION_INIT_PINNED} → {@link Pony#pinAt}).
+     *
+     * @param bag non-empty stationary actions (equal chance)
+     * @param facingPolicy {@link Pony#FACING_RANDOM}, {@link Pony#FACING_LEFT},
+     *                     or {@link Pony#FACING_RIGHT}
+     */
+    static void pin(Pony pony, float xNorm, float yNorm, PonyAction[] bag,
+            String facingPolicy) {
+        if (pony == null) {
+            throw new IllegalArgumentException("pony");
+        }
+        if (bag == null || bag.length == 0) {
+            throw new IllegalArgumentException("wait bag must be non-empty");
+        }
+        PonyAction[] waitBag = new PonyAction[bag.length];
+        System.arraycopy(bag, 0, waitBag, 0, bag.length);
+        PonyAction[] dragNext = new PonyAction[] { waitBag[0] };
+
+        PonyAction[] all = pony.getAllActions();
+        for (int i = 0; i < all.length; i++) {
+            all[i].setNextWaiting(waitBag);
+            all[i].setNextMoving(EMPTY_MOVERS);
+            all[i].setNextDrag(dragNext);
+        }
+
+        pony.waitBag = waitBag;
+        pony.setStartActions(waitBag);
+        pony.setPinNorms(xNorm, yNorm);
+        pony.setFacingPolicy(facingPolicy, PonyAction.LEFT);
+        pony.setPinned(true);
+    }
+}

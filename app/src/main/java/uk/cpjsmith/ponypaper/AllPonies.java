@@ -78,6 +78,30 @@ public class AllPonies {
     }
     
     /**
+     * Checkbox-free factory for a single built-in (or later custom) pony.
+     * PR1 covers only the Tableau demo keys; PR4 expands to the full catalog.
+     *
+     * @param ponyKey preference key such as {@code pref_ts}
+     * @return a new pony instance, or {@code null} if the key is unknown here
+     */
+    public static Pony createPony(Context context, String ponyKey) {
+        if (context == null || ponyKey == null) {
+            return null;
+        }
+        Resources res = context.getResources();
+        if ("pref_ts".equals(ponyKey)) {
+            return makeTwilightSparkle(res).withPrefKey("pref_ts");
+        }
+        if ("pref_fs".equals(ponyKey)) {
+            return makeFluttershy(res).withPrefKey("pref_fs");
+        }
+        if ("pref_aj".equals(ponyKey)) {
+            return makeApplejack(res).withPrefKey("pref_aj");
+        }
+        return null;
+    }
+
+    /**
      * Returns the complete list of ponies.
      * 
      * @param context the current application context
