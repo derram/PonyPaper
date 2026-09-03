@@ -94,6 +94,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private static final int DRUNK_FADE_MS = 120;
     /** Fill/sprite alpha after the Berry Punch fade. */
     private static final int DRUNK_FILL_ALPHA = 0x33;
+    /** Tableau scene reveal after wait-bag sheets are ready. */
+    private static final int TABLEAU_REVEAL_MS = 300;
     /**
      * Idle redraw floor on a software canvas. Sprite timings are centiseconds;
      * 15 FPS still catches most frame changes. Moving ponies keep
@@ -219,6 +221,25 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private final FrameSurface surface;
 
     private Ponies ponies = null;
+    /**
+     * Previous Tableau herd kept on-screen while a reload decodes. Drawn until
+     * the incoming herd finishes pinned spawn, then unloaded.
+     */
+    private Ponies outgoingPonies = null;
+    /**
+     * Background decoded for an in-flight Tableau reveal; swapped in when the
+     * new herd becomes visible so the outgoing scene keeps its image.
+     */
+    private Bitmap pendingTableauBackground = null;
+    /** True when {@link #pendingTableauBackground} was set by a Tableau install. */
+    private boolean hasPendingTableauBackground = false;
+    /**
+     * True after a Tableau herd is installed until its first full-opacity
+     * reveal frame (spawn gate + optional fade).
+     */
+    private boolean tableauRevealPending = false;
+    /** {@link SystemClock#uptimeMillis()} when the fade started; 0 until spawn gate clears. */
+    private long tableauRevealStartMs = 0;
     /**
      * Synced to {@link PonyScenes#PREF_ACTIVE_EPOCH} only after a successful
      * Tableau herd install. Starts unset so the first JSON notification before
@@ -510,12 +531,76 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         sceneLoadGeneration++;
         sceneLoadInFlight = false;
         sceneLoadFailed = false;
-        tableauHerd = false;
-        if (ponies != null) {
-            ponies.unloadSprites();
+        clearTableauReveal();
+        // Keep outgoing only for in-session reloads (stop() clears started first).
+        boolean nextTableau = started && SceneMode.isTableau(getPreferences());
+        boolean keepOutgoing = nextTableau && ponies != null;
+        if (keepOutgoing) {
+            // Keep the old posed scene visible while the new one decodes.
+            clearOutgoingHerd();
+            outgoingPonies = ponies;
             ponies = null;
+        } else {
+            clearOutgoingHerd();
+            if (ponies != null) {
+                ponies.unloadSprites();
+                ponies = null;
+            }
         }
+        tableauHerd = false;
         forceSceneRedraw = true;
+    }
+
+    private void clearOutgoingHerd() {
+        if (outgoingPonies != null) {
+            outgoingPonies.unloadSprites();
+            outgoingPonies = null;
+        }
+        discardPendingTableauBackground();
+    }
+
+    private void discardPendingTableauBackground() {
+        if (pendingTableauBackground != null) {
+            if (pendingTableauBackground != background
+                    && !pendingTableauBackground.isRecycled()) {
+                pendingTableauBackground.recycle();
+            }
+            pendingTableauBackground = null;
+        }
+        hasPendingTableauBackground = false;
+    }
+
+    private void clearTableauReveal() {
+        tableauRevealPending = false;
+        tableauRevealStartMs = 0;
+    }
+
+    /**
+     * After a Tableau install or pinned reset: gate pony draws until every slot
+     * has left {@code MOTION_INIT_PINNED}, then fade in (first appear) or hard
+     * cut (reload with an outgoing herd).
+     */
+    private void armTableauReveal() {
+        tableauRevealPending = true;
+        tableauRevealStartMs = 0;
+        forceSceneRedraw = true;
+    }
+
+    /**
+     * Swap pending background and drop the outgoing herd when the incoming
+     * Tableau scene is ready to present.
+     */
+    private void commitTableauRevealCutover() {
+        if (outgoingPonies != null) {
+            outgoingPonies.unloadSprites();
+            outgoingPonies = null;
+        }
+        if (hasPendingTableauBackground) {
+            hasPendingTableauBackground = false;
+            Bitmap next = pendingTableauBackground;
+            pendingTableauBackground = null;
+            replaceBackground(next);
+        }
     }
 
     boolean isSceneLoadInFlight() {
@@ -588,10 +673,12 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 try {
                     if (buildTableau) {
                         herd = TableauBuilder.build(appContext, prefs, ponyCount);
+                        // Wait-bag only: full catalog preload delays the reveal gate.
+                        herd.preloadActiveWaitBags();
                     } else {
                         herd = new Ponies(appContext, prefs, ponyCount);
+                        herd.preloadActiveSprites();
                     }
-                    herd.preloadActiveSprites();
                 } catch (RuntimeException e) {
                     Log.e("PonyPaper", "Failed to build pony herd", e);
                     if (herd != null) {
@@ -626,6 +713,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                         sceneLoadInFlight = false;
                         if (readyHerd == null) {
                             sceneLoadFailed = true;
+                            clearOutgoingHerd();
                             if (readyBg != null && !readyBg.isRecycled()) {
                                 readyBg.recycle();
                             }
@@ -637,12 +725,19 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                             lastAppliedEpoch = PonyScenes.activeEpoch(prefs);
                             lastAppliedSlots = PonyScenes.snapshotSlots(
                                     PonyScenes.loadActiveScene(prefs));
+                            // Keep the outgoing scene's background until reveal.
+                            discardPendingTableauBackground();
+                            pendingTableauBackground = readyBg;
+                            hasPendingTableauBackground = true;
+                            armTableauReveal();
                         } else {
                             tableauHerd = false;
                             lastAppliedEpoch = EPOCH_UNSET;
                             lastAppliedSlots = Collections.emptyList();
+                            clearOutgoingHerd();
+                            clearTableauReveal();
+                            replaceBackground(readyBg);
                         }
-                        replaceBackground(readyBg);
                         if (active && !frozen && !thermalEmergency) {
                             lastFrameUptimeMs = 0;
                             drawFrame();
@@ -1047,6 +1142,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             return;
         }
         if (ponies != null) ponies.reset();
+        if (tableauHerd && ponies != null) {
+            // Pinned reset re-enters INIT_PINNED; reuse the reveal gate/fade.
+            armTableauReveal();
+        }
         if (drunkMode) {
             applyBackgroundColour(getPreferences(), true);
         }
@@ -1820,8 +1919,65 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
 
         boolean contentDirty = forceSceneRedraw;
+        int revealAlpha = 0xff;
+        boolean drawIncomingPonies = ponies != null;
+        boolean drawOutgoingPonies = false;
+
         if (ponies != null && frameW > 0 && frameH > 0) {
             if (ponies.update(clipRect, deltaMs)) {
+                contentDirty = true;
+            }
+        }
+
+        if (tableauRevealPending && ponies != null) {
+            // Keep the frame loop live through spawn gate + fade.
+            contentDirty = true;
+            if (ponies.allPinnedSpawnsComplete()) {
+                if (tableauRevealStartMs == 0) {
+                    // Fade only on first appear (no outgoing herd). Reloads and
+                    // surface-resize holds already showed a complete frame.
+                    boolean fadeIn = outgoingPonies == null
+                            && hasPendingTableauBackground;
+                    commitTableauRevealCutover();
+                    if (fadeIn) {
+                        tableauRevealStartMs = now;
+                        revealAlpha = 0;
+                    } else {
+                        clearTableauReveal();
+                        revealAlpha = 0xff;
+                    }
+                } else {
+                    float t = (now - tableauRevealStartMs) / (float) TABLEAU_REVEAL_MS;
+                    if (t >= 1f) {
+                        revealAlpha = 0xff;
+                        clearTableauReveal();
+                    } else {
+                        if (t < 0f) t = 0f;
+                        revealAlpha = Math.round(255f * t);
+                    }
+                }
+                drawIncomingPonies = true;
+            } else if (outgoingPonies != null) {
+                // Reload still decoding/spawning: keep the previous posed scene.
+                drawIncomingPonies = false;
+                drawOutgoingPonies = true;
+                if (frameW > 0 && frameH > 0
+                        && outgoingPonies.update(clipRect, deltaMs)) {
+                    contentDirty = true;
+                }
+            } else {
+                // First appear / resize: hold the last surface buffer until ready.
+                drawIncomingPonies = false;
+                scheduleNextFrame();
+                return;
+            }
+        } else if (outgoingPonies != null && ponies == null) {
+            // Worker still building: animate the previous scene.
+            contentDirty = true;
+            drawIncomingPonies = false;
+            drawOutgoingPonies = true;
+            if (frameW > 0 && frameH > 0
+                    && outgoingPonies.update(clipRect, deltaMs)) {
                 contentDirty = true;
             }
         }
@@ -1897,8 +2053,19 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                     }
                 }
 
-                if (ponies != null) {
-                    ponies.draw(c);
+                if (drawOutgoingPonies && outgoingPonies != null) {
+                    outgoingPonies.draw(c);
+                } else if (drawIncomingPonies && ponies != null) {
+                    if (revealAlpha >= 0xff) {
+                        ponies.draw(c);
+                    } else if (revealAlpha > 0) {
+                        int layer = c.saveLayerAlpha(0f, 0f, canvasW, canvasH, revealAlpha);
+                        try {
+                            ponies.draw(c);
+                        } finally {
+                            c.restoreToCount(layer);
+                        }
+                    }
                 }
                 if (surface.shouldShowClock()) {
                     dreamClock.draw(c, surface.getContext(), surface.shouldShowClockDate());
@@ -1930,6 +2097,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     private int currentSchedulePeriodMs() {
         int period = framePeriodMs;
+        // Keep full rate while a Tableau reload/reveal is in flight so spawn
+        // checks and the fade stay smooth (incoming ponies look "idle").
+        if (tableauRevealPending || outgoingPonies != null) {
+            return period;
+        }
         if (ponies != null && ponies.allIdle()) {
             int idlePeriod = Math.max(1, 1000 / idleMaxFps());
             if (idlePeriod > period) {

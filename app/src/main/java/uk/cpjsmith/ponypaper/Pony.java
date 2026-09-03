@@ -477,6 +477,22 @@ public class Pony {
     }
 
     /**
+     * Start pinning only the Tableau wait/start bag sheets so pinned spawn can
+     * finish without decoding the full catalog first. Idempotent.
+     */
+    void loadWaitBagActions() {
+        PonyAction[] bag = pinnedSpawnBag();
+        if (bag == null) {
+            return;
+        }
+        for (int i = 0; i < bag.length; i++) {
+            if (bag[i] != null) {
+                bag[i].load();
+            }
+        }
+    }
+
+    /**
      * @return true when every action has both facings decoded
      */
     public boolean actionsReady() {
@@ -487,6 +503,22 @@ public class Pony {
         }
         for (int i = 0; i < effectDefs.length; i++) {
             if (!effectDefs[i].isReady()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @return true when every wait/start bag action is decoded
+     */
+    boolean waitBagReady() {
+        PonyAction[] bag = pinnedSpawnBag();
+        if (bag == null || bag.length == 0) {
+            return false;
+        }
+        for (int i = 0; i < bag.length; i++) {
+            if (bag[i] == null || !bag[i].isReady()) {
                 return false;
             }
         }
@@ -508,6 +540,37 @@ public class Pony {
             }
         }
         return false;
+    }
+
+    /**
+     * @return true if a wait/start bag pin failed to decode
+     */
+    boolean waitBagFailed() {
+        PonyAction[] bag = pinnedSpawnBag();
+        if (bag == null) {
+            return false;
+        }
+        for (int i = 0; i < bag.length; i++) {
+            if (bag[i] != null && bag[i].loadFailed()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * True while a pinned pony is still waiting on sheets before {@link #pinAt}.
+     * Failed loads that marked {@link #goneOffScreen()} are not awaiting.
+     */
+    boolean isAwaitingPinnedSpawn() {
+        return motion == MOTION_INIT_PINNED && leavingMode != LM_GONE;
+    }
+
+    private PonyAction[] pinnedSpawnBag() {
+        if (startActions != null && startActions.length > 0) {
+            return startActions;
+        }
+        return waitBag;
     }
 
     /**
@@ -534,22 +597,24 @@ public class Pony {
         float scale = getScale();
         
         if (motion == MOTION_INIT_PINNED) {
-            loadActions();
-            if (actionsFailed()) {
+            // Wait-bag only: full-catalog decode would delay the whole Tableau
+            // reveal. Warm remaining sheets after pinAt.
+            loadWaitBagActions();
+            if (waitBagFailed()) {
                 leavingMode = LM_GONE;
                 return;
             }
-            if (!actionsReady()) {
+            if (!waitBagReady()) {
                 return;
             }
-            PonyAction[] bag = startActions != null && startActions.length > 0
-                    ? startActions : waitBag;
+            PonyAction[] bag = pinnedSpawnBag();
             if (bag == null || bag.length == 0) {
                 leavingMode = LM_GONE;
                 return;
             }
             pinAt(pinnedFeetX(), pinnedFeetY(),
                     bag[random.nextInt(bag.length)], resolvePinnedFacing());
+            loadActions();
         } else if (motion == MOTION_INIT) {
             loadActions();
             if (actionsFailed()) {

@@ -335,6 +335,35 @@ public class Ponies implements Pony.EffectHost {
             activePonies[i].loadActions();
         }
     }
+
+    /**
+     * Tableau preload: pin only wait/start bag sheets so the scene-ready gate
+     * can trip without decoding unused catalog actions first.
+     */
+    void preloadActiveWaitBags() {
+        if (activePonies == null) {
+            return;
+        }
+        for (int i = 0; i < activePonies.length; i++) {
+            activePonies[i].loadWaitBagActions();
+        }
+    }
+
+    /**
+     * True when every live Tableau pony has left {@code MOTION_INIT_PINNED}
+     * (pinned and drawable, or marked gone after a decode failure).
+     */
+    boolean allPinnedSpawnsComplete() {
+        if (activePonies == null) {
+            return true;
+        }
+        for (int i = 0; i < activePonies.length; i++) {
+            if (activePonies[i].isAwaitingPinnedSpawn()) {
+                return false;
+            }
+        }
+        return true;
+    }
     
     /**
      * Updates all active ponies for the elapsed time and draws them on the
