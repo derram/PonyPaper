@@ -36,14 +36,16 @@ import org.w3c.dom.Document;
  * Working copy of custom ponies and the optional background image. Lives in
  * {@link Context#getExternalFilesDir(null)} so the wallpaper can keep using
  * {@link java.io.File} paths. Durable copies are a zip export (custom XML,
- * optional background, and saved mixes) or a user-owned SAF tree (see
- * library-folder methods added alongside this helper).
+ * optional background, saved mixes, and saved scenes) or a user-owned SAF
+ * tree (see library-folder methods added alongside this helper).
  */
 final class CustomStorage {
 
     static final String BACKGROUND_NAME = "background";
     /** Reserved library-zip sidecar for {@link PonyMixes}; never a working-dir file. */
     static final String MIXES_NAME = "ponypaper-mixes.json";
+    /** Reserved library-zip sidecar for {@link PonyScenes}; never a working-dir file. */
+    static final String SCENES_NAME = "ponypaper-scenes.json";
     static final String PLACEHOLDER_NAME = "custom-ponies-go-here";
     /** SAF display name. Providers append {@code .txt} for {@code text/plain}. */
     static final String PLACEHOLDER_LIBRARY_NAME = PLACEHOLDER_NAME + ".txt";
@@ -97,6 +99,7 @@ final class CustomStorage {
         boolean ponies = true;
         boolean background = true;
         boolean mixes = true;
+        boolean scenes = true;
 
         static ExportOptions all() {
             return new ExportOptions();
@@ -108,6 +111,7 @@ final class CustomStorage {
         boolean ponies = true;
         boolean background = true;
         boolean mixes = true;
+        boolean scenes = true;
 
         static ImportOptions all() {
             return new ImportOptions();
@@ -119,10 +123,11 @@ final class CustomStorage {
         int ponyCount;
         boolean hasBackground;
         int mixCount;
+        int sceneCount;
         String error;
 
         boolean isEmpty() {
-            return ponyCount == 0 && !hasBackground && mixCount == 0;
+            return ponyCount == 0 && !hasBackground && mixCount == 0 && sceneCount == 0;
         }
     }
 
@@ -142,10 +147,9 @@ final class CustomStorage {
     static boolean hasExportableFiles(Context context, ExportOptions options) {
         if (options == null) options = ExportOptions.all();
         if (options.ponies && listCustomXml(context).length > 0) return true;
-        if (options.mixes) {
-            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-            if (!PonyMixes.loadUserMixes(prefs).isEmpty()) return true;
-        }
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        if (options.mixes && !PonyMixes.loadUserMixes(prefs).isEmpty()) return true;
+        if (options.scenes && !PonyScenes.loadUserScenes(prefs).isEmpty()) return true;
         return options.background && hasLocalBackground(context);
     }
 
@@ -218,12 +222,19 @@ final class CustomStorage {
                     addFileToZip(zip, bg, BACKGROUND_NAME);
                 }
             }
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
             if (options.mixes) {
-                List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(
-                        PreferenceManager.getDefaultSharedPreferences(context));
+                List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(prefs);
                 if (!mixes.isEmpty()) {
                     byte[] json = PonyMixes.encode(mixes).getBytes(Charset.forName("UTF-8"));
                     addBytesToZip(zip, MIXES_NAME, json);
+                }
+            }
+            if (options.scenes) {
+                List<PonyScenes.TableauScene> scenes = PonyScenes.loadUserScenes(prefs);
+                if (!scenes.isEmpty()) {
+                    byte[] json = PonyScenes.encode(scenes).getBytes(Charset.forName("UTF-8"));
+                    addBytesToZip(zip, SCENES_NAME, json);
                 }
             }
         } finally {
@@ -237,6 +248,9 @@ final class CustomStorage {
         int mixesAdded;
         int mixesReplaced;
         int mixesSkipped;
+        int scenesAdded;
+        int scenesReplaced;
+        int scenesSkipped;
         boolean backgroundImported;
         String error;
     }
@@ -269,7 +283,7 @@ final class CustomStorage {
                     continue;
                 }
                 String baseName = zipEntryBaseName(entry.getName());
-                if (MIXES_NAME.equals(baseName)) {
+                if (MIXES_NAME.equals(baseName) || SCENES_NAME.equals(baseName)) {
                     try {
                         byte[] jsonBytes = readEntryLimited(zip, MAX_ZIP_ENTRY_BYTES);
                         total += jsonBytes.length;
@@ -278,9 +292,16 @@ final class CustomStorage {
                             break;
                         }
                         String json = new String(jsonBytes, Charset.forName("UTF-8"));
-                        List<PonyMixes.Mix> mixes = PonyMixes.parse(json);
-                        if (!mixes.isEmpty()) {
-                            result.mixCount = mixes.size();
+                        if (MIXES_NAME.equals(baseName)) {
+                            List<PonyMixes.Mix> mixes = PonyMixes.parse(json);
+                            if (!mixes.isEmpty()) {
+                                result.mixCount = mixes.size();
+                            }
+                        } else {
+                            List<PonyScenes.TableauScene> scenes = PonyScenes.parse(json);
+                            if (!scenes.isEmpty()) {
+                                result.sceneCount = scenes.size();
+                            }
                         }
                     } catch (IOException ignored) {
                     }
@@ -346,8 +367,8 @@ final class CustomStorage {
     /**
      * Merge a library zip into the working directory. Unknown or unsafe entries
      * are skipped. Invalid custom-pony XML is skipped rather than stored.
-     * A mixes sidecar is merged into preferences and is not written locally.
-     * Categories disabled in {@code options} are skipped without writing.
+     * Mixes and scenes sidecars are merged into preferences and are not written
+     * locally. Categories disabled in {@code options} are skipped without writing.
      */
     static ZipImportResult importZip(Context context, Uri source) {
         return importZip(context, source, ImportOptions.all());
@@ -379,7 +400,7 @@ final class CustomStorage {
                     continue;
                 }
                 String baseName = zipEntryBaseName(entry.getName());
-                if (MIXES_NAME.equals(baseName)) {
+                if (MIXES_NAME.equals(baseName) || SCENES_NAME.equals(baseName)) {
                     try {
                         byte[] jsonBytes = readEntryLimited(zip, MAX_ZIP_ENTRY_BYTES);
                         total += jsonBytes.length;
@@ -387,18 +408,31 @@ final class CustomStorage {
                             result.error = "Zip is larger than the import limit";
                             break;
                         }
-                        if (!options.mixes) {
+                        boolean want = MIXES_NAME.equals(baseName) ? options.mixes : options.scenes;
+                        if (!want) {
                             zip.closeEntry();
                             continue;
                         }
                         String json = new String(jsonBytes, Charset.forName("UTF-8"));
-                        PonyMixes.MixMergeResult merged = PonyMixes.mergeImported(prefs, json);
-                        if (merged.invalid) {
-                            result.skipped++;
+                        if (MIXES_NAME.equals(baseName)) {
+                            PonyMixes.MixMergeResult merged = PonyMixes.mergeImported(prefs, json);
+                            if (merged.invalid) {
+                                result.skipped++;
+                            } else {
+                                result.mixesAdded += merged.added;
+                                result.mixesReplaced += merged.replaced;
+                                result.mixesSkipped += merged.skipped;
+                            }
                         } else {
-                            result.mixesAdded += merged.added;
-                            result.mixesReplaced += merged.replaced;
-                            result.mixesSkipped += merged.skipped;
+                            PonyScenes.SceneMergeResult merged =
+                                    PonyScenes.mergeImported(prefs, json);
+                            if (merged.invalid) {
+                                result.skipped++;
+                            } else {
+                                result.scenesAdded += merged.added;
+                                result.scenesReplaced += merged.replaced;
+                                result.scenesSkipped += merged.skipped;
+                            }
                         }
                     } catch (IOException e) {
                         result.skipped++;
@@ -565,11 +599,12 @@ final class CustomStorage {
     /**
      * Map a zip entry path to a working-directory name, or null to skip.
      * Rejects path traversal and everything except {@code *.xml} and {@code background}.
-     * The mixes sidecar is handled separately and never becomes a dest name.
+     * Mixes and scenes sidecars are handled separately and never become dest names.
      */
     static String zipEntryDestName(String raw) {
         String name = zipEntryBaseName(raw);
-        if (name == null || isLibraryMarkerName(name) || MIXES_NAME.equals(name)) {
+        if (name == null || isLibraryMarkerName(name)
+                || MIXES_NAME.equals(name) || SCENES_NAME.equals(name)) {
             return null;
         }
         if (BACKGROUND_NAME.equals(name)) {

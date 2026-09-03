@@ -15,6 +15,10 @@ import org.json.JSONObject;
  * <p>Library document: {@link #PREF_SCENES_JSON}. Active composition:
  * {@link #PREF_ACTIVE_JSON} (+ id / epoch). Structural and load writers always
  * put JSON + epoch (+ id) in one {@link SharedPreferences.Editor} batch.
+ *
+ * <p>Library zip export stores the named list as a sidecar (see
+ * {@link CustomStorage#SCENES_NAME}). Import merges by name and does not
+ * apply a scene to the active composition.
  */
 final class PonyScenes {
 

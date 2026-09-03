@@ -1934,10 +1934,12 @@ public class Settings extends AppCompatActivity
     private void showExportChooseDialog() {
         final boolean hasPonies = CustomStorage.listCustomXml(this).length > 0;
         final boolean hasBackground = CustomStorage.hasLocalBackground(this);
-        final int mixCount = PonyMixes.loadUserMixes(
-                PreferenceManager.getDefaultSharedPreferences(this)).size();
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        final int mixCount = PonyMixes.loadUserMixes(prefs).size();
         final boolean hasMixes = mixCount > 0;
-        if (!hasPonies && !hasBackground && !hasMixes) {
+        final int sceneCount = PonyScenes.loadUserScenes(prefs).size();
+        final boolean hasScenes = sceneCount > 0;
+        if (!hasPonies && !hasBackground && !hasMixes && !hasScenes) {
             showAlertDialog(getString(R.string.library_export_empty_title),
                     getString(R.string.library_export_empty_message));
             return;
@@ -1958,6 +1960,10 @@ public class Settings extends AppCompatActivity
             labels.add(getString(R.string.library_export_item_mixes, mixCount));
             kinds.add(2);
         }
+        if (hasScenes) {
+            labels.add(getString(R.string.library_export_item_scenes, sceneCount));
+            kinds.add(3);
+        }
         final boolean[] checked = new boolean[labels.size()];
         for (int i = 0; i < checked.length; i++) checked[i] = true;
 
@@ -1977,14 +1983,16 @@ public class Settings extends AppCompatActivity
                 options.ponies = false;
                 options.background = false;
                 options.mixes = false;
+                options.scenes = false;
                 for (int i = 0; i < checked.length; i++) {
                     if (!checked[i]) continue;
                     int kind = kinds.get(i);
                     if (kind == 0) options.ponies = true;
                     else if (kind == 1) options.background = true;
                     else if (kind == 2) options.mixes = true;
+                    else if (kind == 3) options.scenes = true;
                 }
-                if (!options.ponies && !options.background && !options.mixes) {
+                if (!options.ponies && !options.background && !options.mixes && !options.scenes) {
                     showAlertDialog(getString(R.string.library_export_nothing_selected_title),
                             getString(R.string.library_export_nothing_selected_message));
                     return;
@@ -2033,6 +2041,7 @@ public class Settings extends AppCompatActivity
     /** Human list of categories that an export options object asked for (and that exist). */
     private String formatLibraryCategoryList(CustomStorage.ExportOptions options) {
         ArrayList<String> parts = new ArrayList<String>();
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         if (options.ponies) {
             int n = CustomStorage.listCustomXml(this).length;
             if (n > 0) {
@@ -2043,13 +2052,21 @@ public class Settings extends AppCompatActivity
             }
         }
         if (options.mixes) {
-            int n = PonyMixes.loadUserMixes(
-                    PreferenceManager.getDefaultSharedPreferences(this)).size();
+            int n = PonyMixes.loadUserMixes(prefs).size();
             if (n > 0) {
                 String mixWord = n == 1
                         ? getString(R.string.library_import_mix_one)
                         : getString(R.string.library_import_mix_many);
                 parts.add(getString(R.string.library_import_mixes, n, mixWord));
+            }
+        }
+        if (options.scenes) {
+            int n = PonyScenes.loadUserScenes(prefs).size();
+            if (n > 0) {
+                String sceneWord = n == 1
+                        ? getString(R.string.library_import_scene_one)
+                        : getString(R.string.library_import_scene_many);
+                parts.add(getString(R.string.library_import_scenes, n, sceneWord));
             }
         }
         if (options.background && CustomStorage.hasLocalBackground(this)) {
@@ -2066,7 +2083,12 @@ public class Settings extends AppCompatActivity
         if (parts.size() == 2) {
             return getString(R.string.library_import_list_two, parts.get(0), parts.get(1));
         }
-        return getString(R.string.library_import_list_three, parts.get(0), parts.get(1), parts.get(2));
+        if (parts.size() == 3) {
+            return getString(R.string.library_import_list_three,
+                    parts.get(0), parts.get(1), parts.get(2));
+        }
+        return getString(R.string.library_import_list_four,
+                parts.get(0), parts.get(1), parts.get(2), parts.get(3));
     }
 
     /**
@@ -2115,6 +2137,10 @@ public class Settings extends AppCompatActivity
             labels.add(getString(R.string.library_import_item_mixes, peek.mixCount));
             kinds.add(2);
         }
+        if (peek.sceneCount > 0) {
+            labels.add(getString(R.string.library_import_item_scenes, peek.sceneCount));
+            kinds.add(3);
+        }
         final boolean[] checked = new boolean[labels.size()];
         for (int i = 0; i < checked.length; i++) checked[i] = true;
 
@@ -2135,14 +2161,16 @@ public class Settings extends AppCompatActivity
                 options.ponies = false;
                 options.background = false;
                 options.mixes = false;
+                options.scenes = false;
                 for (int i = 0; i < checked.length; i++) {
                     if (!checked[i]) continue;
                     int kind = kinds.get(i);
                     if (kind == 0) options.ponies = true;
                     else if (kind == 1) options.background = true;
                     else if (kind == 2) options.mixes = true;
+                    else if (kind == 3) options.scenes = true;
                 }
-                if (!options.ponies && !options.background && !options.mixes) {
+                if (!options.ponies && !options.background && !options.mixes && !options.scenes) {
                     showAlertDialog(getString(R.string.library_import_nothing_selected_title),
                             getString(R.string.library_import_nothing_selected_message));
                     return;
@@ -2195,8 +2223,10 @@ public class Settings extends AppCompatActivity
             return;
         }
         int mixCount = result.mixesAdded + result.mixesReplaced;
-        int skippedCount = result.skipped + result.mixesSkipped;
-        if (result.poniesAdded == 0 && !result.backgroundImported && mixCount == 0) {
+        int sceneCount = result.scenesAdded + result.scenesReplaced;
+        int skippedCount = result.skipped + result.mixesSkipped + result.scenesSkipped;
+        if (result.poniesAdded == 0 && !result.backgroundImported
+                && mixCount == 0 && sceneCount == 0) {
             showAlertDialog(getString(R.string.library_import_ok_title),
                     getString(R.string.library_import_nothing));
             return;
@@ -2213,6 +2243,12 @@ public class Settings extends AppCompatActivity
                     ? getString(R.string.library_import_mix_one)
                     : getString(R.string.library_import_mix_many);
             parts.add(getString(R.string.library_import_mixes, mixCount, mixWord));
+        }
+        if (sceneCount > 0) {
+            String sceneWord = sceneCount == 1
+                    ? getString(R.string.library_import_scene_one)
+                    : getString(R.string.library_import_scene_many);
+            parts.add(getString(R.string.library_import_scenes, sceneCount, sceneWord));
         }
         if (result.backgroundImported) {
             parts.add(getString(R.string.library_import_background));
