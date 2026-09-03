@@ -12,9 +12,11 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.NumberPicker;
 import android.widget.TextView;
+import android.widget.Toast;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceCategory;
 import androidx.preference.PreferenceManager;
+import androidx.preference.PreferenceViewHolder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -41,6 +43,8 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
     private String activeId = "";
     private String activeName = "";
     private final ArrayList<SlotDraft> slots = new ArrayList<SlotDraft>();
+    /** True when in-memory hot fields differ from the last prefs write. */
+    private boolean hotDirty;
 
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
@@ -61,7 +65,10 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
     public void onResume() {
         super.onResume();
         settings().setTitle(R.string.pref_screen_tableau_title);
-        // Reload in case a load/save happened elsewhere.
+        // Flush pending hot edits before reload so a deferred write cannot
+        // persist a wiped draft after multi-window / translucent pause.
+        handler.removeCallbacks(hotWriteRunnable);
+        flushHotWrite();
         loadFromPrefs();
         rebuildSlotPreferences();
     }
@@ -84,6 +91,7 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
         for (int i = 0; i < scene.slots.size(); i++) {
             slots.add(SlotDraft.from(scene.slots.get(i)));
         }
+        hotDirty = false;
         updateSummary();
     }
 
@@ -170,7 +178,7 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
         for (int i = 0; i < slots.size(); i++) {
             final int index = i;
             SlotDraft draft = slots.get(i);
-            Preference pref = new Preference(requireContext());
+            SlotPreference pref = new SlotPreference(requireContext());
             pref.setKey(SLOT_KEY_PREFIX + i);
             pref.setPersistent(false);
             pref.setOrder(i);
@@ -183,9 +191,10 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
                     Math.round(draft.yNorm * 100f),
                     draft.actions.size());
             if (i >= cap) {
-                // Annotate clipped slots; still editable / saved.
+                // Annotate + dim clipped slots; still editable / saved.
                 summary = summary + getString(R.string.pref_tableau_slot_hidden_suffix);
                 title = title + " ·";
+                pref.setDimmed(true);
             }
             pref.setTitle(title);
             pref.setSummary(summary);
@@ -302,36 +311,68 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
         for (int i = 0; i < ids.size(); i++) {
             checked[i] = selected.contains(ids.get(i));
         }
-        new AlertDialog.Builder(requireContext())
-                .setTitle(R.string.pref_tableau_slot_edit_actions)
-                .setMultiChoiceItems(
-                        labels.toArray(new CharSequence[labels.size()]),
-                        checked,
-                        new DialogInterface.OnMultiChoiceClickListener() {
-                            @Override
-                            public void onClick(DialogInterface dialog, int which,
-                                    boolean isChecked) {
-                                checked[which] = isChecked;
+        AlertDialog.Builder builder = new AlertDialog.Builder(requireContext());
+        builder.setTitle(R.string.pref_tableau_slot_edit_actions);
+        builder.setMultiChoiceItems(
+                labels.toArray(new CharSequence[labels.size()]),
+                checked,
+                new DialogInterface.OnMultiChoiceClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which,
+                            boolean isChecked) {
+                        if (isChecked) {
+                            int n = 0;
+                            for (int i = 0; i < checked.length; i++) {
+                                if (checked[i]) n++;
                             }
-                        })
-                .setPositiveButton(android.R.string.ok,
-                        new DialogInterface.OnClickListener() {
-                            @Override
-                            public void onClick(DialogInterface dialog, int which) {
-                                ArrayList<String> next = new ArrayList<String>();
-                                for (int i = 0; i < ids.size()
-                                        && next.size() < PonyScenes.MAX_ACTIONS_PER_SLOT;
-                                        i++) {
-                                    if (checked[i]) next.add(ids.get(i));
-                                }
-                                slots.get(index).actions.clear();
-                                slots.get(index).actions.addAll(next);
-                                scheduleHotWrite();
-                                rebuildSlotPreferences();
+                            // Dialog already flipped checked[which]; reject over cap.
+                            if (n > PonyScenes.MAX_ACTIONS_PER_SLOT) {
+                                checked[which] = false;
+                                ((AlertDialog) dialog).getListView()
+                                        .setItemChecked(which, false);
+                                Toast.makeText(requireContext(),
+                                        getString(R.string.pref_tableau_actions_max_toast,
+                                                PonyScenes.MAX_ACTIONS_PER_SLOT),
+                                        Toast.LENGTH_SHORT).show();
+                                return;
                             }
-                        })
-                .setNegativeButton(R.string.dialog_cancel, null)
-                .show();
+                        }
+                        checked[which] = isChecked;
+                    }
+                });
+        builder.setPositiveButton(android.R.string.ok, null);
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        final AlertDialog dialog = builder.create();
+        dialog.show();
+        dialog.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener(
+                new android.view.View.OnClickListener() {
+                    @Override
+                    public void onClick(android.view.View v) {
+                        ArrayList<String> next = new ArrayList<String>();
+                        for (int i = 0; i < ids.size(); i++) {
+                            if (checked[i]) next.add(ids.get(i));
+                        }
+                        if (next.isEmpty()) {
+                            showAlert(getString(R.string.pref_tableau_save_invalid_title),
+                                    getString(R.string.pref_tableau_save_invalid_message));
+                            return;
+                        }
+                        if (next.size() > PonyScenes.MAX_ACTIONS_PER_SLOT) {
+                            Toast.makeText(requireContext(),
+                                    getString(R.string.pref_tableau_actions_max_toast,
+                                            PonyScenes.MAX_ACTIONS_PER_SLOT),
+                                    Toast.LENGTH_SHORT).show();
+                            while (next.size() > PonyScenes.MAX_ACTIONS_PER_SLOT) {
+                                next.remove(next.size() - 1);
+                            }
+                        }
+                        slots.get(index).actions.clear();
+                        slots.get(index).actions.addAll(next);
+                        scheduleHotWrite();
+                        rebuildSlotPreferences();
+                        dialog.dismiss();
+                    }
+                });
     }
 
     private void showFacingPicker(final int index) {
@@ -454,18 +495,21 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
 
     private void commitStructural() {
         handler.removeCallbacks(hotWriteRunnable);
+        hotDirty = false;
         PonyScenes.writeActiveStructural(prefs, activeId, buildScene());
         loadFromPrefs();
         rebuildSlotPreferences();
     }
 
     private void scheduleHotWrite() {
+        hotDirty = true;
         handler.removeCallbacks(hotWriteRunnable);
         handler.postDelayed(hotWriteRunnable, HOT_DEBOUNCE_MS);
     }
 
     private void flushHotWrite() {
-        if (prefs == null) return;
+        if (prefs == null || !hotDirty) return;
+        hotDirty = false;
         PonyScenes.writeActiveHot(prefs, buildScene());
     }
 
@@ -757,6 +801,26 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
                     ponyKey, xNorm, yNorm,
                     actions.toArray(new String[actions.size()]),
                     facing);
+        }
+    }
+
+    /** Slot row that can stay clickable while dimmed for power-cap clipping. */
+    private static final class SlotPreference extends Preference {
+        private boolean dimmed;
+
+        SlotPreference(android.content.Context context) {
+            super(context);
+        }
+
+        void setDimmed(boolean dimmed) {
+            this.dimmed = dimmed;
+            notifyChanged();
+        }
+
+        @Override
+        public void onBindViewHolder(PreferenceViewHolder holder) {
+            super.onBindViewHolder(holder);
+            holder.itemView.setAlpha(dimmed ? 0.45f : 1f);
         }
     }
 }

@@ -93,7 +93,8 @@
     <string name="pref_tableau_add_slot_summary">Up to %1$d posed characters</string>
     <string name="pref_tableau_slot_title">Slot %1$d — %2$s</string>
     <string name="pref_tableau_slot_summary">%1$s · X %2$d%% · Y %3$d%% · %4$d actions</string>
-    <string name="pref_tableau_slot_hidden_suffix"> · Hidden while battery/thermal/power limits apply (still saved)</string>
+    <string name="pref_tableau_slot_hidden_suffix"> · Hidden while battery/power limits apply (still saved)</string>
+    <string name="pref_tableau_actions_max_toast">At most %1$d actions per slot</string>
     <string name="pref_tableau_slot_full_title">Too many slots</string>
     <string name="pref_tableau_slot_full_message">A scene can have at most %1$d slots.</string>
     <string name="pref_tableau_slot_menu_title">Slot %1$d</string>

@@ -66,8 +66,9 @@ final class TableauBuilder {
     }
 
     /**
-     * Best-effort cap for Settings UI dimming. Uses power-save / on-battery
-     * prefs; software-canvas and thermal state are unknown here so left off.
+     * Best-effort cap for Settings UI dimming/annotation. Uses power-save /
+     * on-battery prefs only — software-canvas and thermal state live in the
+     * engine, so the editor may under-annotate vs the live herd.
      */
     static int estimateCapForSettings(Context context, SharedPreferences prefs) {
         if (context == null || prefs == null) return MAX_SLOTS;

@@ -1444,7 +1444,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void scheduleShuffle(long delayMs) {
         handler.removeCallbacks(shuffleMixRunnable);
-        if (!dreaming || exiting || !shuffleMixes) return;
+        if (!dreaming || exiting || !shuffleMixes || mixesBlockedByTableau()) return;
         handler.postDelayed(shuffleMixRunnable, delayMs);
     }
 
@@ -1458,6 +1458,11 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
      * when a mix was applied, or when shuffle was turned off for lack of mixes.
      */
     private boolean applyShuffleHop() {
+        if (mixesBlockedByTableau()) {
+            stopShuffle();
+            if (sheetExpanded) syncChromeWidgets();
+            return true;
+        }
         List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(getDreamPreferences());
         if (mixes.size() < 2) {
             stopShuffle();
