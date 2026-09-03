@@ -1217,8 +1217,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private int getEffectivePonyCount(SharedPreferences prefs) {
         // Tableau ignores pref_num_ponies / pref_dream_num_ponies; slot list +
         // the same power/thermal/software clamps decide how many stay on screen.
+        // min(cap, slotCount) so rebuilds skip when the cap moves but stays
+        // above the resolved scene size (demo is 3 until PR3).
         if (SceneMode.isTableau(prefs)) {
-            return TableauBuilder.getTableauCap(
+            return TableauBuilder.effectiveCount(
                     shouldApplyBatterySaverLimits(prefs),
                     shouldUseDefaultPoniesOnBattery(prefs),
                     shouldApplySoftwareCanvasLimits(),

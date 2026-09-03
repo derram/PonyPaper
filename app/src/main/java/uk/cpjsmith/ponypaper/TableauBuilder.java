@@ -14,6 +14,8 @@ final class TableauBuilder {
 
     /** Hard ceiling on Tableau slots (matches the future scene schema). */
     static final int MAX_SLOTS = 16;
+    /** Demo scene size until PR3 loads active JSON ({@link Ponies#createTableauDemoSlots}). */
+    private static final int DEMO_SLOT_COUNT = 3;
 
     private TableauBuilder() {
     }
@@ -41,6 +43,26 @@ final class TableauBuilder {
             cap = Math.min(cap, PonySceneController.THERMAL_MODERATE_MAX_PONIES);
         }
         return cap;
+    }
+
+    /**
+     * Slot count before cap truncation. Used so rebuild comparisons do not
+     * churn when the power cap moves but stays above the resolved scene size.
+     */
+    static int slotCountBeforeCap() {
+        return DEMO_SLOT_COUNT;
+    }
+
+    /**
+     * On-screen Tableau count after applying {@link #getTableauCap} to the
+     * resolved slot list (document-order prefix length).
+     */
+    static int effectiveCount(boolean batterySaverLimits,
+            boolean defaultPoniesOnBattery,
+            boolean softwareCanvasLimits,
+            boolean thermalThrottle) {
+        return Math.min(getTableauCap(batterySaverLimits, defaultPoniesOnBattery,
+                softwareCanvasLimits, thermalThrottle), slotCountBeforeCap());
     }
 
     /**

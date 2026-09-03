@@ -388,7 +388,7 @@ public class Settings extends AppCompatActivity
         if (sceneMode != null) {
             sceneMode.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
                 public boolean onPreferenceChange(Preference preference, Object newValue) {
-                    refreshCharacterSizeAvailability(
+                    refreshSceneModeDependentPrefs(
                             newValue != null ? newValue.toString() : SceneMode.WANDER);
                     return true;
                 }
@@ -406,7 +406,7 @@ public class Settings extends AppCompatActivity
         refreshSharedBackgroundControls();
         refreshDreamIdleSettings();
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
-        refreshCharacterSizeAvailability(SceneMode.mode(prefs));
+        refreshSceneModeDependentPrefs(SceneMode.mode(prefs));
     }
 
     /**
@@ -416,9 +416,10 @@ public class Settings extends AppCompatActivity
      * {@code mode} is the scene-mode value that will apply (may be the pending
      * preference change before SharedPreferences has stored it).
      */
-    private void refreshCharacterSizeAvailability(String mode) {
+    private void refreshSceneModeDependentPrefs(String mode) {
         boolean random = SceneMode.MY_QUESTION.equals(mode);
         boolean tableau = SceneMode.TABLEAU.equals(mode);
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
 
         ListPreference size = (ListPreference) findPreference(PonySize.PREF_KEY);
         if (size != null) {
@@ -435,8 +436,10 @@ public class Settings extends AppCompatActivity
             numPonies.setEnabled(!tableau);
             if (tableau) {
                 numPonies.setSummary(R.string.pref_num_ponies_tableau_summary);
-            } else {
-                numPonies.setSummary(null);
+            } else if (numPonies instanceof NumberPickerPreference) {
+                // Restore the numeric summary; setSummary(null) would blank it
+                // until the user next changes the value.
+                ((NumberPickerPreference) numPonies).reloadFromPersisted();
             }
         }
         Preference dreamNumPonies =
@@ -447,8 +450,9 @@ public class Settings extends AppCompatActivity
             dreamNumPonies.setEnabled(!tableau);
             if (tableau) {
                 dreamNumPonies.setSummary(R.string.pref_num_ponies_tableau_summary);
-            } else {
-                dreamNumPonies.setSummary(null);
+            } else if (dreamNumPonies instanceof NumberPickerPreference
+                    && prefs.contains(PonySceneController.PREF_DREAM_NUM_PONIES)) {
+                ((NumberPickerPreference) dreamNumPonies).reloadFromPersisted();
             }
         }
     }
