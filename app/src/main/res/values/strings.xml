@@ -247,6 +247,7 @@
     <string name="library_import_failed_title">Import failed</string>
     <string name="library_import_ok_title">Library imported</string>
     <string name="library_import_ok_message">Imported %1$s%2$s.</string>
+    <string name="library_import_none_kept">nothing</string>
     <string name="library_import_list_two">%1$s and %2$s</string>
     <string name="library_import_list_three">%1$s, %2$s, and %3$s</string>
     <string name="library_import_list_four">%1$s, %2$s, %3$s, and %4$s</string>

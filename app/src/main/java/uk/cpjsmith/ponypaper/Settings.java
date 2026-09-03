@@ -83,6 +83,12 @@ public class Settings extends AppCompatActivity
     /** Categories for the in-flight export SAF create-document callback; null = all. */
     private CustomStorage.ExportOptions pendingExportOptions;
 
+    /** Kind tags for library export/import category checklists. */
+    private static final int LIBRARY_KIND_PONIES = 0;
+    private static final int LIBRARY_KIND_BACKGROUND = 1;
+    private static final int LIBRARY_KIND_MIXES = 2;
+    private static final int LIBRARY_KIND_SCENES = 3;
+
     private final Runnable dreamAdminRefreshRunnable = new Runnable() {
         @Override
         public void run() {
@@ -1950,19 +1956,19 @@ public class Settings extends AppCompatActivity
         if (hasPonies) {
             labels.add(getString(R.string.library_export_item_ponies,
                     CustomStorage.listCustomXml(this).length));
-            kinds.add(0);
+            kinds.add(LIBRARY_KIND_PONIES);
         }
         if (hasBackground) {
             labels.add(getString(R.string.library_export_item_background));
-            kinds.add(1);
+            kinds.add(LIBRARY_KIND_BACKGROUND);
         }
         if (hasMixes) {
             labels.add(getString(R.string.library_export_item_mixes, mixCount));
-            kinds.add(2);
+            kinds.add(LIBRARY_KIND_MIXES);
         }
         if (hasScenes) {
             labels.add(getString(R.string.library_export_item_scenes, sceneCount));
-            kinds.add(3);
+            kinds.add(LIBRARY_KIND_SCENES);
         }
         final boolean[] checked = new boolean[labels.size()];
         for (int i = 0; i < checked.length; i++) checked[i] = true;
@@ -1986,11 +1992,7 @@ public class Settings extends AppCompatActivity
                 options.scenes = false;
                 for (int i = 0; i < checked.length; i++) {
                     if (!checked[i]) continue;
-                    int kind = kinds.get(i);
-                    if (kind == 0) options.ponies = true;
-                    else if (kind == 1) options.background = true;
-                    else if (kind == 2) options.mixes = true;
-                    else if (kind == 3) options.scenes = true;
+                    applyLibraryExportKind(options, kinds.get(i));
                 }
                 if (!options.ponies && !options.background && !options.mixes && !options.scenes) {
                     showAlertDialog(getString(R.string.library_export_nothing_selected_title),
@@ -2087,8 +2089,18 @@ public class Settings extends AppCompatActivity
             return getString(R.string.library_import_list_three,
                     parts.get(0), parts.get(1), parts.get(2));
         }
-        return getString(R.string.library_import_list_four,
-                parts.get(0), parts.get(1), parts.get(2), parts.get(3));
+        if (parts.size() == 4) {
+            return getString(R.string.library_import_list_four,
+                    parts.get(0), parts.get(1), parts.get(2), parts.get(3));
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < parts.size(); i++) {
+            if (i > 0) {
+                sb.append(i == parts.size() - 1 ? ", and " : ", ");
+            }
+            sb.append(parts.get(i));
+        }
+        return sb.toString();
     }
 
     /**
@@ -2124,22 +2136,22 @@ public class Settings extends AppCompatActivity
         final ArrayList<Integer> kinds = new ArrayList<Integer>();
         if (peek.ponyCount > 0) {
             labels.add(getString(R.string.library_import_item_ponies, peek.ponyCount));
-            kinds.add(0);
+            kinds.add(LIBRARY_KIND_PONIES);
         }
         if (peek.hasBackground) {
             boolean willReplaceBg = CustomStorage.hasLocalBackground(this);
             labels.add(willReplaceBg
                     ? getString(R.string.library_import_item_background_replace)
                     : getString(R.string.library_import_item_background));
-            kinds.add(1);
+            kinds.add(LIBRARY_KIND_BACKGROUND);
         }
         if (peek.mixCount > 0) {
             labels.add(getString(R.string.library_import_item_mixes, peek.mixCount));
-            kinds.add(2);
+            kinds.add(LIBRARY_KIND_MIXES);
         }
         if (peek.sceneCount > 0) {
             labels.add(getString(R.string.library_import_item_scenes, peek.sceneCount));
-            kinds.add(3);
+            kinds.add(LIBRARY_KIND_SCENES);
         }
         final boolean[] checked = new boolean[labels.size()];
         for (int i = 0; i < checked.length; i++) checked[i] = true;
@@ -2164,11 +2176,7 @@ public class Settings extends AppCompatActivity
                 options.scenes = false;
                 for (int i = 0; i < checked.length; i++) {
                     if (!checked[i]) continue;
-                    int kind = kinds.get(i);
-                    if (kind == 0) options.ponies = true;
-                    else if (kind == 1) options.background = true;
-                    else if (kind == 2) options.mixes = true;
-                    else if (kind == 3) options.scenes = true;
+                    applyLibraryImportKind(options, kinds.get(i));
                 }
                 if (!options.ponies && !options.background && !options.mixes && !options.scenes) {
                     showAlertDialog(getString(R.string.library_import_nothing_selected_title),
@@ -2180,6 +2188,20 @@ public class Settings extends AppCompatActivity
         });
         builder.setNegativeButton(R.string.dialog_cancel, null);
         builder.create().show();
+    }
+
+    private static void applyLibraryExportKind(CustomStorage.ExportOptions options, int kind) {
+        if (kind == LIBRARY_KIND_PONIES) options.ponies = true;
+        else if (kind == LIBRARY_KIND_BACKGROUND) options.background = true;
+        else if (kind == LIBRARY_KIND_MIXES) options.mixes = true;
+        else if (kind == LIBRARY_KIND_SCENES) options.scenes = true;
+    }
+
+    private static void applyLibraryImportKind(CustomStorage.ImportOptions options, int kind) {
+        if (kind == LIBRARY_KIND_PONIES) options.ponies = true;
+        else if (kind == LIBRARY_KIND_BACKGROUND) options.background = true;
+        else if (kind == LIBRARY_KIND_MIXES) options.mixes = true;
+        else if (kind == LIBRARY_KIND_SCENES) options.scenes = true;
     }
 
     private void runImportLibraryZip(final Uri source, final CustomStorage.ImportOptions options) {
@@ -2227,8 +2249,16 @@ public class Settings extends AppCompatActivity
         int skippedCount = result.skipped + result.mixesSkipped + result.scenesSkipped;
         if (result.poniesAdded == 0 && !result.backgroundImported
                 && mixCount == 0 && sceneCount == 0) {
+            if (skippedCount <= 0) {
+                showAlertDialog(getString(R.string.library_import_ok_title),
+                        getString(R.string.library_import_nothing));
+                return;
+            }
+            // Cap-full / invalid entries: peek found content, but nothing was kept.
             showAlertDialog(getString(R.string.library_import_ok_title),
-                    getString(R.string.library_import_nothing));
+                    getString(R.string.library_import_ok_message,
+                            getString(R.string.library_import_none_kept),
+                            getString(R.string.library_import_skipped, skippedCount)));
             return;
         }
         ArrayList<String> parts = new ArrayList<String>();
