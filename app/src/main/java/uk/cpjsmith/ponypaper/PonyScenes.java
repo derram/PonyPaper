@@ -1,6 +1,7 @@
 package uk.cpjsmith.ponypaper;
 
 import android.content.SharedPreferences;
+import android.graphics.Rect;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -49,28 +50,75 @@ final class PonyScenes {
 
     static final class TableauSlot {
         final String ponyKey;
+        /** Portrait (default) feet X in [0, 1]. */
         final float xNorm;
+        /** Portrait (default) feet Y in [0, 1]. */
         final float yNorm;
+        /**
+         * Landscape feet X; only meaningful when {@link #hasLandNorms}.
+         * Absent landscape falls back to {@link #xNorm}/{@link #yNorm}.
+         */
+        final float xNormLand;
+        final float yNormLand;
+        final boolean hasLandNorms;
         final String[] actions;
         final String facing;
 
         TableauSlot(String ponyKey, float xNorm, float yNorm, String[] actions,
                 String facing) {
+            this(ponyKey, xNorm, yNorm, false, 0f, 0f, actions, facing);
+        }
+
+        TableauSlot(String ponyKey, float xNorm, float yNorm,
+                boolean hasLandNorms, float xNormLand, float yNormLand,
+                String[] actions, String facing) {
             this.ponyKey = ponyKey != null ? ponyKey : "";
             this.xNorm = clamp01(xNorm);
             this.yNorm = clamp01(yNorm);
+            this.hasLandNorms = hasLandNorms;
+            this.xNormLand = clamp01(xNormLand);
+            this.yNormLand = clamp01(yNormLand);
             this.actions = normalizeActions(actions);
             this.facing = normalizeFacing(facing);
+        }
+
+        /** Effective feet X for the given surface orientation. */
+        float xFor(boolean landscape) {
+            return landscape && hasLandNorms ? xNormLand : xNorm;
+        }
+
+        /** Effective feet Y for the given surface orientation. */
+        float yFor(boolean landscape) {
+            return landscape && hasLandNorms ? yNormLand : yNorm;
+        }
+
+        TableauSlot withPortraitNorms(float x, float y) {
+            return new TableauSlot(ponyKey, x, y, hasLandNorms, xNormLand,
+                    yNormLand, actions, facing);
+        }
+
+        TableauSlot withLandNorms(float x, float y) {
+            return new TableauSlot(ponyKey, xNorm, yNorm, true, x, y, actions,
+                    facing);
         }
 
         /** Hot fields only (norms / facing / actions); ignores ponyKey. */
         boolean sameHot(TableauSlot other) {
             if (other == null) return false;
-            return xNorm == other.xNorm
-                    && yNorm == other.yNorm
-                    && facing.equals(other.facing)
+            if (xNorm != other.xNorm || yNorm != other.yNorm) return false;
+            if (hasLandNorms != other.hasLandNorms) return false;
+            if (hasLandNorms && (xNormLand != other.xNormLand
+                    || yNormLand != other.yNormLand)) {
+                return false;
+            }
+            return facing.equals(other.facing)
                     && actionsEqual(actions, other.actions);
         }
+    }
+
+    /** True when the drawable clip is landscape (width ≥ height). */
+    static boolean clipIsLandscape(Rect clip) {
+        return clip != null && clip.width() >= clip.height();
     }
 
     static final class TableauScene {
@@ -341,17 +389,19 @@ final class PonyScenes {
     }
 
     /**
-     * Hot path: update one active slot's xNorm/yNorm only (no epoch bump).
-     * No-op when the index is missing or norms are already equal after clamp.
+     * Hot path: update one active slot's norms for one orientation (no epoch
+     * bump). Landscape is copy-on-write ({@code xNormLand}/{@code yNormLand});
+     * portrait updates {@code xNorm}/{@code yNorm}. No-op when unchanged.
      */
     static void writeActiveSlotNormsHot(SharedPreferences prefs, int index,
-            float xNorm, float yNorm) {
+            boolean landscape, float xNorm, float yNorm) {
         if (prefs == null || index < 0) return;
         TableauScene scene = loadActiveScene(prefs);
         if (scene == null || index >= scene.slots.size()) return;
         TableauSlot old = scene.slots.get(index);
-        TableauSlot updated = new TableauSlot(old.ponyKey, xNorm, yNorm,
-                old.actions, old.facing);
+        TableauSlot updated = landscape
+                ? old.withLandNorms(xNorm, yNorm)
+                : old.withPortraitNorms(xNorm, yNorm);
         if (old.sameHot(updated)) return;
         ArrayList<TableauSlot> slots = new ArrayList<TableauSlot>(scene.slots);
         slots.set(index, updated);
@@ -446,6 +496,10 @@ final class PonyScenes {
             s.put("ponyKey", slot.ponyKey);
             s.put("xNorm", slot.xNorm);
             s.put("yNorm", slot.yNorm);
+            if (slot.hasLandNorms) {
+                s.put("xNormLand", slot.xNormLand);
+                s.put("yNormLand", slot.yNormLand);
+            }
             JSONArray actions = new JSONArray();
             for (int a = 0; a < slot.actions.length; a++) {
                 actions.put(slot.actions[a]);
@@ -475,10 +529,14 @@ final class PonyScenes {
                     actions[a] = actionArr.optString(a, "");
                 }
             }
+            boolean hasLand = obj.has("xNormLand") && obj.has("yNormLand");
             out.add(new TableauSlot(
                     ponyKey,
                     (float) obj.optDouble("xNorm", 0.5),
                     (float) obj.optDouble("yNorm", 0.5),
+                    hasLand,
+                    hasLand ? (float) obj.optDouble("xNormLand", 0.5) : 0f,
+                    hasLand ? (float) obj.optDouble("yNormLand", 0.5) : 0f,
                     actions,
                     obj.optString("facing", Pony.FACING_RANDOM)));
         }

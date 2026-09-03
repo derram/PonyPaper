@@ -3,6 +3,7 @@ package uk.cpjsmith.ponypaper;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -185,10 +186,15 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
             String title = getString(R.string.pref_tableau_slot_title,
                     i + 1, ponyTitle(draft.ponyKey));
             String facingLabel = facingLabel(draft.facing);
+            boolean land = editingLandscape();
+            String orientLabel = land
+                    ? getString(R.string.pref_tableau_orient_landscape)
+                    : getString(R.string.pref_tableau_orient_portrait);
             String summary = getString(R.string.pref_tableau_slot_summary,
+                    orientLabel,
                     facingLabel,
-                    Math.round(draft.xNorm * 100f),
-                    Math.round(draft.yNorm * 100f),
+                    Math.round(draft.xFor(land) * 100f),
+                    Math.round(draft.yFor(land) * 100f),
                     draft.actions.size());
             if (i >= cap) {
                 // Annotate + dim clipped slots; still editable / saved.
@@ -406,8 +412,10 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
     }
 
     private void showPercentPicker(final int index, final boolean horizontal) {
+        final boolean land = editingLandscape();
+        SlotDraft draft = slots.get(index);
         int current = Math.round(
-                (horizontal ? slots.get(index).xNorm : slots.get(index).yNorm) * 100f);
+                (horizontal ? draft.xFor(land) : draft.yFor(land)) * 100f);
         if (current < 0) current = 0;
         if (current > 100) current = 100;
         final NumberPicker picker = new NumberPicker(requireContext());
@@ -421,27 +429,34 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
         wrap.setPadding(pad, pad / 2, pad, 0);
         wrap.setOrientation(LinearLayout.VERTICAL);
         wrap.addView(picker);
+        String orientLabel = land
+                ? getString(R.string.pref_tableau_orient_landscape)
+                : getString(R.string.pref_tableau_orient_portrait);
         new AlertDialog.Builder(requireContext())
                 .setTitle(horizontal
-                        ? R.string.pref_tableau_slot_edit_x
-                        : R.string.pref_tableau_slot_edit_y)
+                        ? getString(R.string.pref_tableau_slot_edit_x_orient,
+                                orientLabel)
+                        : getString(R.string.pref_tableau_slot_edit_y_orient,
+                                orientLabel))
                 .setView(wrap)
                 .setPositiveButton(android.R.string.ok,
                         new DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
                                 float norm = picker.getValue() / 100f;
-                                if (horizontal) {
-                                    slots.get(index).xNorm = norm;
-                                } else {
-                                    slots.get(index).yNorm = norm;
-                                }
+                                slots.get(index).setNorm(land, horizontal, norm);
                                 scheduleHotWrite();
                                 rebuildSlotPreferences();
                             }
                         })
                 .setNegativeButton(R.string.dialog_cancel, null)
                 .show();
+    }
+
+    /** Settings edits follow the device orientation (not an explicit toggle). */
+    private boolean editingLandscape() {
+        return getResources().getConfiguration().orientation
+                == Configuration.ORIENTATION_LANDSCAPE;
     }
 
     private void addSlot() {
@@ -770,6 +785,9 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
         String ponyKey = "";
         float xNorm = 0.5f;
         float yNorm = 0.5f;
+        float xNormLand = 0.5f;
+        float yNormLand = 0.5f;
+        boolean hasLandNorms;
         String facing = Pony.FACING_RANDOM;
         final ArrayList<String> actions = new ArrayList<String>();
 
@@ -779,6 +797,9 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
             d.ponyKey = slot.ponyKey;
             d.xNorm = slot.xNorm;
             d.yNorm = slot.yNorm;
+            d.hasLandNorms = slot.hasLandNorms;
+            d.xNormLand = slot.xNormLand;
+            d.yNormLand = slot.yNormLand;
             d.facing = slot.facing;
             if (slot.actions != null) {
                 d.actions.addAll(Arrays.asList(slot.actions));
@@ -791,14 +812,44 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
             d.ponyKey = ponyKey;
             d.xNorm = xNorm;
             d.yNorm = yNorm;
+            d.xNormLand = xNormLand;
+            d.yNormLand = yNormLand;
+            d.hasLandNorms = hasLandNorms;
             d.facing = facing;
             d.actions.addAll(actions);
             return d;
         }
 
+        float xFor(boolean landscape) {
+            return landscape && hasLandNorms ? xNormLand : xNorm;
+        }
+
+        float yFor(boolean landscape) {
+            return landscape && hasLandNorms ? yNormLand : yNorm;
+        }
+
+        /**
+         * Write one axis for the given orientation. Landscape is copy-on-write
+         * from the effective (fallback) position when first customized.
+         */
+        void setNorm(boolean landscape, boolean horizontal, float norm) {
+            if (landscape) {
+                if (!hasLandNorms) {
+                    xNormLand = xNorm;
+                    yNormLand = yNorm;
+                    hasLandNorms = true;
+                }
+                if (horizontal) xNormLand = norm;
+                else yNormLand = norm;
+            } else {
+                if (horizontal) xNorm = norm;
+                else yNorm = norm;
+            }
+        }
+
         PonyScenes.TableauSlot toSlot() {
             return new PonyScenes.TableauSlot(
-                    ponyKey, xNorm, yNorm,
+                    ponyKey, xNorm, yNorm, hasLandNorms, xNormLand, yNormLand,
                     actions.toArray(new String[actions.size()]),
                     facing);
         }

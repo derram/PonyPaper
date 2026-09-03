@@ -92,7 +92,7 @@
     <string name="pref_tableau_add_slot_title">Add slot</string>
     <string name="pref_tableau_add_slot_summary">Up to %1$d posed characters</string>
     <string name="pref_tableau_slot_title">Slot %1$d — %2$s</string>
-    <string name="pref_tableau_slot_summary">%1$s · X %2$d%% · Y %3$d%% · %4$d actions</string>
+    <string name="pref_tableau_slot_summary">%1$s · %2$s · X %3$d%% · Y %4$d%% · %5$d actions</string>
     <string name="pref_tableau_slot_hidden_suffix"> · Hidden while battery/power limits apply (still saved)</string>
     <string name="pref_tableau_actions_max_toast">At most %1$d actions per slot</string>
     <string name="pref_tableau_slot_full_title">Too many slots</string>
@@ -103,6 +103,10 @@
     <string name="pref_tableau_slot_edit_facing">Facing</string>
     <string name="pref_tableau_slot_edit_x">Horizontal position (%)</string>
     <string name="pref_tableau_slot_edit_y">Vertical position (%)</string>
+    <string name="pref_tableau_slot_edit_x_orient">Horizontal position (%%) — %1$s</string>
+    <string name="pref_tableau_slot_edit_y_orient">Vertical position (%%) — %1$s</string>
+    <string name="pref_tableau_orient_portrait">Portrait</string>
+    <string name="pref_tableau_orient_landscape">Landscape</string>
     <string name="pref_tableau_slot_duplicate">Duplicate</string>
     <string name="pref_tableau_slot_move_up">Move up</string>
     <string name="pref_tableau_slot_move_down">Move down</string>

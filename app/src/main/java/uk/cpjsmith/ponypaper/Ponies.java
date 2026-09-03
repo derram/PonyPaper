@@ -208,8 +208,11 @@ public class Ponies implements Pony.EffectHost {
         Pony pony = findPinnedByTableauSlot(index);
         if (pony == null) return;
 
-        boolean normsChanged = pony.pinXNorm != slot.xNorm
-                || pony.pinYNorm != slot.yNorm;
+        boolean normsChanged = pony.pinXNormPort != slot.xNorm
+                || pony.pinYNormPort != slot.yNorm
+                || pony.hasLandNorms != slot.hasLandNorms
+                || (slot.hasLandNorms && (pony.pinXNormLand != slot.xNormLand
+                        || pony.pinYNormLand != slot.yNormLand));
         boolean facingChanged = !slot.facing.equals(pony.facingPolicy);
         PonyAction[] newBag = TableauBuilder.resolveWaitBag(pony, slot.actions);
         if (newBag == null || newBag.length == 0) return;
@@ -218,8 +221,18 @@ public class Ponies implements Pony.EffectHost {
         if (!normsChanged && !facingChanged && !actionsChanged) return;
 
         if (normsChanged) {
-            pony.setPinNorms(slot.xNorm, slot.yNorm);
-            pony.moveFeetToPin(clip);
+            boolean land = PonyScenes.clipIsLandscape(clip);
+            float oldX = land && pony.hasLandNorms
+                    ? pony.pinXNormLand : pony.pinXNormPort;
+            float oldY = land && pony.hasLandNorms
+                    ? pony.pinYNormLand : pony.pinYNormPort;
+            float newX = slot.xFor(land);
+            float newY = slot.yFor(land);
+            pony.setPinNormsFromSlot(slot);
+            // Only move when the active orientation's effective feet change.
+            if (oldX != newX || oldY != newY) {
+                pony.moveFeetToPin(clip);
+            }
         }
         if (facingChanged) {
             pony.setFacingPolicy(slot.facing, PonyAction.LEFT);
@@ -231,8 +244,7 @@ public class Ponies implements Pony.EffectHost {
             // Switching to random: keep current direction until next setWaiting.
         }
         if (actionsChanged) {
-            TableauPin.pin(pony, pony.pinXNorm, pony.pinYNorm, newBag,
-                    pony.facingPolicy);
+            TableauPin.applyWaitBag(pony, newBag);
             if (!actionInBag(pony.getCurrentAction(), newBag)) {
                 pony.changeActionKeepingWait(newBag[0]);
             }
@@ -707,7 +719,8 @@ public class Ponies implements Pony.EffectHost {
         int jsonIndex = pony.getTableauSlotIndex();
         if (jsonIndex < 0) return;
         PonyScenes.writeActiveSlotNormsHot(tableauPrefs, jsonIndex,
-                pony.pinXNorm, pony.pinYNorm);
+                pony.pinClipIsLandscape(),
+                pony.effectivePinXNorm(), pony.effectivePinYNorm());
     }
 
     /** Live pinned pony for a full-JSON slot index, or null if clipped/absent. */

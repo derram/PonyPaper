@@ -202,7 +202,7 @@ final class TableauBuilder {
         if (pony == null) return null;
         PonyAction[] bag = resolveWaitBag(pony, slot.actions);
         if (bag == null || bag.length == 0) return null;
-        TableauPin.pin(pony, slot.xNorm, slot.yNorm, bag, slot.facing);
+        TableauPin.pin(pony, slot, bag);
         return pony;
     }
 

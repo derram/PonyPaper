@@ -65,8 +65,13 @@ public class Pony {
 
     /** When true, suppress travel/leave and re-pin after {@link #reset()}. */
     boolean pinned;
-    float pinXNorm;
-    float pinYNorm;
+    /** Portrait (default) pin norms. */
+    float pinXNormPort;
+    float pinYNormPort;
+    /** Landscape pin norms; used when {@link #hasLandNorms}. */
+    float pinXNormLand;
+    float pinYNormLand;
+    boolean hasLandNorms;
     /**
      * Full active-JSON slot index for this pinned pony, or {@code -1}. Stable
      * across Y-sort of the live herd array.
@@ -265,9 +270,38 @@ public class Pony {
         }
     }
 
+    /** Portrait-only norms; clears any landscape override. */
     void setPinNorms(float xNorm, float yNorm) {
-        pinXNorm = xNorm;
-        pinYNorm = yNorm;
+        setPinNorms(xNorm, yNorm, false, 0f, 0f);
+    }
+
+    void setPinNorms(float xPort, float yPort, boolean hasLand,
+            float xLand, float yLand) {
+        pinXNormPort = clamp01(xPort);
+        pinYNormPort = clamp01(yPort);
+        hasLandNorms = hasLand;
+        pinXNormLand = clamp01(xLand);
+        pinYNormLand = clamp01(yLand);
+    }
+
+    void setPinNormsFromSlot(PonyScenes.TableauSlot slot) {
+        if (slot == null) return;
+        setPinNorms(slot.xNorm, slot.yNorm, slot.hasLandNorms, slot.xNormLand,
+                slot.yNormLand);
+    }
+
+    /** True when the current clip is landscape (width ≥ height). */
+    boolean pinClipIsLandscape() {
+        return screenBounds != null
+                && screenBounds.width() >= screenBounds.height();
+    }
+
+    float effectivePinXNorm() {
+        return pinClipIsLandscape() && hasLandNorms ? pinXNormLand : pinXNormPort;
+    }
+
+    float effectivePinYNorm() {
+        return pinClipIsLandscape() && hasLandNorms ? pinYNormLand : pinYNormPort;
     }
 
     void setTableauSlotIndex(int index) {
@@ -376,11 +410,11 @@ public class Pony {
     }
 
     private float pinnedFeetX() {
-        return screenBounds.left + pinXNorm * screenBounds.width();
+        return screenBounds.left + effectivePinXNorm() * screenBounds.width();
     }
 
     private float pinnedFeetY() {
-        return screenBounds.top + pinYNorm * screenBounds.height();
+        return screenBounds.top + effectivePinYNorm() * screenBounds.height();
     }
 
     /**
@@ -402,10 +436,18 @@ public class Pony {
     private void commitDraggedPin() {
         if (screenBounds != null && screenBounds.width() > 0
                 && screenBounds.height() > 0) {
-            pinXNorm = clamp01(
+            float x = clamp01(
                     (posX - screenBounds.left) / screenBounds.width());
-            pinYNorm = clamp01(
+            float y = clamp01(
                     (posY - screenBounds.top) / screenBounds.height());
+            if (pinClipIsLandscape()) {
+                pinXNormLand = x;
+                pinYNormLand = y;
+                hasLandNorms = true;
+            } else {
+                pinXNormPort = x;
+                pinYNormPort = y;
+            }
             posX = pinnedFeetX();
             posY = pinnedFeetY();
         }
