@@ -182,10 +182,11 @@ public class Ponies implements Pony.EffectHost {
     }
 
     /**
-     * Hardcoded 3-pony lower-third demo for Tableau runtime verification.
-     * PR2's {@code TableauBuilder} replaces this entry point.
+     * Hardcoded 3-pony lower-third demo slots (document order = truncation
+     * priority). {@link TableauBuilder} truncates to the live cap then
+     * constructs the herd.
      */
-    static Ponies createTableauDemo(Context context, SharedPreferences prefs) {
+    static ArrayList<Pony> createTableauDemoSlots(Context context) {
         ArrayList<Pony> slots = new ArrayList<Pony>(3);
         Pony ts = AllPonies.createPony(context, "pref_ts");
         Pony fs = AllPonies.createPony(context, "pref_fs");
@@ -204,7 +205,7 @@ public class Ponies implements Pony.EffectHost {
         slots.add(ts);
         slots.add(fs);
         slots.add(aj);
-        return new Ponies(context, slots, prefs);
+        return slots;
     }
 
     private void wireEffectHosts(ArrayList<Pony> ponies) {

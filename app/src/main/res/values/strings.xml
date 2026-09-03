@@ -70,7 +70,9 @@
     <string name="pref_scene_mode_wander">World wander mode</string>
     <string name="pref_scene_mode_berry_punch">Berry Punch mode</string>
     <string name="pref_scene_mode_my_question">My ??? Pony mode</string>
+    <string name="pref_scene_mode_tableau">Tableau mode</string>
     <string name="pref_pony_size_randomized_summary">Randomized by My ??? Pony mode</string>
+    <string name="pref_num_ponies_tableau_summary">Tableau scene slots set the pony count</string>
     <string name="pref_select_background_summary">Same image for the live wallpaper and screen saver</string>
     <string name="pref_clear_background_title">Clear background</string>
     <string name="pref_clear_background_summary">Remove the shared background image</string>

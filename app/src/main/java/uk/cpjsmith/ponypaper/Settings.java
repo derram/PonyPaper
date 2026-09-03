@@ -410,19 +410,46 @@ public class Settings extends AppCompatActivity
     }
 
     /**
-     * Character size is unused under My ??? Pony; disable it and explain why.
+     * Scene-mode side effects on Display prefs. Character size is unused under
+     * My ??? Pony; Tableau keeps it enabled (global size) but owns population
+     * via slots + caps, so num-ponies pickers are disabled.
      * {@code mode} is the scene-mode value that will apply (may be the pending
      * preference change before SharedPreferences has stored it).
      */
     private void refreshCharacterSizeAvailability(String mode) {
-        ListPreference size = (ListPreference) findPreference(PonySize.PREF_KEY);
-        if (size == null) return;
         boolean random = SceneMode.MY_QUESTION.equals(mode);
-        size.setEnabled(!random);
-        if (random) {
-            size.setSummary(R.string.pref_pony_size_randomized_summary);
-        } else {
-            size.setSummary("%s");
+        boolean tableau = SceneMode.TABLEAU.equals(mode);
+
+        ListPreference size = (ListPreference) findPreference(PonySize.PREF_KEY);
+        if (size != null) {
+            size.setEnabled(!random);
+            if (random) {
+                size.setSummary(R.string.pref_pony_size_randomized_summary);
+            } else {
+                size.setSummary("%s");
+            }
+        }
+
+        Preference numPonies = findPreference(PonySceneController.PREF_NUM_PONIES);
+        if (numPonies != null) {
+            numPonies.setEnabled(!tableau);
+            if (tableau) {
+                numPonies.setSummary(R.string.pref_num_ponies_tableau_summary);
+            } else {
+                numPonies.setSummary(null);
+            }
+        }
+        Preference dreamNumPonies =
+                findPreference(PonySceneController.PREF_DREAM_NUM_PONIES);
+        if (dreamNumPonies != null) {
+            // Parent dependency on pref_dream_custom_display still applies when
+            // enabled; force off while Tableau owns population.
+            dreamNumPonies.setEnabled(!tableau);
+            if (tableau) {
+                dreamNumPonies.setSummary(R.string.pref_num_ponies_tableau_summary);
+            } else {
+                dreamNumPonies.setSummary(null);
+            }
         }
     }
 

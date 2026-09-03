@@ -108,7 +108,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /** Maximum FPS while system Battery Saver is active. */
     private static final int BATTERY_SAVER_MAX_FPS = 25;
     /** Maximum on-screen ponies while system Battery Saver is active. */
-    private static final int BATTERY_SAVER_MAX_PONIES = 3;
+    static final int BATTERY_SAVER_MAX_PONIES = 3;
 
     /**
      * Thermal status codes matching {@link PowerManager} (API 29+). Inlined so
@@ -125,7 +125,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      */
     private static final int THERMAL_MODERATE_MAX_FPS = 15;
     /** Maximum on-screen ponies while effective thermal status is MODERATE or SEVERE. */
-    private static final int THERMAL_MODERATE_MAX_PONIES = 2;
+    static final int THERMAL_MODERATE_MAX_PONIES = 2;
     /**
      * Battery {@link BatteryManager#EXTRA_TEMPERATURE} (tenths of °C) treated as
      * MODERATE when the Thermal API is unavailable or cooler than the pack.
@@ -563,7 +563,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 Ponies herd = null;
                 Bitmap bg = null;
                 try {
-                    herd = new Ponies(appContext, prefs, ponyCount);
+                    if (SceneMode.isTableau(prefs)) {
+                        herd = TableauBuilder.build(appContext, prefs, ponyCount);
+                    } else {
+                        herd = new Ponies(appContext, prefs, ponyCount);
+                    }
                     herd.preloadActiveSprites();
                 } catch (RuntimeException e) {
                     Log.e("PonyPaper", "Failed to build pony herd", e);
@@ -1211,6 +1215,15 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     private int getEffectivePonyCount(SharedPreferences prefs) {
+        // Tableau ignores pref_num_ponies / pref_dream_num_ponies; slot list +
+        // the same power/thermal/software clamps decide how many stay on screen.
+        if (SceneMode.isTableau(prefs)) {
+            return TableauBuilder.getTableauCap(
+                    shouldApplyBatterySaverLimits(prefs),
+                    shouldUseDefaultPoniesOnBattery(prefs),
+                    shouldApplySoftwareCanvasLimits(),
+                    shouldApplyThermalThrottle());
+        }
         int count = preferredPonyCount(prefs);
         if (count < 1) count = DEFAULT_NUM_PONIES;
         if (shouldApplyBatterySaverLimits(prefs)) {
@@ -1588,6 +1601,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             reapplyPowerProfilePrefs(prefs);
             return;
         }
+        if (PREF_NUM_PONIES.equals(key) && SceneMode.isTableau(prefs)) {
+            return;
+        }
         if (useDreamDisplayOverrides(prefs)
                 && (PREF_NUM_PONIES.equals(key) || PREF_BACKGROUND.equals(key))) {
             return;
@@ -1614,7 +1630,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             applyTargetFpsAndRedraw(prefs);
             return;
         }
-        if (PREF_DREAM_NUM_PONIES.equals(key) || PREF_DREAM_BACKGROUND.equals(key)) {
+        if (PREF_DREAM_NUM_PONIES.equals(key)) {
+            if (SceneMode.isTableau(prefs)) return;
+            if (!useDreamDisplayOverrides(prefs)) return;
+            scheduleDropHerd();
+            return;
+        }
+        if (PREF_DREAM_BACKGROUND.equals(key)) {
             if (!useDreamDisplayOverrides(prefs)) return;
             scheduleDropHerd();
             return;
