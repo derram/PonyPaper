@@ -146,8 +146,9 @@ final class TableauBuilder {
     }
 
     /**
-     * True when {@link #tryResolveSlot} would return non-null for a creatable
-     * pony key (wait-bag still falls back via catalog / {@code allActions[0]}).
+     * True when the slot has a creatable pony key. Actual pin still requires a
+     * resolvable wait bag (selectable ids or preferred stand); empty-selectable
+     * catalogs drop the slot in {@link #tryResolveSlot}.
      */
     static boolean canResolveSlot(PonyScenes.TableauSlot slot) {
         return slot != null

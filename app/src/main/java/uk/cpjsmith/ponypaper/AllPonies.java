@@ -12,7 +12,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import javax.xml.parsers.DocumentBuilder;
 import org.w3c.dom.Document;
 
@@ -227,16 +226,20 @@ public class AllPonies {
         return catalog.byId.get(first);
     }
 
+    /** Package-local maker — avoids {@code java.util.function} (API 24+) on minSdk 21. */
+    private interface BuiltInMaker {
+        Pony make(Resources res);
+    }
+
     /**
      * Single factory table for built-ins — kept in sync with
      * {@link BuiltInActionIds#allKeys()} and {@link #stockGroups()} via
      * {@link #selfCheck()}.
      */
-    private static final Map<String, Function<Resources, Pony>> BUILTIN_BY_KEY;
+    private static final Map<String, BuiltInMaker> BUILTIN_BY_KEY;
 
     static {
-        HashMap<String, Function<Resources, Pony>> m =
-                new HashMap<String, Function<Resources, Pony>>();
+        HashMap<String, BuiltInMaker> m = new HashMap<String, BuiltInMaker>();
         m.put("pref_ab", AllPonies::makeAppleBloom);
         m.put("pref_aj", AllPonies::makeApplejack);
         m.put("pref_babs", AllPonies::makeBabsSeed);
@@ -289,8 +292,8 @@ public class AllPonies {
     }
 
     private static Pony makeBuiltIn(Resources res, String ponyKey) {
-        Function<Resources, Pony> maker = BUILTIN_BY_KEY.get(ponyKey);
-        return maker != null ? maker.apply(res) : null;
+        BuiltInMaker maker = BUILTIN_BY_KEY.get(ponyKey);
+        return maker != null ? maker.make(res) : null;
     }
 
     /**

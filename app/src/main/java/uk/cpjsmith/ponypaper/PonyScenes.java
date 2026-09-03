@@ -244,8 +244,8 @@ final class PonyScenes {
     }
 
     /**
-     * Built-in lower-third demo (TS / FS / AJ). Action id strings are stored
-     * for PR4; runtime falls back to {@code allActions[0]} until then.
+     * Built-in lower-third demo (TS / FS / AJ) with stable selectable action
+     * ids resolved through {@link AllPonies#buildActionCatalog}.
      */
     static TableauScene demoScene() {
         ArrayList<TableauSlot> slots = new ArrayList<TableauSlot>(3);
