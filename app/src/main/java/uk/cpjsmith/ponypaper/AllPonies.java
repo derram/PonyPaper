@@ -1009,11 +1009,7 @@ public class AllPonies {
                 concat(waitIdlesU, groundGaitsU,
                         new PonyAction[] {owlTrot, teleportOutU, teleportInU, dragU}));
         PonyAction[] start = concat(moveStatesA, moveStatesU);
-        // owl_trot:2 plus non-teleport start movers (alicorn trot/fly, unicorn trot).
-        PonyAction[] crossing = concat(
-                new PonyAction[] {owlTrot, owlTrot},
-                concat(groundGaitsA, justFlyA),
-                concat(groundGaitsU, groundGaitsU));
+        PonyAction[] crossing = {owlTrot};
 
         Pony pony = new Pony(all, start);
         pony.setCrossingActions(crossing);
