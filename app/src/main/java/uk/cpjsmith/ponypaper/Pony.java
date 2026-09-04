@@ -1382,6 +1382,10 @@ public class Pony {
     /**
      * Continues or starts a horizontal crossing exit from the current feet
      * position (drag release / accidental wait under World Flow).
+     *
+     * <p>Reuses the current clip only when already {@link #MOTION_MOVING}:
+     * wait and drag actions are also {@link PonyAction#NORMAL} typed, so a
+     * type-only check would keep the drag sheet while the pony walks away.
      */
     private void resumeWorldFlowExit() {
         if (screenBounds == null) {
@@ -1399,7 +1403,11 @@ public class Pony {
         Point exit = new Point(
                 leaveLeft ? screenBounds.left - s : screenBounds.right + s, y);
         PonyAction next = null;
-        if (currentAction != null && WorldFlow.isNormalTransit(currentAction.type)) {
+        // Drag/wait clips share NORMAL type with gaits; only keep a mover
+        // that is already mid-transit.
+        if (motion == MOTION_MOVING
+                && currentAction != null
+                && WorldFlow.isNormalTransit(currentAction.type)) {
             next = currentAction;
         } else {
             PonyAction[] bag = worldFlowSpawnBag();
