@@ -1182,6 +1182,13 @@ public class PonyDefinition {
     public Effect[] effects;
     public String startActions;
     /**
+     * Optional enter-and-always-leave spawn bag (walk on, walk straight off).
+     * Empty means no dedicated crossing spawns; ordinary {@link #startActions}
+     * keep the incidental 1-in-8 leave path. Same {@code name:N} weighting as
+     * start actions.
+     */
+    public String crossingActions;
+    /**
      * Pony-level drag successors used when an action has no drag override.
      * Empty means every action must list its own real drag next-actions
      * (legacy files).
@@ -1200,6 +1207,7 @@ public class PonyDefinition {
         actions = new Action[0];
         effects = new Effect[0];
         startActions = "";
+        crossingActions = "";
         defaultDrag = "";
         wander = WanderTarget.WANDER_HORIZONTAL;
     }
@@ -1240,6 +1248,12 @@ public class PonyDefinition {
                             errors.add("Too many <startactions> elements.");
                         } else {
                             startActions = getContent((Element)node, errors);
+                        }
+                    } else if (nodeName.equals("crossingactions")) {
+                        if (crossingActions != null) {
+                            errors.add("Too many <crossingactions> elements.");
+                        } else {
+                            crossingActions = getContent((Element)node, errors);
                         }
                     } else if (nodeName.equals("defaultdrag")) {
                         if (defaultDrag != null) {
@@ -1288,6 +1302,9 @@ public class PonyDefinition {
         
         this.actions = actions.toArray(new Action[actions.size()]);
         this.effects = effects.toArray(new Effect[effects.size()]);
+        if (crossingActions == null) {
+            crossingActions = "";
+        }
         if (defaultDrag == null) {
             defaultDrag = "";
         }
@@ -1544,6 +1561,8 @@ public class PonyDefinition {
             boolean hasMove = actionListHasReal(action.nextActions.get("moving"));
             boolean hasDrag = actionListHasReal(effectiveDragActions(action));
             boolean screenOut = SPECIAL_SCREEN_OUT.equals(action.specialType);
+            boolean crossingOnlyTransit = actionListContainsName(crossingActions, name)
+                    && isLeaveMover(action);
             if (screenOut) {
                 // Completion leaves the scene; next waiting/moving are unused.
                 if (!hasDrag) {
@@ -1554,7 +1573,8 @@ public class PonyDefinition {
             } else if (!action.loops) {
                 // One-shots may use none/- on waiting or moving so they fall through
                 // to the other axis; at least one of those two must be real.
-                if (!hasWait && !hasMove) {
+                // Crossing-only transit clips may leave both empty (forced leave).
+                if (!hasWait && !hasMove && !crossingOnlyTransit) {
                     errors.add("One-shot action " + name
                             + " needs a real next waiting or moving action (not only none/-).");
                 }
@@ -1564,7 +1584,8 @@ public class PonyDefinition {
                             + "none/- alone is not allowed for drag).");
                 }
             } else {
-                if (!hasWait) {
+                // Crossing-only walk cycles may omit waiting (never land as idle).
+                if (!hasWait && !crossingOnlyTransit) {
                     errors.add("Looping action " + name + " needs a real next waiting action.");
                 }
                 // Empty moving is allowed: sit/sleep/etc. re-pick waiting when
@@ -1576,9 +1597,26 @@ public class PonyDefinition {
             }
         }
         
-        validateActionList(startActions, "start actions", "", errors);
-        if (!actionListHasReal(startActions)) {
-            errors.add("Start actions must list at least one real action (not only none/-).");
+        if (actionListHasTokens(startActions)) {
+            validateActionList(startActions, "start actions", "", errors);
+        }
+        if (actionListHasTokens(crossingActions)) {
+            validateActionList(crossingActions, "crossing actions", "", errors);
+            List<ActionListEntry> crossEntries = parseActionList(crossingActions, null);
+            for (int i = 0; i < crossEntries.size(); i++) {
+                String n = crossEntries.get(i).name;
+                if (n.isEmpty() || isNoneToken(n)) {
+                    continue;
+                }
+                Action mover = findAction(n);
+                if (mover != null && !isLeaveMover(mover)) {
+                    errors.add("Crossing action " + n
+                            + " cannot leave the scene (not walk/fly, teleport-out, or screen-out).");
+                }
+            }
+        }
+        if (!actionListHasReal(startActions) && !actionListHasReal(crossingActions)) {
+            errors.add("Start or crossing actions must list at least one real action (not only none/-).");
         }
         
         if (actionListHasTokens(defaultDrag)) {
@@ -1686,7 +1724,7 @@ public class PonyDefinition {
     /**
      * Soft issues that do not make the pony unusable. Currently reports
      * actions that are defined but never reachable from {@link #startActions}
-     * via waiting, moving, or effective drag lists.
+     * or {@link #crossingActions} via waiting, moving, or effective drag lists.
      *
      * @return warning messages (empty when none); never {@code null}
      */
@@ -1703,21 +1741,28 @@ public class PonyDefinition {
             }
             if (!reachable.contains(name)) {
                 warnings.add("Action " + name
-                        + " is defined but not used (unreachable from start via waiting, moving, or drag).");
+                        + " is defined but not used (unreachable from start/crossing via waiting, moving, or drag).");
             }
         }
         return warnings;
     }
 
     /**
-     * True when some action reachable from {@link #startActions} via waiting
-     * and moving lists can start a leave (walk, teleport-out, or screen-out).
-     * Sit/sleep with {@code moving=none} do not count; they must reach a pose
-     * that is allowed to leave. Drag is ignored here — dragging is not how
-     * the wallpaper rotates the herd off-screen.
+     * True when some action reachable from {@link #startActions} or
+     * {@link #crossingActions} via waiting and moving lists can leave the
+     * scene (walk, teleport-out, or screen-out), or when a crossing entry is
+     * itself a leave mover (forced walk-across spawn). Sit/sleep with
+     * {@code moving=none} do not count unless they reach a leave pose. Drag
+     * is ignored — dragging is not how the wallpaper rotates the herd.
      */
     private boolean canReachSceneExit() {
-        if (actions == null || !actionListHasReal(startActions)) {
+        if (actions == null) {
+            return false;
+        }
+        if (crossingHasLeaveMover()) {
+            return true;
+        }
+        if (!actionListHasReal(startActions)) {
             return false;
         }
         List<String> seen = new ArrayList<String>();
@@ -1737,18 +1782,42 @@ public class PonyDefinition {
         return false;
     }
 
+    /** True when {@link #crossingActions} lists at least one leave mover. */
+    private boolean crossingHasLeaveMover() {
+        if (!actionListHasReal(crossingActions)) {
+            return false;
+        }
+        List<ActionListEntry> entries = parseActionList(crossingActions, null);
+        for (int i = 0; i < entries.size(); i++) {
+            String n = entries.get(i).name;
+            if (n.isEmpty() || isNoneToken(n)) {
+                continue;
+            }
+            Action mover = findAction(n);
+            if (mover != null && isLeaveMover(mover)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
-     * Action names reachable from {@link #startActions} by following waiting,
-     * moving, and {@link #effectiveDragActions(Action) effective drag} lists.
+     * Action names reachable from {@link #startActions} and
+     * {@link #crossingActions} by following waiting, moving, and
+     * {@link #effectiveDragActions(Action) effective drag} lists.
      * Used for unused-action warnings; does not follow {@code spritesfrom}.
      */
     private List<String> reachableViaWaitMoveDrag() {
         List<String> seen = new ArrayList<String>();
-        if (actions == null || !actionListHasReal(startActions)) {
+        if (actions == null) {
+            return seen;
+        }
+        if (!actionListHasReal(startActions) && !actionListHasReal(crossingActions)) {
             return seen;
         }
         List<String> queue = new ArrayList<String>();
         addReachableNames(startActions, seen, queue);
+        addReachableNames(crossingActions, seen, queue);
         for (int i = 0; i < queue.size(); i++) {
             Action action = findAction(queue.get(i));
             if (action == null) {
@@ -1759,6 +1828,23 @@ public class PonyDefinition {
             addReachableNames(effectiveDragActions(action), seen, queue);
         }
         return seen;
+    }
+
+    /**
+     * True when {@code list} includes {@code name} as a real (non-{@code none})
+     * entry, ignoring weights.
+     */
+    public static boolean actionListContainsName(String list, String name) {
+        if (list == null || name == null || name.isEmpty() || isNoneToken(name)) {
+            return false;
+        }
+        List<ActionListEntry> entries = parseActionList(list, null);
+        for (int i = 0; i < entries.size(); i++) {
+            if (name.equals(entries.get(i).name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean actionCanStartLeave(Action action) {
@@ -2020,6 +2106,12 @@ public class PonyDefinition {
         writer.print("    <startactions>");
         writeCharacters(writer, startActions);
         writer.println("</startactions>");
+
+        if (actionListHasTokens(crossingActions)) {
+            writer.print("    <crossingactions>");
+            writeCharacters(writer, crossingActions);
+            writer.println("</crossingactions>");
+        }
         
         if (actionListHasTokens(defaultDrag)) {
             writer.print("    <defaultdrag>");

@@ -49,8 +49,12 @@ public class Pony {
     
     private static final PonyEffectDef[] NO_EFFECTS = new PonyEffectDef[0];
 
+    private static final PonyAction[] NO_ACTIONS = new PonyAction[0];
+
     private final PonyAction[] allActions;
     private PonyAction[] startActions;
+    /** Enter-and-always-leave spawn bag; empty when unused. */
+    private PonyAction[] crossingActions = NO_ACTIONS;
     private final PonyEffectDef[] effectDefs;
     /**
      * Soft destination preference for actions that inherit movement.
@@ -265,6 +269,14 @@ public class Pony {
         if (actions != null && actions.length > 0) {
             startActions = actions;
         }
+    }
+
+    /**
+     * Replaces the crossing (enter-and-leave) spawn bag. Empty or {@code null}
+     * clears dedicated crossing spawns.
+     */
+    void setCrossingActions(PonyAction[] actions) {
+        crossingActions = actions != null && actions.length > 0 ? actions : NO_ACTIONS;
     }
 
     public boolean isPinned() {
@@ -674,38 +686,52 @@ public class Pony {
             if (!actionsReady()) {
                 return;
             }
-            changeAction(startActions[random.nextInt(startActions.length)]);
-            if (currentAction.type == PonyAction.SCREEN_IN
-                    || currentAction.type == PonyAction.SCREEN_OUT) {
-                // Appear/vanish clips spawn on-screen and do not interpolate.
-                Point startOn = randomOnScreen();
-                posX = startOn.x;
-                posY = startOn.y;
-                motion = MOTION_SPECIAL;
-                if (currentAction.type == PonyAction.SCREEN_OUT) {
-                    leavingMode = LM_GOING;
-                }
-            } else if (currentAction.type == PonyAction.PORT_O
-                    || currentAction.type == PonyAction.PORT_I) {
-                // Scene enter via teleport: only the visible half. Spawning
-                // off-screen to play teleport-out lets VFX bleed at the gutter;
-                // land on-screen and play teleport-in (or keep in if that was
-                // the start pick). Mid-scene teleports still use the full pair.
-                if (currentAction.type == PonyAction.PORT_O) {
-                    setMoving();
-                }
-                Point startOn = randomOnScreen();
-                posX = startOn.x;
-                posY = startOn.y;
-                motion = MOTION_SPECIAL;
-                targetPos = null;
+            int startLen = startActions != null ? startActions.length : 0;
+            int crossLen = crossingActions != null ? crossingActions.length : 0;
+            int total = startLen + crossLen;
+            if (total == 0) {
+                leavingMode = LM_GONE;
+                return;
+            }
+            int pick = random.nextInt(total);
+            boolean crossingSpawn = pick >= startLen;
+            if (crossingSpawn) {
+                changeAction(crossingActions[pick - startLen]);
+                beginCrossingEnter();
             } else {
-                Point startOff = randomOffScreen();
-                posX = startOff.x;
-                posY = startOff.y;
-                motion = currentAction.type == PonyAction.NORMAL
-                        ? MOTION_MOVING : MOTION_SPECIAL;
-                setRandomTarget();
+                changeAction(startActions[pick]);
+                if (currentAction.type == PonyAction.SCREEN_IN
+                        || currentAction.type == PonyAction.SCREEN_OUT) {
+                    // Appear/vanish clips spawn on-screen and do not interpolate.
+                    Point startOn = randomOnScreen();
+                    posX = startOn.x;
+                    posY = startOn.y;
+                    motion = MOTION_SPECIAL;
+                    if (currentAction.type == PonyAction.SCREEN_OUT) {
+                        leavingMode = LM_GOING;
+                    }
+                } else if (currentAction.type == PonyAction.PORT_O
+                        || currentAction.type == PonyAction.PORT_I) {
+                    // Scene enter via teleport: only the visible half. Spawning
+                    // off-screen to play teleport-out lets VFX bleed at the gutter;
+                    // land on-screen and play teleport-in (or keep in if that was
+                    // the start pick). Mid-scene teleports still use the full pair.
+                    if (currentAction.type == PonyAction.PORT_O) {
+                        setMoving();
+                    }
+                    Point startOn = randomOnScreen();
+                    posX = startOn.x;
+                    posY = startOn.y;
+                    motion = MOTION_SPECIAL;
+                    targetPos = null;
+                } else {
+                    Point startOff = randomOffScreen();
+                    posX = startOff.x;
+                    posY = startOff.y;
+                    motion = currentAction.type == PonyAction.NORMAL
+                            ? MOTION_MOVING : MOTION_SPECIAL;
+                    setRandomTarget();
+                }
             }
         } else if (deltaMs > 0) {
             // Animation rate comes from the current action (travel and idle).
@@ -1196,6 +1222,56 @@ public class Pony {
         if (leavingMode == LM_GOING) leavingMode = LM_GONE;
     }
     
+    /**
+     * Crossing spawn: enter from a gutter and always leave by the opposite
+     * gutter (no {@link SceneExit} roll). Special leave movers (screen-out /
+     * teleport-out) play in place and mark the pony as going.
+     */
+    private void beginCrossingEnter() {
+        if (currentAction.type == PonyAction.SCREEN_IN
+                || currentAction.type == PonyAction.SCREEN_OUT
+                || currentAction.type == PonyAction.PORT_O
+                || currentAction.type == PonyAction.PORT_I) {
+            Point startOn = randomOnScreen();
+            posX = startOn.x;
+            posY = startOn.y;
+            motion = MOTION_SPECIAL;
+            targetPos = null;
+            travelX = 0;
+            travelY = 0;
+            // Crossing rejects screen-in / teleport-in at validate time; treat
+            // any remaining special as an immediate leave.
+            leavingMode = LM_GOING;
+            return;
+        }
+        Point startOff = randomOffScreen();
+        posX = startOff.x;
+        posY = startOff.y;
+        motion = currentAction.type == PonyAction.NORMAL
+                ? MOTION_MOVING : MOTION_SPECIAL;
+        leavingMode = LM_GOING;
+        targetPos = oppositeHorizontalOffScreen(startOff);
+        if (motion == MOTION_MOVING && targetPos != null) {
+            travelX = targetPos.x - posX;
+            travelY = targetPos.y - posY;
+            setDirection(targetPos);
+        } else {
+            travelX = 0;
+            travelY = 0;
+        }
+    }
+
+    /**
+     * Off-screen point on the horizontal gutter opposite {@code start}, at the
+     * current feet Y so a crossing reads as a straight transit.
+     */
+    private Point oppositeHorizontalOffScreen(Point start) {
+        int s = (int)(30 * getScale());
+        int y = Math.round(posY);
+        boolean startedLeft = start.x < screenBounds.centerX();
+        return new Point(startedLeft ? screenBounds.right + s : screenBounds.left - s, y);
+    }
+
     private void setRandomTarget() {
         setRandomTarget(currentAction);
     }

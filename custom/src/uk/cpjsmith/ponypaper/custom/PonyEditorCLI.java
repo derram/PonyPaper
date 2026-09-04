@@ -377,6 +377,11 @@ public class PonyEditorCLI {
                         editor.setStartActions(args[++i]);
                         guiDirty = true;
                         break;
+                    case "-crossing":
+                        checkArgument(args, i);
+                        editor.setCrossingActions(args[++i]);
+                        guiDirty = true;
+                        break;
                     case "-defaultdrag":
                         checkArgument(args, i);
                         editor.setDefaultDrag(args[++i]);
@@ -411,6 +416,9 @@ public class PonyEditorCLI {
         System.out.println("    Save the pony definition to the given file path.");
         System.out.println("-start NAMES");
         System.out.println("    Set the starting actions.");
+        System.out.println("-crossing NAMES");
+        System.out.println("    Set crossing actions (walk on and straight off; no idle).");
+        System.out.println("    Combined with start actions for spawn picks.");
         System.out.println("-defaultdrag NAMES");
         System.out.println("    Set the pony-level default drag actions. Actions with an empty");
         System.out.println("    drag override inherit this list.");

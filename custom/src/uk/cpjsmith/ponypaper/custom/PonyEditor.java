@@ -157,6 +157,24 @@ public class PonyEditor {
     public void setStartActions(String actionNames) {
         ponyDefinition.startActions = actionNames;
     }
+
+    /**
+     * Returns the pony's crossing (enter-and-leave) actions.
+     *
+     * @return the crossing actions as a comma-separated string
+     */
+    public String getCrossingActions() {
+        return ponyDefinition.crossingActions != null ? ponyDefinition.crossingActions : "";
+    }
+
+    /**
+     * Changes the pony's crossing actions (walk on and straight off).
+     *
+     * @param actionNames the crossing actions as a comma-separated string
+     */
+    public void setCrossingActions(String actionNames) {
+        ponyDefinition.crossingActions = actionNames != null ? actionNames : "";
+    }
     
     /**
      * Returns the pony-level default drag actions.
@@ -251,7 +269,7 @@ public class PonyEditor {
     
     /**
      * Removes an action and strips its name from every next-action list and
-     * from the start-actions list so no dangling references remain.
+     * from the start/crossing-actions lists so no dangling references remain.
      * 
      * @param index the index of the action to remove
      * @throws IndexOutOfBoundsException if {@code index < 0 || index >=
@@ -273,10 +291,10 @@ public class PonyEditor {
     }
 
     /**
-     * Drops any action names from next/start lists that are not present in the
-     * current action set (e.g. after a delete or a partial import). Also clears
-     * {@code spritesfrom} when the owner was removed, and removes effects whose
-     * trigger action no longer exists.
+     * Drops any action names from next/start/crossing lists that are not present
+     * in the current action set (e.g. after a delete or a partial import). Also
+     * clears {@code spritesfrom} when the owner was removed, and removes effects
+     * whose trigger action no longer exists.
      */
     private void scrubMissingActionReferences() {
         java.util.Set<String> present = new java.util.HashSet<String>();
@@ -293,6 +311,7 @@ public class PonyEditor {
             }
         }
         setStartActions(filterActionList(getStartActions(), present));
+        setCrossingActions(filterActionList(getCrossingActions(), present));
         setDefaultDrag(filterActionList(getDefaultDrag(), present));
         scrubMissingEffectTriggers(present);
     }
@@ -323,8 +342,9 @@ public class PonyEditor {
     }
     
     /**
-     * Renames an action and rewrites every next-action list, the start
-     * actions list, and default drag so references to the old name point at the new one.
+     * Renames an action and rewrites every next-action list, the start and
+     * crossing actions lists, and default drag so references to the old name
+     * point at the new one.
      *
      * @param index the index of the action to rename
      * @param name  the new name (must be non-empty and not used by another action)
@@ -348,8 +368,8 @@ public class PonyEditor {
     }
 
     /**
-     * Replaces {@code oldName} with {@code newName} in every next/start list,
-     * {@code spritesfrom} references, and effect trigger actions.
+     * Replaces {@code oldName} with {@code newName} in every next/start/crossing
+     * list, {@code spritesfrom} references, and effect trigger actions.
      */
     private void renameActionReferences(String oldName, String newName) {
         for (int i = 0; i < ponyDefinition.actions.length; i++) {
@@ -361,6 +381,7 @@ public class PonyEditor {
             }
         }
         setStartActions(renameInActionList(getStartActions(), oldName, newName));
+        setCrossingActions(renameInActionList(getCrossingActions(), oldName, newName));
         setDefaultDrag(renameInActionList(getDefaultDrag(), oldName, newName));
         ensureEffectsArray();
         for (int i = 0; i < ponyDefinition.effects.length; i++) {

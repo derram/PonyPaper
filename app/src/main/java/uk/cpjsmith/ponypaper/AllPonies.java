@@ -940,6 +940,8 @@ public class AllPonies {
                 .setAnchorY(45);
         PonyAction standU = bi(new PonyAction(res, R.array.ts_stand), "pref_ts", "ts_stand");
         PonyAction trotU = bi(new PonyAction(res, R.array.ts_trot), "pref_ts", "ts_trot");
+        // Unicorn Twilight + Owlowiscious; crossing-only transit (taller sheet).
+        PonyAction owlTrot = bi(new PonyAction(res, R.array.ts_owl_trot), "pref_ts", "owl_trot");
         PonyAction teleportOutU = bi(new PonyAction(res, R.array.ts_teleportout, PonyAction.PORT_O), "pref_ts", "ts_teleportout")
                 .setAnchorY(59);
         PonyAction teleportInU = bi(new PonyAction(res, R.array.ts_teleportin, PonyAction.PORT_I), "pref_ts", "ts_teleportin")
@@ -988,6 +990,10 @@ public class AllPonies {
             groundGaitsU[i].setNextMoving(moveStatesU);
             groundGaitsU[i].setNextDrag(justDragU);
         }
+        // Crossing-only: same idle/move graph as unicorn trot if drag interrupts.
+        owlTrot.setNextWaiting(waitIdlesU);
+        owlTrot.setNextMoving(moveStatesU);
+        owlTrot.setNextDrag(justDragU);
         teleportOutU.setNextWaiting(waitIdlesU);
         teleportOutU.setNextMoving(new PonyAction[] {teleportInU});
         teleportOutU.setNextDrag(justDragU);
@@ -1000,10 +1006,18 @@ public class AllPonies {
         
         PonyAction[] all = concat(
                 concat(waitIdlesA, groundGaitsA, new PonyAction[] {flyA, teleportOutA, teleportInA}),
-                concat(waitIdlesU, groundGaitsU, new PonyAction[] {teleportOutU, teleportInU, dragU}));
+                concat(waitIdlesU, groundGaitsU,
+                        new PonyAction[] {owlTrot, teleportOutU, teleportInU, dragU}));
         PonyAction[] start = concat(moveStatesA, moveStatesU);
-        
-        return new Pony(all, start);
+        // owl_trot:2 plus non-teleport start movers (alicorn trot/fly, unicorn trot).
+        PonyAction[] crossing = concat(
+                new PonyAction[] {owlTrot, owlTrot},
+                concat(groundGaitsA, justFlyA),
+                concat(groundGaitsU, groundGaitsU));
+
+        Pony pony = new Pony(all, start);
+        pony.setCrossingActions(crossing);
+        return pony;
     }
     
     private static Pony makeVinylScratch(Resources res) {
@@ -1268,9 +1282,12 @@ public class AllPonies {
         }
         
         PonyAction[] start = expandActionList(definition.startActions, bags);
+        PonyAction[] crossing = expandActionList(definition.crossingActions, bags);
         PonyEffectDef[] effectDefs = buildEffectDefs(definition, bags);
-        return new Pony(all.toArray(new PonyAction[all.size()]), start, effectDefs,
+        Pony pony = new Pony(all.toArray(new PonyAction[all.size()]), start, effectDefs,
                 definition.wander);
+        pony.setCrossingActions(crossing);
+        return pony;
     }
 
     /**

@@ -68,6 +68,16 @@ public final class PonyDefinitionValidateTest {
                 PonyDefinitionValidateTest::testUnknownMovementInvalid);
         failures += run("unknownWanderInvalid",
                 PonyDefinitionValidateTest::testUnknownWanderInvalid);
+        failures += run("crossingOnlyTrotcycleValid",
+                PonyDefinitionValidateTest::testCrossingOnlyTrotcycleValid);
+        failures += run("crossingRejectsScreenIn",
+                PonyDefinitionValidateTest::testCrossingRejectsScreenIn);
+        failures += run("crossingRoundTripXml",
+                PonyDefinitionValidateTest::testCrossingRoundTripXml);
+        failures += run("startOrCrossingRequired",
+                PonyDefinitionValidateTest::testStartOrCrossingRequired);
+        failures += run("crossingCountsAsLeave",
+                PonyDefinitionValidateTest::testCrossingCountsAsLeave);
         if (failures > 0) {
             System.err.println(failures + " definition check(s) failed.");
             System.exit(1);
@@ -472,6 +482,73 @@ public final class PonyDefinitionValidateTest {
                 action("trot", true, "stand", "trot"));
         def.wander = "sideways";
         assertInvalid(def, "Unknown <wander>");
+    }
+
+    private static void testCrossingOnlyTrotcycleValid() throws Exception {
+        PonyDefinition def = pony(
+                action("trotcycle", true, "none", "none"),
+                action("drag", true, "trotcycle", "trotcycle"));
+        def.startActions = "";
+        def.crossingActions = "trotcycle";
+        def.defaultDrag = "drag";
+        def.validate();
+    }
+
+    private static void testCrossingRejectsScreenIn() {
+        PonyDefinition def = pony(
+                action("appear", false, "stand", "none", PonyDefinition.SPECIAL_SCREEN_IN),
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        def.startActions = "stand";
+        def.crossingActions = "appear";
+        assertInvalid(def, "cannot leave the scene");
+    }
+
+    private static void testCrossingRoundTripXml() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"),
+                action("trotcycle", true, "none", "none"));
+        def.startActions = "stand,trot";
+        def.crossingActions = "trotcycle:2";
+        def.validate();
+
+        java.io.StringWriter sw = new java.io.StringWriter();
+        def.writeDefinition(new java.io.PrintWriter(sw));
+        String xml = sw.toString();
+        if (!xml.contains("<crossingactions>trotcycle:2</crossingactions>")) {
+            throw new AssertionError("missing crossingactions: " + xml);
+        }
+
+        javax.xml.parsers.DocumentBuilder builder =
+                javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder();
+        PonyDefinition loaded = new PonyDefinition(builder.parse(
+                new org.xml.sax.InputSource(new java.io.StringReader(xml))));
+        loaded.validate();
+        if (!"trotcycle:2".equals(loaded.crossingActions)) {
+            throw new AssertionError("crossing mismatch: " + loaded.crossingActions);
+        }
+    }
+
+    private static void testStartOrCrossingRequired() {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        def.startActions = "none";
+        def.crossingActions = "";
+        assertInvalid(def, "Start or crossing actions must list at least one real action");
+    }
+
+    private static void testCrossingCountsAsLeave() throws Exception {
+        // Idle-only graph from start, but crossing bag provides the leave path.
+        PonyDefinition def = pony(
+                action("stand", true, "stand,sit", "none"),
+                action("sit", true, "sit,stand", "none"),
+                action("trotcycle", true, "none", "none"));
+        def.startActions = "stand";
+        def.crossingActions = "trotcycle";
+        def.defaultDrag = "stand";
+        def.validate();
     }
 
     private static PonyDefinition.Effect effect(String name, String trigger, boolean follow) {

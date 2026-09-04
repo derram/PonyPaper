@@ -68,8 +68,10 @@ Renaming an action rewrites matching effect triggers. Deleting an action removes
 
 ### Pony-level wander
 
-Above the action list, the **Pony** strip has **Start actions**, **Default drag**, and **Wander**:
+Above the action list, the **Pony** strip has **Start actions**, **Crossing actions**, **Default drag**, and **Wander**:
 
+* **Start actions**: How the pony can enter and (usually) stay — same `name:N` weights as next-action lists.
+* **Crossing actions**: Walk on and straight off with no idle. Spawn picks are drawn from the combined start + crossing bags. Dedicated transit clips (e.g. trotcycle-only sheets) belong here; they may use `waiting=none`.
 * **Wander**: Pony default / authoring mode. **Horizontal** (default) makes omitted movement soft-horizontal. **Vertical** makes omitted movement resolve as Vertical wander (and new actions default to it). **Both (H or V)** is for mixed-axis OCs: author sideways clips as **Horizontal wander** and up/down clips as **Vertical wander**. Individual actions can also hard-lock an axis or use **Any direction**.
 * **Vertical facing**: Actions whose **Movement** is **Vertical wander** or **Vertical only** treat left/right sprite slots as **back/front** (XML still uses `direction="left"` / `right`). Moving **up** shows the left (back) sheet; moving **down** shows the right (front) sheet. The editor relabels Left/Right to Back/Front for the selected action when that applies. Effect chrome still follows pony Wander (**Vertical** → Back/Front).
 
@@ -93,4 +95,4 @@ On the left side of the editor is the list of actions. Selecting an action in th
 * **Next moving/waiting actions**: Lists of possible transitions. Use `name:N` for weighting. Use `none` or `-` to signify no successor.
 * **Drag override**: Optional per-action replacement for **Default drag**.
 
-At the bottom is the list of **Start actions** (how the pony can enter the scene) and **Default drag** (fallback for actions with no override).
+The pony strip also holds **Start actions** (enter and maybe stay), **Crossing actions** (enter and always leave by the opposite gutter), and **Default drag** (fallback for actions with no override).

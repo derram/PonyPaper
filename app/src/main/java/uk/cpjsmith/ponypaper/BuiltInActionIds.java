@@ -183,6 +183,11 @@ final class BuiltInActionIds {
                 || !"unicorn_drag".equals(stem("pref_ts", "ts_drag"))) {
             return "ts_* remap";
         }
+        // Owl crossing clip keeps a bare id (not ts_/pts_ remapped).
+        if (!"owl_trot".equals(stem("pref_ts", "owl_trot"))
+                || !isInPlaceMover("owl_trot")) {
+            return "owl_trot stem/mover";
+        }
         // Sunset teleports.
         if (!"teleportout".equals(stem("pref_ss", "ss_teleportout"))
                 || !"teleportin".equals(stem("pref_ss", "ss_teleportin"))) {

@@ -2013,8 +2013,9 @@ public class PonyEditorGUI extends JPanel {
                     actionList.clearSelection();
                     actionSettingsPane.setAction(-1);
                 }
-                // Model already scrubbed start actions and orphaned effects.
+                // Model already scrubbed start/crossing actions and orphaned effects.
                 startActionsField.setText(editor.getStartActions());
+                crossingActionsField.setText(editor.getCrossingActions());
                 defaultDragField.setText(editor.getDefaultDrag());
                 refreshEffectListFromEditor();
             }
@@ -2092,6 +2093,15 @@ public class PonyEditorGUI extends JPanel {
             }
         }
     };
+
+    private DocumentListener crossingActionsListener = new MyDocumentListener() {
+        public void update(DocumentEvent e) {
+            if (!crossingActionsField.getText().equals(editor.getCrossingActions())) {
+                editor.setCrossingActions(crossingActionsField.getText());
+                setDirty(true);
+            }
+        }
+    };
     
     private DocumentListener defaultDragListener = new MyDocumentListener() {
         public void update(DocumentEvent e) {
@@ -2141,6 +2151,7 @@ public class PonyEditorGUI extends JPanel {
     private EffectPanel effectSettingsPane;
     private JTabbedPane centerTabs;
     private JTextField startActionsField;
+    private JTextField crossingActionsField;
     private JTextField defaultDragField;
     private JComboBox<String> wanderCombo;
     private JLabel statusLabel;
@@ -2373,6 +2384,7 @@ public class PonyEditorGUI extends JPanel {
             actionListModel.addElement(editor.getActionName(i));
         }
         startActionsField.setText(editor.getStartActions());
+        crossingActionsField.setText(editor.getCrossingActions());
         defaultDragField.setText(editor.getDefaultDrag());
         if (wanderCombo != null) {
             wanderCombo.setSelectedItem(wanderLabelFromToken(editor.getWander()));
@@ -2691,9 +2703,10 @@ public class PonyEditorGUI extends JPanel {
         }
         setDirty(true);
         actionListModel.set(i, actionName);
-        // Refresh next-action fields and start actions so rewritten names show.
+        // Refresh next-action fields and start/crossing actions so rewritten names show.
         actionSettingsPane.setAction(i);
         startActionsField.setText(editor.getStartActions());
+        crossingActionsField.setText(editor.getCrossingActions());
         defaultDragField.setText(editor.getDefaultDrag());
         // Effect trigger names are rewritten in the model; refresh the form.
         int effectSel = effectList != null ? effectList.getSelectedIndex() : -1;
@@ -2839,6 +2852,29 @@ public class PonyEditorGUI extends JPanel {
         c.fill = GridBagConstraints.HORIZONTAL;
         c.insets = new Insets(2, 0, 2, 0);
         result.add(startActionsField, c);
+
+        JLabel crossingActionsLabel = new JLabel("Crossing actions:");
+        c = getConstraints(0, 1);
+        c.anchor = GridBagConstraints.WEST;
+        c.insets = new Insets(2, 0, 2, 8);
+        result.add(crossingActionsLabel, c);
+
+        crossingActionsField = new JTextField();
+        crossingActionsField.setToolTipText("Walk on and straight off (no idle). Same name:N weights as "
+                + "start actions. Combined with start for spawn picks. Tab completes the name.");
+        crossingActionsField.getDocument().addDocumentListener(crossingActionsListener);
+        ActionNameCompleter.install(crossingActionsField, new ActionNameCompleter.CandidateSource() {
+            @Override
+            public List<String> getCandidates() {
+                return ActionNameCompleter.candidatesFromEditor(editor, false);
+            }
+        }, true);
+        c = getConstraints(1, 1);
+        c.gridwidth = 5;
+        c.weightx = 1.0;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.insets = new Insets(2, 0, 2, 0);
+        result.add(crossingActionsField, c);
         
         JLabel defaultDragLabel = new JLabel("Default drag:");
         c = getConstraints(2, 0);
