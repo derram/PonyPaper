@@ -697,8 +697,9 @@ public class PonyAction {
         }
 
         if (dragged) {
-            // Logical position is feet. Lift so the whole sprite hangs above the
-            // finger instead of sitting under it.
+            // Logical position is feet. Wander callers pass true to hang the
+            // sprite above an opaque finger; pinned Tableau drag passes false
+            // so placement matches the committed feet.
             y -= 20f * scale;
         }
 

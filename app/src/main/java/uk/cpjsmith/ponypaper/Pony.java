@@ -205,7 +205,7 @@ public class Pony {
 
     /**
      * Current sprite draw bounds (feet at {@link #posX}/{@link #posY}), including
-     * the drag lift so follow effects track the visible sprite.
+     * any wander drag lift so follow effects track the visible sprite.
      */
     void fillCurrentDrawBounds(RectF out) {
         if (currentAction == null || !currentAction.isReady() || out == null) {
@@ -214,11 +214,19 @@ public class Pony {
             }
             return;
         }
-        float y = posY;
-        if (motion == MOTION_DRAGGED) {
-            y -= 20f * getScale();
+        currentAction.fillDrawBounds(posX, posY - dragLiftY(), getScale(), direction, out);
+    }
+
+    /**
+     * Extra upward shift while dragged so the sprite hangs above an opaque
+     * finger. Zero when pinned: Tableau drag is placement and must match the
+     * committed feet (WYSIWYG).
+     */
+    private float dragLiftY() {
+        if (motion != MOTION_DRAGGED || pinned) {
+            return 0f;
         }
-        currentAction.fillDrawBounds(posX, y, getScale(), direction, out);
+        return 20f * getScale();
     }
     
     /**
@@ -822,14 +830,15 @@ public class Pony {
             return;
         }
         int time = clampedAnimTime();
+        // Wander: hang above the finger. Pinned Tableau: WYSIWYG placement.
         currentAction.drawOn(c, direction, time, posX, posY, getScale(),
-                motion == MOTION_DRAGGED, srcScratch, dstScratch);
+                motion == MOTION_DRAGGED && !pinned, srcScratch, dstScratch);
     }
 
     /**
      * Packed visual identity after {@link #doUpdate}: action, facing, sprite
-     * frame, and pixel-snapped feet (with drag lift). Used to skip identical
-     * canvas locks.
+     * frame, and pixel-snapped feet (with wander drag lift). Used to skip
+     * identical canvas locks.
      */
     void writeVisualStamp(int[] out, int offset) {
         if (currentAction == null || !currentAction.isReady() || screenBounds == null) {
@@ -842,12 +851,8 @@ public class Pony {
         }
         int animTime = currentAction.getAnimationTime(direction);
         int time = animTime > 0 ? clampedAnimTime() : 0;
-        float scale = getScale();
         int x = Math.round(posX);
-        int y = Math.round(posY);
-        if (motion == MOTION_DRAGGED) {
-            y -= Math.round(20f * scale);
-        }
+        int y = Math.round(posY - dragLiftY());
         out[offset] = System.identityHashCode(currentAction);
         out[offset + 1] = direction;
         out[offset + 2] = animTime > 0 ? currentAction.getFrameIndex(direction, time) : -1;
