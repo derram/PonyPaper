@@ -1106,18 +1106,20 @@ public class PonyEditorGUI extends JPanel {
                 for (int i = 0; i < names.length; i++) {
                     names[i] = "frame " + (i + 1);
                 }
+                int[] timingsCs = timingsCsForPack(timings, frames.size());
                 FramePackDialog.Result packed = FramePackDialog.showDialog(
                         this,
                         "Pack Spritesheet (" + direction + ")",
                         names,
                         frames,
                         notes.toString(),
-                        ImageImport.SCALE_DIVISOR_NATIVE);
+                        ImageImport.SCALE_DIVISOR_NATIVE,
+                        timingsCs);
                 if (packed == null) {
                     return;
                 }
 
-                applyPackedFrames(direction, frames, timingsCsForPack(timings, frames.size()), packed);
+                applyPackedFrames(direction, frames, timingsCs, packed);
             } catch (PonyEditor.GenericException e) {
                 JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
             } catch (IOException e) {
@@ -1389,7 +1391,8 @@ public class PonyEditorGUI extends JPanel {
                     names,
                     gif.frames,
                     notes.toString(),
-                    ImageImport.SCALE_DIVISOR_NATIVE);
+                    ImageImport.SCALE_DIVISOR_NATIVE,
+                    gif.timingsCs);
             if (packed == null) {
                 return;
             }
@@ -1487,13 +1490,17 @@ public class PonyEditorGUI extends JPanel {
                 notes.append("\n\nLift is pixels of air under a frame (0 = on the ground). ")
                         .append("It is baked into the sheet — leave <anchory> empty so feet stay on the ground line.");
 
+                int[] keepTimings = existingCount == preview.frameCount
+                        ? timingsCsForPack(editor.getActionTimings(currentIndex, direction), frames.size())
+                        : null;
                 FramePackDialog.Result packed = FramePackDialog.showDialog(
                         this,
                         "Import Frames (" + direction + ")",
                         files,
                         frames,
                         notes.toString(),
-                        ImageImport.SCALE_DIVISOR_NATIVE);
+                        ImageImport.SCALE_DIVISOR_NATIVE,
+                        keepTimings);
                 if (packed == null) {
                     return;
                 }
@@ -1686,13 +1693,17 @@ public class PonyEditorGUI extends JPanel {
                 packNotes.append("\n\n").append(ImageImport.packerScaleNotes());
                 packNotes.append("\n\nLift is pixels of air under a frame (0 = on the ground).");
 
+                int[] keepTimings = existingCount == frames.size()
+                        ? timingsCsForPack(editor.getActionTimings(currentIndex, direction), frames.size())
+                        : null;
                 FramePackDialog.Result packed = FramePackDialog.showDialog(
                         this,
                         "Pack Frames (" + direction + ")",
                         names,
                         frames,
                         packNotes.toString(),
-                        ImageImport.SCALE_DIVISOR_NATIVE);
+                        ImageImport.SCALE_DIVISOR_NATIVE,
+                        keepTimings);
                 if (packed == null) {
                     return;
                 }

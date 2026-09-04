@@ -59,7 +59,8 @@ import javax.swing.event.ListSelectionListener;
  * pack. Frames taller than built-in open on Fit. Sheets over
  * {@link ImageImport#SHEET_PIXEL_BUDGET} defer the strip preview and require
  * a Pack confirmation. Lift {@code 0} is the usual bottom-centre alignment;
- * positive lift bakes a hop into a taller cell. Returns {@code null} on cancel.
+ * positive lift bakes a hop into a taller cell. Play loop opens a feet-locked
+ * loop of the current draft before Pack. Returns {@code null} on cancel.
  */
 public final class FramePackDialog extends JDialog {
 
@@ -115,6 +116,12 @@ public final class FramePackDialog extends JDialog {
     private final int[] lifts;
     /** Source index at each playback slot. */
     private final int[] order;
+    /**
+     * Optional per-source-frame timings (centiseconds), e.g. GIF delays. When
+     * length matches {@link #frames}, Play loop permutes them with
+     * {@link #order}; otherwise default timing is used.
+     */
+    private final int[] sourceTimingsCs;
     private final String notes;
     private final JLabel headerLabel;
     private final JLabel warningLabel;
@@ -138,12 +145,15 @@ public final class FramePackDialog extends JDialog {
 
     private FramePackDialog(Component parent, String title,
             List<String> frameNames, List<BufferedImage> frames, String notes,
-            int defaultScaleDivisor) {
+            int defaultScaleDivisor, int[] sourceTimingsCs) {
         super(SwingUtilities.getWindowAncestor(parent),
                 title != null ? title : "Import Frames",
                 ModalityType.APPLICATION_MODAL);
         this.frames = frames;
         this.notes = notes != null ? notes : "";
+        this.sourceTimingsCs = sourceTimingsCs != null && sourceTimingsCs.length == frames.size()
+                ? sourceTimingsCs.clone()
+                : null;
         this.names = new ArrayList<String>(frames.size());
         this.lifts = new int[frames.size()];
         this.order = new int[frames.size()];
@@ -319,6 +329,17 @@ public final class FramePackDialog extends JDialog {
             }
         });
 
+        JButton playLoopButton = new JButton("Play loop…");
+        playLoopButton.setToolTipText(
+                "Animate the current order, scale, and lifts on a loop "
+                        + "(feet locked to the ground line). Does not Pack.");
+        playLoopButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                openLoopPreview();
+            }
+        });
+
         JButton packButton = new JButton("Pack");
         packButton.addActionListener(new ActionListener() {
             @Override
@@ -440,6 +461,7 @@ public final class FramePackDialog extends JDialog {
         liftRow.add(hopButton);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
+        buttons.add(playLoopButton);
         buttons.add(cancelButton);
         buttons.add(packButton);
 
@@ -513,20 +535,36 @@ public final class FramePackDialog extends JDialog {
 
     public static Result showDialog(Component parent, String title,
             List<File> files, List<BufferedImage> frames, String notes, int defaultScaleDivisor) {
+        return showDialog(parent, title, files, frames, notes, defaultScaleDivisor, null);
+    }
+
+    public static Result showDialog(Component parent, String title,
+            List<File> files, List<BufferedImage> frames, String notes,
+            int defaultScaleDivisor, int[] sourceTimingsCs) {
         return showDialog(parent, title,
                 namesFromFiles(files, frames).toArray(new String[0]),
-                frames, notes, defaultScaleDivisor);
+                frames, notes, defaultScaleDivisor, sourceTimingsCs);
     }
 
     public static Result showDialog(Component parent, String title,
             String[] frameNames, List<BufferedImage> frames, String notes,
             int defaultScaleDivisor) {
+        return showDialog(parent, title, frameNames, frames, notes, defaultScaleDivisor, null);
+    }
+
+    /**
+     * @param sourceTimingsCs optional per-source-frame timings (centiseconds);
+     *                        used by Play loop when length matches {@code frames}
+     */
+    public static Result showDialog(Component parent, String title,
+            String[] frameNames, List<BufferedImage> frames, String notes,
+            int defaultScaleDivisor, int[] sourceTimingsCs) {
         if (frames == null || frames.isEmpty()) {
             throw new IllegalArgumentException("frames");
         }
         List<String> names = frameNames != null ? Arrays.asList(frameNames) : null;
         FramePackDialog dialog = new FramePackDialog(
-                parent, title, names, frames, notes, defaultScaleDivisor);
+                parent, title, names, frames, notes, defaultScaleDivisor, sourceTimingsCs);
         dialog.setVisible(true);
         return dialog.packed ? dialog.result : null;
     }
@@ -694,6 +732,47 @@ public final class FramePackDialog extends JDialog {
         cellPreview.repaint();
         stripPreview.repaint();
         updateOrderButtons();
+    }
+
+    /**
+     * Builds the current draft sheet (order / scale / lifts) and opens a looping
+     * feet-locked preview. Does not commit Pack.
+     */
+    private void openLoopPreview() {
+        if (!confirmPackIfHuge()) {
+            return;
+        }
+        try {
+            List<BufferedImage> toPack = playbackFrames();
+            ImageImport.PackPreview preview = ImageImport.inspectFrames(toPack, lifts);
+            BufferedImage sheet = ImageImport.packSheetImage(
+                    toPack, preview.cellWidth, preview.cellHeight, lifts);
+            int[] timings = playbackTimings(preview.frameCount);
+            FrameLoopPreviewDialog.showDialog(this, sheet, timings, "Loop Preview");
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    e.getMessage(),
+                    "Loop Preview Failed",
+                    JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /**
+     * Timings in playback order for the draft sheet. Uses permuted
+     * {@link #sourceTimingsCs} when available; otherwise default frame timing.
+     */
+    private int[] playbackTimings(int frameCount) {
+        if (sourceTimingsCs != null && sourceTimingsCs.length == frames.size()) {
+            try {
+                return ImageImport.permute(sourceTimingsCs, order);
+            } catch (IOException ignored) {
+                // Fall through to defaults.
+            }
+        }
+        int[] timings = new int[frameCount];
+        Arrays.fill(timings, Math.max(1, ImageImport.DEFAULT_FRAME_TIMING_CS));
+        return timings;
     }
 
     /**

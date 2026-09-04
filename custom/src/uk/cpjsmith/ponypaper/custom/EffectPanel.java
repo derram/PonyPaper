@@ -562,7 +562,8 @@ final class EffectPanel extends JPanel {
                 names,
                 gif.frames,
                 notes.toString(),
-                ImageImport.SCALE_DIVISOR_NATIVE);
+                ImageImport.SCALE_DIVISOR_NATIVE,
+                gif.timingsCs);
         if (packed == null) {
             return;
         }
@@ -607,13 +608,16 @@ final class EffectPanel extends JPanel {
             for (int i = 0; i < files.size(); i++) {
                 names[i] = files.get(i).getName();
             }
+            int[] keepTimings = timingsCsForPack(
+                    host.editor().getEffectTimings(currentIndex, direction), frames.size());
             FramePackDialog.Result packed = FramePackDialog.showDialog(
                     this,
                     "Import frames (" + direction + ")",
                     names,
                     frames,
                     ImageImport.packerScaleNotes(),
-                    ImageImport.SCALE_DIVISOR_NATIVE);
+                    ImageImport.SCALE_DIVISOR_NATIVE,
+                    keepTimings);
             if (packed == null) {
                 return;
             }
@@ -736,18 +740,20 @@ final class EffectPanel extends JPanel {
             for (int i = 0; i < names.length; i++) {
                 names[i] = "frame " + (i + 1);
             }
+            int[] timingsCs = timingsCsForPack(timings, frames.size());
             FramePackDialog.Result packed = FramePackDialog.showDialog(
                     this,
                     "Pack Spritesheet (" + direction + ")",
                     names,
                     frames,
                     notes.toString(),
-                    ImageImport.SCALE_DIVISOR_NATIVE);
+                    ImageImport.SCALE_DIVISOR_NATIVE,
+                    timingsCs);
             if (packed == null) {
                 return;
             }
 
-            applyPackedFrames(direction, frames, timingsCsForPack(timings, frames.size()), packed);
+            applyPackedFrames(direction, frames, timingsCs, packed);
         } catch (PonyEditor.GenericException e) {
             JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
         } catch (IOException e) {
