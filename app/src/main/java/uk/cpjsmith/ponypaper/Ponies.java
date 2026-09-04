@@ -141,8 +141,16 @@ public class Ponies implements Pony.EffectHost {
      *                    available pool size; values below 1 become 0)
      */
     public Ponies(Context context, SharedPreferences prefs, int desiredCount) {
+        this(context, prefs, desiredCount, false);
+    }
+
+    /**
+     * @param isDream when true, My ??? Pony sizing follows the dream scene mode
+     */
+    public Ponies(Context context, SharedPreferences prefs, int desiredCount,
+            boolean isDream) {
         inactivePonies = AllPonies.getPonies(context, prefs);
-        randomSizeMode = SceneMode.isRandomSize(prefs);
+        randomSizeMode = SceneMode.isRandomSize(prefs, isDream);
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         String rawWaifu = prefs.getString("pref_waifu", "");
         waifuKey = rawWaifu != null ? rawWaifu : "";

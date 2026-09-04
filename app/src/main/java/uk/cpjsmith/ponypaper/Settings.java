@@ -405,10 +405,32 @@ public class Settings extends AppCompatActivity
                             && !SceneMode.TABLEAU.equals(oldMode)) {
                         PonyScenes.ensureActiveScene(sp);
                     }
-                    refreshSceneModeDependentPrefs(next);
+                    refreshSceneModeDependentPrefs(next, null);
                     return true;
                 }
             });
+        }
+
+        Preference dreamSceneMode = findPreference(SceneMode.PREF_DREAM_KEY);
+        if (dreamSceneMode != null) {
+            dreamSceneMode.setOnPreferenceChangeListener(
+                    new Preference.OnPreferenceChangeListener() {
+                        public boolean onPreferenceChange(Preference preference,
+                                Object newValue) {
+                            SharedPreferences sp = PreferenceManager
+                                    .getDefaultSharedPreferences(Settings.this);
+                            String next = newValue != null
+                                    ? newValue.toString() : SceneMode.SAME;
+                            if (SceneMode.TABLEAU.equals(next)
+                                    || (SceneMode.SAME.equals(next)
+                                            && SceneMode.isTableau(sp))) {
+                                PonyScenes.ensureActiveScene(sp);
+                            }
+                            refreshSceneModeDependentPrefs(SceneMode.mode(sp),
+                                    next);
+                            return true;
+                        }
+                    });
         }
 
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
@@ -422,20 +444,32 @@ public class Settings extends AppCompatActivity
         refreshSharedBackgroundControls();
         refreshDreamIdleSettings();
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
-        refreshSceneModeDependentPrefs(SceneMode.mode(prefs));
+        refreshSceneModeDependentPrefs(SceneMode.mode(prefs), null);
     }
 
     /**
      * Scene-mode side effects on Display prefs. Character size is unused under
-     * My ??? Pony; Tableau keeps it enabled (global size) but owns population
-     * via slots + caps, so num-ponies pickers are disabled.
-     * {@code mode} is the scene-mode value that will apply (may be the pending
-     * preference change before SharedPreferences has stored it).
+     * wallpaper My ??? Pony; Tableau keeps it enabled (global size) but owns
+     * population via slots + caps, so num-ponies pickers are disabled per host.
+     * {@code wallpaperMode} / {@code pendingDreamMode} may be the pending
+     * preference change before SharedPreferences has stored it
+     * ({@code pendingDreamMode} null reads the stored dream preference).
      */
-    private void refreshSceneModeDependentPrefs(String mode) {
-        boolean random = SceneMode.MY_QUESTION.equals(mode);
-        boolean tableau = SceneMode.TABLEAU.equals(mode);
+    private void refreshSceneModeDependentPrefs(String wallpaperMode,
+            String pendingDreamMode) {
+        boolean random = SceneMode.MY_QUESTION.equals(wallpaperMode);
+        boolean wallpaperTableau = SceneMode.TABLEAU.equals(wallpaperMode);
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+
+        String dreamPref = pendingDreamMode != null
+                ? pendingDreamMode : SceneMode.dreamModePreference(prefs);
+        if (dreamPref == null || dreamPref.length() == 0
+                || SceneMode.SAME.equals(dreamPref)) {
+            dreamPref = SceneMode.SAME;
+        }
+        String dreamEffective = SceneMode.SAME.equals(dreamPref)
+                ? wallpaperMode : dreamPref;
+        boolean dreamTableau = SceneMode.TABLEAU.equals(dreamEffective);
 
         ListPreference size = (ListPreference) findPreference(PonySize.PREF_KEY);
         if (size != null) {
@@ -449,8 +483,8 @@ public class Settings extends AppCompatActivity
 
         Preference numPonies = findPreference(PonySceneController.PREF_NUM_PONIES);
         if (numPonies != null) {
-            numPonies.setEnabled(!tableau);
-            if (tableau) {
+            numPonies.setEnabled(!wallpaperTableau);
+            if (wallpaperTableau) {
                 numPonies.setSummary(R.string.pref_num_ponies_tableau_summary);
             } else if (numPonies instanceof NumberPickerPreference) {
                 // Restore the numeric summary; setSummary(null) would blank it
@@ -462,9 +496,9 @@ public class Settings extends AppCompatActivity
                 findPreference(PonySceneController.PREF_DREAM_NUM_PONIES);
         if (dreamNumPonies != null) {
             // Parent dependency on pref_dream_custom_display still applies when
-            // enabled; force off while Tableau owns population.
-            dreamNumPonies.setEnabled(!tableau);
-            if (tableau) {
+            // enabled; force off while dream Tableau owns population.
+            dreamNumPonies.setEnabled(!dreamTableau);
+            if (dreamTableau) {
                 dreamNumPonies.setSummary(R.string.pref_num_ponies_tableau_summary);
             } else if (dreamNumPonies instanceof NumberPickerPreference
                     && prefs.contains(PonySceneController.PREF_DREAM_NUM_PONIES)) {
@@ -474,7 +508,61 @@ public class Settings extends AppCompatActivity
 
         Preference editTableau = findPreference("pref_screen_tableau");
         if (editTableau != null) {
-            editTableau.setVisible(tableau);
+            editTableau.setVisible(wallpaperTableau);
+        }
+
+        refreshDreamTableauScenePreference(prefs, dreamTableau);
+    }
+
+    /**
+     * Dream Tableau scene picker: visible when the effective dream mode is
+     * Tableau; entries are Same as wallpaper plus saved library scenes.
+     */
+    private void refreshDreamTableauScenePreference(SharedPreferences prefs,
+            boolean dreamTableau) {
+        ListPreference dreamScene =
+                (ListPreference) findPreference(PonyScenes.PREF_DREAM_SCENE_ID);
+        if (dreamScene == null) return;
+        dreamScene.setVisible(dreamTableau);
+        if (!dreamTableau) return;
+
+        List<PonyScenes.TableauScene> scenes =
+                PonyScenes.loadUserScenes(prefs);
+        ArrayList<CharSequence> entries =
+                new ArrayList<CharSequence>(scenes.size() + 1);
+        ArrayList<CharSequence> values =
+                new ArrayList<CharSequence>(scenes.size() + 1);
+        entries.add(getString(R.string.pref_dream_tableau_scene_same));
+        values.add(SceneMode.SAME);
+        for (int i = 0; i < scenes.size(); i++) {
+            PonyScenes.TableauScene scene = scenes.get(i);
+            if (scene.id.length() == 0) continue;
+            entries.add(scene.name);
+            values.add(scene.id);
+        }
+        dreamScene.setEntries(entries.toArray(new CharSequence[entries.size()]));
+        dreamScene.setEntryValues(values.toArray(new CharSequence[values.size()]));
+
+        String current = PonyScenes.dreamSceneIdPreference(prefs);
+        boolean known = SceneMode.SAME.equals(current);
+        if (!known) {
+            for (int i = 0; i < values.size(); i++) {
+                if (current.equals(values.get(i).toString())) {
+                    known = true;
+                    break;
+                }
+            }
+        }
+        if (!known) {
+            current = SceneMode.SAME;
+            prefs.edit().putString(PonyScenes.PREF_DREAM_SCENE_ID, SceneMode.SAME)
+                    .apply();
+        }
+        dreamScene.setValue(current);
+        if (scenes.isEmpty()) {
+            dreamScene.setSummary(R.string.pref_dream_tableau_scene_empty);
+        } else {
+            dreamScene.setSummary("%s");
         }
     }
 

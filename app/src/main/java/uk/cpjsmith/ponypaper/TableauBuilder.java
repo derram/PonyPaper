@@ -98,7 +98,12 @@ final class TableauBuilder {
      * thermal rebuild comparisons stay allocation-free.
      */
     static int slotCountBeforeCap(SharedPreferences prefs) {
-        PonyScenes.TableauScene scene = PonyScenes.loadActiveScene(prefs);
+        return slotCountBeforeCap(prefs, false);
+    }
+
+    static int slotCountBeforeCap(SharedPreferences prefs, boolean isDream) {
+        PonyScenes.TableauScene scene =
+                PonyScenes.resolveTableauScene(prefs, isDream);
         return countResolvable(scene);
     }
 
@@ -111,9 +116,19 @@ final class TableauBuilder {
             boolean defaultPoniesOnBattery,
             boolean softwareCanvasLimits,
             boolean thermalThrottle) {
+        return effectiveCount(prefs, batterySaverLimits, defaultPoniesOnBattery,
+                softwareCanvasLimits, thermalThrottle, false);
+    }
+
+    static int effectiveCount(SharedPreferences prefs,
+            boolean batterySaverLimits,
+            boolean defaultPoniesOnBattery,
+            boolean softwareCanvasLimits,
+            boolean thermalThrottle,
+            boolean isDream) {
         return Math.min(getTableauCap(batterySaverLimits, defaultPoniesOnBattery,
                 softwareCanvasLimits, thermalThrottle),
-                slotCountBeforeCap(prefs));
+                slotCountBeforeCap(prefs, isDream));
     }
 
     /**
@@ -122,8 +137,29 @@ final class TableauBuilder {
      * @param cap from {@link #getTableauCap}; values below 0 are treated as 0
      */
     static Ponies build(Context context, SharedPreferences prefs, int cap) {
-        PonyScenes.ensureActiveScene(prefs);
-        PonyScenes.TableauScene scene = PonyScenes.loadActiveScene(prefs);
+        return build(context, prefs, cap, false);
+    }
+
+    /**
+     * Tableau herd for wallpaper or dream. Wallpaper (and dream when following
+     * the wallpaper active scene) may seed active JSON via
+     * {@link PonyScenes#ensureActiveScene}. A dream library pick never writes
+     * wallpaper active prefs.
+     *
+     * @param cap from {@link #getTableauCap}; values below 0 are treated as 0
+     */
+    static Ponies build(Context context, SharedPreferences prefs, int cap,
+            boolean isDream) {
+        PonyScenes.TableauScene scene;
+        if (!isDream || PonyScenes.dreamUsesWallpaperActive(prefs)) {
+            PonyScenes.ensureActiveScene(prefs);
+            scene = PonyScenes.resolveTableauScene(prefs, isDream);
+        } else {
+            scene = PonyScenes.resolveTableauScene(prefs, true);
+            if (scene == null) {
+                scene = PonyScenes.demoScene();
+            }
+        }
         ResolvedHerd resolved = resolveAndCap(context, scene, cap);
         return new Ponies(context, resolved.live, prefs, resolved.jsonToLive);
     }

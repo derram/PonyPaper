@@ -28,6 +28,12 @@ final class PonyScenes {
     static final String PREF_ACTIVE_JSON = "pref_tableau_active_json";
     static final String PREF_ACTIVE_EPOCH = "pref_tableau_active_epoch";
     static final String PREF_PREVIOUS_JSON = "pref_tableau_previous_json";
+    /**
+     * Dream Tableau scene pick. {@link SceneMode#SAME} (default) uses the
+     * wallpaper active composition; otherwise a library scene id from
+     * {@link #PREF_SCENES_JSON}.
+     */
+    static final String PREF_DREAM_SCENE_ID = "pref_dream_tableau_scene_id";
 
     static final int MAX_USER_SCENES = 20;
     static final int MAX_SLOTS = 16;
@@ -154,6 +160,65 @@ final class PonyScenes {
     static List<TableauScene> loadUserScenes(SharedPreferences prefs) {
         if (prefs == null) return Collections.emptyList();
         return parse(prefs.getString(PREF_SCENES_JSON, ""));
+    }
+
+    /** Library scene with {@code id}, or {@code null} when missing. */
+    static TableauScene findSceneById(SharedPreferences prefs, String id) {
+        if (prefs == null || id == null || id.length() == 0) return null;
+        List<TableauScene> scenes = loadUserScenes(prefs);
+        for (int i = 0; i < scenes.size(); i++) {
+            TableauScene scene = scenes.get(i);
+            if (id.equals(scene.id)) return scene;
+        }
+        return null;
+    }
+
+    /**
+     * Stored dream Tableau pick: {@link SceneMode#SAME} or a library id.
+     * Missing / blank values are {@link SceneMode#SAME}.
+     */
+    static String dreamSceneIdPreference(SharedPreferences prefs) {
+        if (prefs == null) return SceneMode.SAME;
+        String raw;
+        try {
+            raw = prefs.getString(PREF_DREAM_SCENE_ID, SceneMode.SAME);
+        } catch (ClassCastException e) {
+            return SceneMode.SAME;
+        }
+        if (raw == null || raw.length() == 0 || SceneMode.SAME.equals(raw)) {
+            return SceneMode.SAME;
+        }
+        return raw;
+    }
+
+    /**
+     * True when the dream Tableau host should track the wallpaper active
+     * composition (hot edits / epoch). False when a library id is selected
+     * and still present in the library.
+     */
+    static boolean dreamUsesWallpaperActive(SharedPreferences prefs) {
+        String id = dreamSceneIdPreference(prefs);
+        if (SceneMode.SAME.equals(id)) return true;
+        return findSceneById(prefs, id) == null;
+    }
+
+    /**
+     * Scene for a Tableau host. Dream may use a library pick; wallpaper and
+     * dream-fallback use the active composition. Does not write prefs.
+     * Returns {@code null} when active JSON is missing / invalid (caller may
+     * {@link #ensureActiveScene} on the wallpaper path).
+     */
+    static TableauScene resolveTableauScene(SharedPreferences prefs,
+            boolean isDream) {
+        if (prefs == null) return null;
+        if (isDream) {
+            String id = dreamSceneIdPreference(prefs);
+            if (!SceneMode.SAME.equals(id)) {
+                TableauScene fromLib = findSceneById(prefs, id);
+                if (fromLib != null) return fromLib;
+            }
+        }
+        return loadActiveScene(prefs);
     }
 
     static boolean hasName(SharedPreferences prefs, String rawName) {

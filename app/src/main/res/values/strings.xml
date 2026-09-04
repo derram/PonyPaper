@@ -167,6 +167,13 @@
     <string name="pref_open_screensaver_title">Screen saver settings</string>
     <string name="pref_open_screensaver_summary">Choose Pony Paper as the system screen saver</string>
     <string name="pref_screensaver_category">Screen saver</string>
+    <string name="pref_dream_scene_mode_title">Scene mode</string>
+    <string name="pref_dream_scene_mode_dialog">Screen saver scene mode</string>
+    <string name="pref_dream_scene_mode_same">Same as wallpaper</string>
+    <string name="pref_dream_tableau_scene_title">Tableau scene</string>
+    <string name="pref_dream_tableau_scene_dialog">Screen saver Tableau scene</string>
+    <string name="pref_dream_tableau_scene_same">Same as wallpaper</string>
+    <string name="pref_dream_tableau_scene_empty">No saved scenes yet — using wallpaper active scene</string>
     <string name="pref_dream_custom_display_title">Custom screen saver display</string>
     <string name="pref_dream_custom_display_summary">Different pony count, frame rate, and background on/off. Off uses the live wallpaper settings</string>
     <string name="pref_dream_num_ponies_title">Number of ponies</string>

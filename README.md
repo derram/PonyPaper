@@ -49,7 +49,7 @@ This repository is a **modernization fork** of the [Smithers888/PonyPaper](https
 - **Waifu selector** — best pony should always come first.
 
 ### 🌙 Screen Saver
-- **Optional screen saver** — wallpaper and screensaver can be enabled/disabled independently, uses the same herd and settings.
+- **Optional screen saver** — wallpaper and screensaver can be enabled/disabled independently; shares the herd, with optional separate scene mode, Tableau scene, pony count, FPS, and background.
 - **Optional screensaver clock** — large digital clock, with optional date, drawn over the herd; 12/24-hour follows the system setting.
 - **Idle timeout** — (default 10 minutes, or never) ends the saver after no touch so the display can sleep.
 
@@ -84,7 +84,7 @@ Prebuilt APKs and the custom-pony editor JAR are published on the [Releases](htt
 2. Open the downloaded file (notification, Files app, or browser downloads).
 3. If Android blocks the install, allow installs from that source when prompted (see [warnings below](#android-install-warnings)).
 4. After install, set the wallpaper: long-press the home screen → **Wallpapers** → **Live wallpapers** → **Pony Paper**. Open settings from the wallpaper picker to toggle ponies, background, etc.
-5. (Optional) Use as a **screen saver**: system **Settings → Display → Screen saver** (wording varies by OEM) → choose **Pony Paper**. From in-app settings you can also open **Screen saver settings**. The screensaver uses the same preferences as the wallpaper (ponies, FPS, background, etc.). Under **Screen saver** in-app you can optionally enable a large digital **clock** (and date), and set how long the saver stays on with no touch (**Turn off after inactivity**). On Pixel that defaults to 10 minutes. On other phones it stays **Never** until you pick a duration and allow lock, which is what actually powers the panel off; you can remove that permission later from the same Screen saver section.
+5. (Optional) Use as a **screen saver**: system **Settings → Display → Screen saver** (wording varies by OEM) → choose **Pony Paper**. From in-app settings you can also open **Screen saver settings**. The screensaver shares the wallpaper herd by default; under **Screen saver** you can pick a different **scene mode** (and a saved Tableau scene when that mode is Tableau), optionally override pony count / FPS / background, enable a large digital **clock** (and date), and set how long the saver stays on with no touch (**Turn off after inactivity**). On Pixel that defaults to 10 minutes. On other phones it stays **Never** until you pick a duration and allow lock, which is what actually powers the panel off; you can remove that permission later from the same Screen saver section.
 
 ### Custom pony editor (desktop)
 

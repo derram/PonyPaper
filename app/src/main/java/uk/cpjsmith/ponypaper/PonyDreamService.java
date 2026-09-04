@@ -250,8 +250,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                             if (mixListVisible) populateMixItems();
                         }
                     }
-                    if (SceneMode.PREF_KEY.equals(key)) {
-                        if (SceneMode.isTableau(sharedPreferences)) {
+                    if (SceneMode.PREF_KEY.equals(key)
+                            || SceneMode.PREF_DREAM_KEY.equals(key)) {
+                        if (SceneMode.isTableau(sharedPreferences, true)) {
                             stopShuffle();
                             if (mixListVisible) hideMixList();
                         }
@@ -1419,7 +1420,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     /** Mix / shuffle rewrite herd checkboxes — no-op while Tableau owns the scene. */
     private boolean mixesBlockedByTableau() {
-        return SceneMode.isTableau(getDreamPreferences());
+        return SceneMode.isTableau(getDreamPreferences(), true);
     }
 
     private void toastTableauMixBlocked() {

@@ -533,7 +533,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         sceneLoadFailed = false;
         clearTableauReveal();
         // Keep outgoing only for in-session reloads (stop() clears started first).
-        boolean nextTableau = started && SceneMode.isTableau(getPreferences());
+        boolean nextTableau = started
+                && SceneMode.isTableau(getPreferences(), isDreamHost());
         boolean keepOutgoing = nextTableau && ponies != null;
         if (keepOutgoing) {
             // Keep the old posed scene visible while the new one decodes.
@@ -642,14 +643,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             return;
         }
         final SharedPreferences prefs = getPreferences();
+        final boolean dreamHost = isDreamHost();
         applyTargetFps(prefs);
-        drunkMode = SceneMode.isBerryPunch(prefs);
+        drunkMode = SceneMode.isBerryPunch(prefs, dreamHost);
         applyBackgroundColour(prefs, true);
 
-        final boolean buildTableau = SceneMode.isTableau(prefs);
-        if (buildTableau) {
+        final boolean buildTableau = SceneMode.isTableau(prefs, dreamHost);
+        if (buildTableau && (!dreamHost
+                || PonyScenes.dreamUsesWallpaperActive(prefs))) {
             // Seed demo / restore previous before the worker runs. Swallow the
-            // coalesced drop our own structural write would schedule.
+            // coalesced drop our own structural write would schedule. Dream
+            // library picks never write wallpaper active prefs.
             handler.removeCallbacks(coalescedDropHerd);
             PonyScenes.ensureActiveScene(prefs);
             handler.removeCallbacks(coalescedDropHerd);
@@ -672,11 +676,12 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 Bitmap bg = null;
                 try {
                     if (buildTableau) {
-                        herd = TableauBuilder.build(appContext, prefs, ponyCount);
+                        herd = TableauBuilder.build(appContext, prefs, ponyCount,
+                                dreamHost);
                         // Wait-bag only: full catalog preload delays the reveal gate.
                         herd.preloadActiveWaitBags();
                     } else {
-                        herd = new Ponies(appContext, prefs, ponyCount);
+                        herd = new Ponies(appContext, prefs, ponyCount, dreamHost);
                         herd.preloadActiveSprites();
                     }
                 } catch (RuntimeException e) {
@@ -722,9 +727,21 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                         ponies = readyHerd;
                         if (buildTableau) {
                             tableauHerd = true;
-                            lastAppliedEpoch = PonyScenes.activeEpoch(prefs);
-                            lastAppliedSlots = PonyScenes.snapshotSlots(
-                                    PonyScenes.loadActiveScene(prefs));
+                            PonyScenes.TableauScene applied =
+                                    PonyScenes.resolveTableauScene(prefs,
+                                            dreamHost);
+                            // Track wallpaper active epoch only when this host
+                            // follows that composition (hot edits / loads).
+                            if (!dreamHost
+                                    || PonyScenes.dreamUsesWallpaperActive(
+                                            prefs)) {
+                                lastAppliedEpoch =
+                                        PonyScenes.activeEpoch(prefs);
+                            } else {
+                                lastAppliedEpoch = EPOCH_UNSET;
+                            }
+                            lastAppliedSlots =
+                                    PonyScenes.snapshotSlots(applied);
                             // Keep the outgoing scene's background until reveal.
                             discardPendingTableauBackground();
                             pendingTableauBackground = readyBg;
@@ -1318,6 +1335,19 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         return surface.isDream() && prefs.getBoolean(PREF_DREAM_CUSTOM_DISPLAY, false);
     }
 
+    private boolean isDreamHost() {
+        return surface.isDream();
+    }
+
+    /**
+     * Tableau host that should react to wallpaper active JSON / epoch writes.
+     * Dream library picks ignore those keys.
+     */
+    private boolean tracksWallpaperActiveTableau(SharedPreferences prefs) {
+        if (!SceneMode.isTableau(prefs, isDreamHost())) return false;
+        return !isDreamHost() || PonyScenes.dreamUsesWallpaperActive(prefs);
+    }
+
     private int preferredPonyCount(SharedPreferences prefs) {
         if (useDreamDisplayOverrides(prefs) && prefs.contains(PREF_DREAM_NUM_PONIES)) {
             return prefs.getInt(PREF_DREAM_NUM_PONIES, DEFAULT_NUM_PONIES);
@@ -1351,12 +1381,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         // the same power/thermal/software clamps decide how many stay on screen.
         // min(cap, slotCount) so rebuilds skip when the cap moves but stays
         // above the resolved scene size (demo is 3 until PR3).
-        if (SceneMode.isTableau(prefs)) {
+        if (SceneMode.isTableau(prefs, isDreamHost())) {
             return TableauBuilder.effectiveCount(prefs,
                     shouldApplyBatterySaverLimits(prefs),
                     shouldUseDefaultPoniesOnBattery(prefs),
                     shouldApplySoftwareCanvasLimits(),
-                    shouldApplyThermalThrottle());
+                    shouldApplyThermalThrottle(),
+                    isDreamHost());
         }
         int count = preferredPonyCount(prefs);
         if (count < 1) count = DEFAULT_NUM_PONIES;
@@ -1710,6 +1741,14 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             onDreamPreferenceChanged(prefs, key);
             return;
         }
+        if (SceneMode.PREF_KEY.equals(key)) {
+            // Independent dream mode ignores wallpaper scene-mode flips.
+            if (isDreamHost() && !SceneMode.dreamFollowsWallpaper(prefs)) {
+                return;
+            }
+            scheduleDropHerd();
+            return;
+        }
         if (PREF_TARGET_FPS.equals(key)) {
             if (useDreamDisplayOverrides(prefs)) return;
             applyTargetFpsAndRedraw(prefs);
@@ -1722,7 +1761,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         if (PonySize.PREF_KEY.equals(key)) {
             // My ??? Pony ignores Character size; keep rolled sizes until herd rebuild.
-            if (ponies != null && !SceneMode.isRandomSize(prefs)) {
+            if (ponies != null && !SceneMode.isRandomSize(prefs, isDreamHost())) {
                 ponies.setSizeFactor(PonySize.factor(prefs));
             }
             redrawIfActive();
@@ -1735,12 +1774,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             reapplyPowerProfilePrefs(prefs);
             return;
         }
-        if (PREF_NUM_PONIES.equals(key) && SceneMode.isTableau(prefs)) {
+        if (PREF_NUM_PONIES.equals(key)
+                && SceneMode.isTableau(prefs, isDreamHost())) {
             return;
         }
         if (PonyScenes.PREF_ACTIVE_EPOCH.equals(key)) {
             // Structural/load batch in flight — do not assign lastAppliedEpoch.
-            if (SceneMode.isTableau(prefs)) scheduleDropHerd();
+            if (tracksWallpaperActiveTableau(prefs)) scheduleDropHerd();
             return;
         }
         if (PonyScenes.PREF_ACTIVE_JSON.equals(key)) {
@@ -1749,6 +1789,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         if (useDreamDisplayOverrides(prefs)
                 && (PREF_NUM_PONIES.equals(key) || PREF_BACKGROUND.equals(key))) {
+            return;
+        }
+        if (PonyScenes.PREF_SCENES_JSON.equals(key)) {
+            // Dream library pick deleted → fall back to wallpaper active.
+            if (isDreamHost() && SceneMode.isTableau(prefs, true)) {
+                String id = PonyScenes.dreamSceneIdPreference(prefs);
+                if (!SceneMode.SAME.equals(id)
+                        && PonyScenes.findSceneById(prefs, id) == null) {
+                    scheduleDropHerd();
+                }
+            }
             return;
         }
         if (isHerdMetadataKey(key)) return;
@@ -1761,7 +1812,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * {@link #lastAppliedEpoch}. Same epoch → idempotent per-slot hot apply.
      */
     private void onTableauActiveJsonChanged(SharedPreferences prefs) {
-        if (!SceneMode.isTableau(prefs) || ponies == null || !tableauHerd) {
+        if (!tracksWallpaperActiveTableau(prefs)) {
+            return;
+        }
+        if (ponies == null || !tableauHerd) {
             scheduleDropHerd();
             return;
         }
@@ -1811,13 +1865,18 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             redrawIfActive();
             return;
         }
+        if (SceneMode.PREF_DREAM_KEY.equals(key)
+                || PonyScenes.PREF_DREAM_SCENE_ID.equals(key)) {
+            scheduleDropHerd();
+            return;
+        }
         if (PREF_DREAM_TARGET_FPS.equals(key)) {
             if (!useDreamDisplayOverrides(prefs)) return;
             applyTargetFpsAndRedraw(prefs);
             return;
         }
         if (PREF_DREAM_NUM_PONIES.equals(key)) {
-            if (SceneMode.isTableau(prefs)) return;
+            if (SceneMode.isTableau(prefs, true)) return;
             if (!useDreamDisplayOverrides(prefs)) return;
             scheduleDropHerd();
             return;

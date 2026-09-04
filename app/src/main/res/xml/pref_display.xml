@@ -113,6 +113,21 @@
             android:key="pref_open_screensaver"
             android:title="@string/pref_open_screensaver_title"
             android:summary="@string/pref_open_screensaver_summary" />
+        <ListPreference
+            android:key="pref_dream_scene_mode"
+            android:title="@string/pref_dream_scene_mode_title"
+            android:summary="%s"
+            android:dialogTitle="@string/pref_dream_scene_mode_dialog"
+            android:entries="@array/pref_dream_scene_mode_entries"
+            android:entryValues="@array/pref_dream_scene_mode_values"
+            android:defaultValue="same" />
+        <ListPreference
+            android:key="pref_dream_tableau_scene_id"
+            android:title="@string/pref_dream_tableau_scene_title"
+            android:summary="%s"
+            android:dialogTitle="@string/pref_dream_tableau_scene_dialog"
+            android:defaultValue="same"
+            app:isPreferenceVisible="false" />
         <CheckBoxPreference
             android:key="pref_dream_custom_display"
             android:title="@string/pref_dream_custom_display_title"
