@@ -38,6 +38,7 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/WanderTarget.java",
                 "uk/cpjsmith/ponypaper/WaitExpiry.java",
                 "uk/cpjsmith/ponypaper/SceneExit.java",
+                "uk/cpjsmith/ponypaper/WorldFlow.java",
             )
         }
     }
@@ -162,6 +163,13 @@ tasks.register<JavaExec>("testWanderTarget") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.WanderTargetTest")
 }
 
+tasks.register<JavaExec>("testWorldFlow") {
+    group = "verification"
+    description = "Run World Flow spawn-bag selection checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.WorldFlowTest")
+}
+
 tasks.named("check") {
     dependsOn("testPacker")
     dependsOn("testDefinition")
@@ -176,4 +184,5 @@ tasks.named("check") {
     dependsOn("testDpEffects")
     dependsOn("testEffectPlacement")
     dependsOn("testWanderTarget")
+    dependsOn("testWorldFlow")
 }

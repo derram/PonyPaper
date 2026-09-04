@@ -151,6 +151,7 @@ public class Ponies implements Pony.EffectHost {
             boolean isDream) {
         inactivePonies = AllPonies.getPonies(context, prefs);
         randomSizeMode = SceneMode.isRandomSize(prefs, isDream);
+        boolean worldFlow = SceneMode.isWorldFlow(prefs, isDream);
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         String rawWaifu = prefs.getString("pref_waifu", "");
         waifuKey = rawWaifu != null ? rawWaifu : "";
@@ -163,6 +164,11 @@ public class Ponies implements Pony.EffectHost {
         random = new Random();
         if (!randomSizeMode) {
             applySizeFactor(PonySize.factor(prefs));
+        }
+        if (worldFlow) {
+            for (int i = 0; i < inactivePonies.size(); i++) {
+                inactivePonies.get(i).setWorldFlow(true);
+            }
         }
         wireEffectHosts(inactivePonies);
         activePonies = new Pony[activeCount];

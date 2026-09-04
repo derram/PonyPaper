@@ -67,6 +67,12 @@ public class Pony {
      */
     private String prefKey = "";
 
+    /**
+     * When true, every spawn is a crossing and idle waiting is suppressed
+     * ({@link SceneMode#WORLD_FLOW}). Survives {@link #reset()}.
+     */
+    private boolean worldFlow;
+
     /** When true, suppress travel/leave and re-pin after {@link #reset()}. */
     boolean pinned;
     /** Portrait (default) pin norms. */
@@ -277,6 +283,18 @@ public class Pony {
      */
     void setCrossingActions(PonyAction[] actions) {
         crossingActions = actions != null && actions.length > 0 ? actions : NO_ACTIONS;
+    }
+
+    /**
+     * Enables World Flow policy: crossing-only spawns and no idle. See
+     * {@link WorldFlow}.
+     */
+    void setWorldFlow(boolean enabled) {
+        worldFlow = enabled;
+    }
+
+    boolean isWorldFlow() {
+        return worldFlow;
     }
 
     public boolean isPinned() {
@@ -686,51 +704,62 @@ public class Pony {
             if (!actionsReady()) {
                 return;
             }
-            int startLen = startActions != null ? startActions.length : 0;
-            int crossLen = crossingActions != null ? crossingActions.length : 0;
-            int total = startLen + crossLen;
-            if (total == 0) {
-                leavingMode = LM_GONE;
-                return;
-            }
-            int pick = random.nextInt(total);
-            boolean crossingSpawn = pick >= startLen;
-            if (crossingSpawn) {
-                changeAction(crossingActions[pick - startLen]);
+            if (worldFlow) {
+                // Crossing-only spawn; NORMAL movers only (see WorldFlow).
+                PonyAction[] bag = worldFlowSpawnBag();
+                if (bag.length == 0) {
+                    leavingMode = LM_GONE;
+                    return;
+                }
+                changeAction(bag[random.nextInt(bag.length)]);
                 beginCrossingEnter();
             } else {
-                changeAction(startActions[pick]);
-                if (currentAction.type == PonyAction.SCREEN_IN
-                        || currentAction.type == PonyAction.SCREEN_OUT) {
-                    // Appear/vanish clips spawn on-screen and do not interpolate.
-                    Point startOn = randomOnScreen();
-                    posX = startOn.x;
-                    posY = startOn.y;
-                    motion = MOTION_SPECIAL;
-                    if (currentAction.type == PonyAction.SCREEN_OUT) {
-                        leavingMode = LM_GOING;
-                    }
-                } else if (currentAction.type == PonyAction.PORT_O
-                        || currentAction.type == PonyAction.PORT_I) {
-                    // Scene enter via teleport: only the visible half. Spawning
-                    // off-screen to play teleport-out lets VFX bleed at the gutter;
-                    // land on-screen and play teleport-in (or keep in if that was
-                    // the start pick). Mid-scene teleports still use the full pair.
-                    if (currentAction.type == PonyAction.PORT_O) {
-                        setMoving();
-                    }
-                    Point startOn = randomOnScreen();
-                    posX = startOn.x;
-                    posY = startOn.y;
-                    motion = MOTION_SPECIAL;
-                    targetPos = null;
+                int startLen = startActions != null ? startActions.length : 0;
+                int crossLen = crossingActions != null ? crossingActions.length : 0;
+                int total = startLen + crossLen;
+                if (total == 0) {
+                    leavingMode = LM_GONE;
+                    return;
+                }
+                int pick = random.nextInt(total);
+                boolean crossingSpawn = pick >= startLen;
+                if (crossingSpawn) {
+                    changeAction(crossingActions[pick - startLen]);
+                    beginCrossingEnter();
                 } else {
-                    Point startOff = randomOffScreen();
-                    posX = startOff.x;
-                    posY = startOff.y;
-                    motion = currentAction.type == PonyAction.NORMAL
-                            ? MOTION_MOVING : MOTION_SPECIAL;
-                    setRandomTarget();
+                    changeAction(startActions[pick]);
+                    if (currentAction.type == PonyAction.SCREEN_IN
+                            || currentAction.type == PonyAction.SCREEN_OUT) {
+                        // Appear/vanish clips spawn on-screen and do not interpolate.
+                        Point startOn = randomOnScreen();
+                        posX = startOn.x;
+                        posY = startOn.y;
+                        motion = MOTION_SPECIAL;
+                        if (currentAction.type == PonyAction.SCREEN_OUT) {
+                            leavingMode = LM_GOING;
+                        }
+                    } else if (currentAction.type == PonyAction.PORT_O
+                            || currentAction.type == PonyAction.PORT_I) {
+                        // Scene enter via teleport: only the visible half. Spawning
+                        // off-screen to play teleport-out lets VFX bleed at the gutter;
+                        // land on-screen and play teleport-in (or keep in if that was
+                        // the start pick). Mid-scene teleports still use the full pair.
+                        if (currentAction.type == PonyAction.PORT_O) {
+                            setMoving();
+                        }
+                        Point startOn = randomOnScreen();
+                        posX = startOn.x;
+                        posY = startOn.y;
+                        motion = MOTION_SPECIAL;
+                        targetPos = null;
+                    } else {
+                        Point startOff = randomOffScreen();
+                        posX = startOff.x;
+                        posY = startOff.y;
+                        motion = currentAction.type == PonyAction.NORMAL
+                                ? MOTION_MOVING : MOTION_SPECIAL;
+                        setRandomTarget();
+                    }
                 }
             }
         } else if (deltaMs > 0) {
@@ -812,6 +841,11 @@ public class Pony {
             
             switch (motion) {
                 case MOTION_WAITING:
+                    if (worldFlow) {
+                        // World Flow never idles; resume a crossing exit.
+                        resumeWorldFlowExit();
+                        break;
+                    }
                     waitTimerMs -= deltaMs;
                     if (waitTimerMs <= 0) {
                         waitTimerMs = 0;
@@ -979,6 +1013,8 @@ public class Pony {
             beginForcedExit(new Point(screenBounds.left - s, y));
         } else if (x >= screenBounds.right - s) {
             beginForcedExit(new Point(screenBounds.right + s, y));
+        } else if (worldFlow) {
+            resumeWorldFlowExit();
         } else {
             beginWaitingInPlace();
         }
@@ -1136,6 +1172,10 @@ public class Pony {
      * available. Used when travel is not possible (e.g. stop-drag with no mover).
      */
     private void beginWaitingInPlace() {
+        if (worldFlow) {
+            resumeWorldFlowExit();
+            return;
+        }
         motion = MOTION_WAITING;
         targetPos = null;
         travelX = 0;
@@ -1184,6 +1224,9 @@ public class Pony {
      * @return true if waiting began
      */
     private boolean tryLandAndWait() {
+        if (worldFlow) {
+            return false;
+        }
         if (!currentAction.hasNextWaiting()) {
             return false;
         }
@@ -1226,6 +1269,10 @@ public class Pony {
      * Crossing spawn: enter from a gutter and always leave by the opposite
      * gutter (no {@link SceneExit} roll). Special leave movers (screen-out /
      * teleport-out) play in place and mark the pony as going.
+     *
+     * <p>World Flow always uses this path for NORMAL movers. Incomplete until
+     * vertical-wander spawning support exists: transit is always horizontal
+     * opposite-gutter even when the mover prefers vertical travel.
      */
     private void beginCrossingEnter() {
         if (currentAction.type == PonyAction.SCREEN_IN
@@ -1259,6 +1306,102 @@ public class Pony {
             travelX = 0;
             travelY = 0;
         }
+    }
+
+    /**
+     * World Flow spawn bag: NORMAL movers from crossing actions, else from
+     * start actions. Empty when the pony has no NORMAL transit clips.
+     */
+    private PonyAction[] worldFlowSpawnBag() {
+        int[] crossTypes = actionTypes(crossingActions);
+        int[] startTypes = actionTypes(startActions);
+        int source = WorldFlow.selectBagSource(crossTypes, startTypes);
+        if (source == WorldFlow.BAG_CROSSING) {
+            return normalMovers(crossingActions);
+        }
+        if (source == WorldFlow.BAG_START) {
+            return normalMovers(startActions);
+        }
+        return NO_ACTIONS;
+    }
+
+    private static int[] actionTypes(PonyAction[] actions) {
+        if (actions == null || actions.length == 0) {
+            return new int[0];
+        }
+        int[] types = new int[actions.length];
+        for (int i = 0; i < actions.length; i++) {
+            types[i] = actions[i].type;
+        }
+        return types;
+    }
+
+    private static PonyAction[] normalMovers(PonyAction[] src) {
+        if (src == null || src.length == 0) {
+            return NO_ACTIONS;
+        }
+        int n = 0;
+        for (int i = 0; i < src.length; i++) {
+            if (WorldFlow.isNormalTransit(src[i].type)) {
+                n++;
+            }
+        }
+        if (n == 0) {
+            return NO_ACTIONS;
+        }
+        if (n == src.length) {
+            return src;
+        }
+        PonyAction[] out = new PonyAction[n];
+        int j = 0;
+        for (int i = 0; i < src.length; i++) {
+            if (WorldFlow.isNormalTransit(src[i].type)) {
+                out[j++] = src[i];
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Continues or starts a horizontal crossing exit from the current feet
+     * position (drag release / accidental wait under World Flow).
+     */
+    private void resumeWorldFlowExit() {
+        if (screenBounds == null) {
+            leavingMode = LM_GONE;
+            return;
+        }
+        int s = (int)(30 * getScale());
+        int y = Math.round(posY);
+        boolean leaveLeft;
+        if (Math.abs(travelX) > 0.01f) {
+            leaveLeft = travelX < 0f;
+        } else {
+            leaveLeft = posX < screenBounds.centerX();
+        }
+        Point exit = new Point(
+                leaveLeft ? screenBounds.left - s : screenBounds.right + s, y);
+        PonyAction next = null;
+        if (currentAction != null && WorldFlow.isNormalTransit(currentAction.type)) {
+            next = currentAction;
+        } else {
+            PonyAction[] bag = worldFlowSpawnBag();
+            if (bag.length > 0) {
+                next = bag[random.nextInt(bag.length)];
+            }
+        }
+        if (next == null) {
+            // No NORMAL transit clip — drop for herd swap rather than idle.
+            leavingMode = LM_GONE;
+            return;
+        }
+        changeAction(next);
+        motion = MOTION_MOVING;
+        leavingMode = LM_GOING;
+        targetPos = exit;
+        travelX = targetPos.x - posX;
+        travelY = targetPos.y - posY;
+        setDirection(targetPos);
     }
 
     /**
@@ -1314,7 +1457,16 @@ public class Pony {
             // Leaving the scene always completes exit bookkeeping.
             if (leavingMode == LM_GOING) {
                 arriveTarget();
-                setWaiting();
+                // World Flow skips the off-screen idle frame; herd swap uses
+                // goneOffScreen() from LM_GONE set in arriveTarget.
+                if (!worldFlow) {
+                    setWaiting();
+                }
+                return;
+            }
+            if (worldFlow) {
+                // Should not land mid-scene; force a crossing exit.
+                resumeWorldFlowExit();
                 return;
             }
             // Normal arrive: idle only with a real waiter; else keep traveling.

@@ -69,6 +69,7 @@
     <string name="pref_scene_mode_title">Scene mode</string>
     <string name="pref_scene_mode_dialog">Scene mode</string>
     <string name="pref_scene_mode_wander">World wander mode</string>
+    <string name="pref_scene_mode_world_flow">World flow mode</string>
     <string name="pref_scene_mode_berry_punch">Berry Punch mode</string>
     <string name="pref_scene_mode_my_question">My ??? Pony mode</string>
     <string name="pref_scene_mode_tableau">Tableau mode</string>

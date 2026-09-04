@@ -32,6 +32,11 @@ final class SceneMode {
     static final String BERRY_PUNCH = "berry_punch";
     /** Each pony rolls a random size from the Character size ladder on enter. */
     static final String MY_QUESTION = "my_question";
+    /**
+     * Same herd prefs as {@link #WANDER}, but every spawn is a crossing
+     * (always leave, no idle). See {@link WorldFlow}.
+     */
+    static final String WORLD_FLOW = "world_flow";
     /** Fixed posed slots; herd checkboxes and num-ponies prefs are ignored. */
     static final String TABLEAU = "tableau";
 
@@ -118,7 +123,7 @@ final class SceneMode {
         return MY_QUESTION.equals(effectiveMode(prefs, isDream));
     }
 
-    /** True when fixed Tableau poses are active (not wander / Berry / random-size). */
+    /** True when fixed Tableau poses are active (not a wander-herd mode). */
     static boolean isTableau(SharedPreferences prefs) {
         return isTableau(prefs, false);
     }
@@ -127,10 +132,20 @@ final class SceneMode {
         return TABLEAU.equals(effectiveMode(prefs, isDream));
     }
 
+    /** True when World Flow crossing-only herd behaviour is active. */
+    static boolean isWorldFlow(SharedPreferences prefs) {
+        return isWorldFlow(prefs, false);
+    }
+
+    static boolean isWorldFlow(SharedPreferences prefs, boolean isDream) {
+        return WORLD_FLOW.equals(effectiveMode(prefs, isDream));
+    }
+
     private static boolean isConcrete(String raw) {
         return WANDER.equals(raw)
                 || BERRY_PUNCH.equals(raw)
                 || MY_QUESTION.equals(raw)
+                || WORLD_FLOW.equals(raw)
                 || TABLEAU.equals(raw);
     }
 
@@ -138,6 +153,7 @@ final class SceneMode {
         if (TABLEAU.equals(raw)) return TABLEAU;
         if (BERRY_PUNCH.equals(raw)) return BERRY_PUNCH;
         if (MY_QUESTION.equals(raw)) return MY_QUESTION;
+        if (WORLD_FLOW.equals(raw)) return WORLD_FLOW;
         return WANDER;
     }
 
