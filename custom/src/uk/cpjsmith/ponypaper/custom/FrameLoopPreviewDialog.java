@@ -79,6 +79,8 @@ public final class FrameLoopPreviewDialog extends JDialog {
         rateSlider.setToolTipText("Playback rate (percent).");
 
         playButton = new JButton("Pause");
+        JButton stepButton = new JButton("Step");
+        stepButton.setToolTipText("Advance one frame and pause (→).");
         JButton restartButton = new JButton("Restart");
         JButton closeButton = new JButton("Close");
 
@@ -99,8 +101,14 @@ public final class FrameLoopPreviewDialog extends JDialog {
                 togglePlay();
             }
         });
+        stepButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                stepOnce();
+            }
+        });
         restartButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
+                stopPlaying();
                 animTimeCs = 0;
                 stage.repaint();
                 updateStatus();
@@ -127,6 +135,7 @@ public final class FrameLoopPreviewDialog extends JDialog {
 
         JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         controls.add(playButton);
+        controls.add(stepButton);
         controls.add(restartButton);
         controls.add(closeButton);
 
@@ -160,6 +169,14 @@ public final class FrameLoopPreviewDialog extends JDialog {
                     }
                 },
                 KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
+        getRootPane().registerKeyboardAction(
+                new ActionListener() {
+                    public void actionPerformed(ActionEvent e) {
+                        stepOnce();
+                    }
+                },
+                KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0),
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
 
         addWindowListener(new WindowAdapter() {
@@ -246,6 +263,22 @@ public final class FrameLoopPreviewDialog extends JDialog {
         playing = false;
         playButton.setText("Play");
         timer.stop();
+        updateStatus();
+    }
+
+    /**
+     * Pause and jump to the start of the next frame (wraps at the end).
+     */
+    private void stepOnce() {
+        stopPlaying();
+        int frame = source.frameIndexAt((int) animTimeCs);
+        int next = (frame + 1) % source.frameCount;
+        float t = 0f;
+        for (int i = 0; i < next; i++) {
+            t += Math.max(1, source.frameTimesCs[i]);
+        }
+        animTimeCs = t;
+        stage.repaint();
         updateStatus();
     }
 
