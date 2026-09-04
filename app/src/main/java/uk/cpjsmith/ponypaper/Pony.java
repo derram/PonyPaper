@@ -1510,21 +1510,18 @@ public class Pony {
     
     /**
      * Chooses a random point on the screen. Logical position is feet
-     * (bottom-center), so the top inset is a full sprite height plus a small
-     * pad rather than the historical symmetric center-anchor margin.
-     * Off-screen enter/exit targets intentionally keep the older taller band
-     * so approach angles stay varied.
-     * 
+     * (bottom-center); top inset keeps the full sprite on-screen (see
+     * {@link SpawnYBand#onScreenTopInset}).
+     *
      * @return the chosen point
      */
     private Point randomOnScreen() {
         float scale = getScale();
         int side = (int)(30 * scale);
-        // Goal A: whole sprite stays on-screen at the top; feet may sit near bottom.
-        int top = (int)(maxUnscaledFrameHeight() * scale) + (int)(8 * scale);
-        int bottom = (int)(8 * scale);
+        int top = SpawnYBand.onScreenTopInset(maxUnscaledFrameHeight(), scale);
+        int bottom = SpawnYBand.bottomInset(scale);
         int usableW = screenBounds.width() - 2 * side;
-        int usableH = screenBounds.height() - top - bottom;
+        int usableH = SpawnYBand.usableHeight(screenBounds.height(), top, bottom);
         // Transient zero-size surfaces would make nextInt throw IllegalArgumentException.
         if (usableW < 1 || usableH < 1) {
             return new Point(screenBounds.centerX(), screenBounds.centerY());
@@ -1616,9 +1613,9 @@ public class Pony {
     /** Hard vertical: same X, random Y in the usable on-screen band. */
     private Point randomOnScreenHardVertical() {
         float scale = getScale();
-        int top = (int)(maxUnscaledFrameHeight() * scale) + (int)(8 * scale);
-        int bottom = (int)(8 * scale);
-        int usableH = screenBounds.height() - top - bottom;
+        int top = SpawnYBand.onScreenTopInset(maxUnscaledFrameHeight(), scale);
+        int bottom = SpawnYBand.bottomInset(scale);
+        int usableH = SpawnYBand.usableHeight(screenBounds.height(), top, bottom);
         int y = usableH < 1
                 ? screenBounds.centerY()
                 : screenBounds.top + top + random.nextInt(usableH);
@@ -1628,15 +1625,21 @@ public class Pony {
     
     /**
      * Chooses a random point just to the side of the screen (left/right).
-     * 
+     * Feet Y uses {@link SpawnYBand#crossingTopInset} so crossings may peek
+     * over the top while still reaching near the bottom edge.
+     *
      * @return the chosen point
      */
     private Point randomOffScreen() {
-        int s = (int)(30 * getScale());
-        int usableH = screenBounds.height() - 2 * s;
+        float scale = getScale();
+        int s = (int)(30 * scale);
+        int top = SpawnYBand.crossingTopInset(
+                maxUnscaledFrameHeight(), scale, screenBounds.height());
+        int bottom = SpawnYBand.bottomInset(scale);
+        int usableH = SpawnYBand.usableHeight(screenBounds.height(), top, bottom);
         int y = usableH < 1
                 ? screenBounds.centerY()
-                : screenBounds.top + s + random.nextInt(usableH);
+                : screenBounds.top + top + random.nextInt(usableH);
         return new Point(random.nextBoolean() ? screenBounds.left - s : screenBounds.right + s, y);
     }
 
@@ -1708,7 +1711,7 @@ public class Pony {
         if (exitTop) {
             return screenBounds.top - pad;
         }
-        int clear = (int)(maxUnscaledFrameHeight() * scale) + (int)(8 * scale);
+        int clear = SpawnYBand.onScreenTopInset(maxUnscaledFrameHeight(), scale);
         return screenBounds.bottom + clear;
     }
 
@@ -1731,13 +1734,10 @@ public class Pony {
 
     private int clampOnScreenY(int y) {
         float scale = getScale();
-        int top = (int)(maxUnscaledFrameHeight() * scale) + (int)(8 * scale);
-        int bottom = (int)(8 * scale);
-        int min = screenBounds.top + top;
-        int max = screenBounds.bottom - bottom;
-        if (max < min) {
-            return screenBounds.centerY();
-        }
+        int top = SpawnYBand.onScreenTopInset(maxUnscaledFrameHeight(), scale);
+        int bottom = SpawnYBand.bottomInset(scale);
+        int min = SpawnYBand.minY(screenBounds.top, screenBounds.height(), top, bottom);
+        int max = SpawnYBand.maxY(screenBounds.top, screenBounds.height(), top, bottom);
         if (y < min) {
             return min;
         }

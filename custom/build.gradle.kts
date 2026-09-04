@@ -39,6 +39,7 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/WaitExpiry.java",
                 "uk/cpjsmith/ponypaper/SceneExit.java",
                 "uk/cpjsmith/ponypaper/WorldFlow.java",
+                "uk/cpjsmith/ponypaper/SpawnYBand.java",
             )
         }
     }
@@ -170,6 +171,13 @@ tasks.register<JavaExec>("testWorldFlow") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.WorldFlowTest")
 }
 
+tasks.register<JavaExec>("testSpawnYBand") {
+    group = "verification"
+    description = "Run feet-anchored spawn Y inset checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.SpawnYBandTest")
+}
+
 tasks.named("check") {
     dependsOn("testPacker")
     dependsOn("testDefinition")
@@ -185,4 +193,5 @@ tasks.named("check") {
     dependsOn("testEffectPlacement")
     dependsOn("testWanderTarget")
     dependsOn("testWorldFlow")
+    dependsOn("testSpawnYBand")
 }
