@@ -3,7 +3,7 @@ package uk.cpjsmith.ponypaper.custom;
 import uk.cpjsmith.ponypaper.WorldFlow;
 
 /**
- * Checks World Flow spawn-bag selection (NORMAL-only, crossing preferred).
+ * Checks World Flow spawn-bag selection (NORMAL-only, crossing∪start).
  * Run via {@code ./gradlew :custom:testWorldFlow} or {@code java … WorldFlowTest}.
  */
 public final class WorldFlowTest {
@@ -12,8 +12,9 @@ public final class WorldFlowTest {
 
     public static void main(String[] args) {
         int failures = 0;
-        failures += run("preferCrossingNormals", WorldFlowTest::testPreferCrossingNormals);
+        failures += run("unionWhenBothHaveNormals", WorldFlowTest::testUnionWhenBothHaveNormals);
         failures += run("fallbackToStartNormals", WorldFlowTest::testFallbackToStartNormals);
+        failures += run("crossingOnly", WorldFlowTest::testCrossingOnly);
         failures += run("ignoreSpecials", WorldFlowTest::testIgnoreSpecials);
         failures += run("noneWhenEmpty", WorldFlowTest::testNoneWhenEmpty);
         failures += run("countNormal", WorldFlowTest::testCountNormal);
@@ -40,12 +41,12 @@ public final class WorldFlowTest {
         }
     }
 
-    private static void testPreferCrossingNormals() {
+    private static void testUnionWhenBothHaveNormals() {
         int[] crossing = {WorldFlow.TYPE_NORMAL, WorldFlow.TYPE_NORMAL};
         int[] start = {WorldFlow.TYPE_NORMAL};
         int bag = WorldFlow.selectBagSource(crossing, start);
-        if (bag != WorldFlow.BAG_CROSSING) {
-            throw new AssertionError("expected BAG_CROSSING, got " + bag);
+        if (bag != WorldFlow.BAG_UNION) {
+            throw new AssertionError("expected BAG_UNION, got " + bag);
         }
     }
 
@@ -62,6 +63,23 @@ public final class WorldFlowTest {
         }
     }
 
+    private static void testCrossingOnly() {
+        int[] crossing = {WorldFlow.TYPE_NORMAL};
+        int[] start = {};
+        int bag = WorldFlow.selectBagSource(crossing, start);
+        if (bag != WorldFlow.BAG_CROSSING) {
+            throw new AssertionError("expected BAG_CROSSING, got " + bag);
+        }
+        bag = WorldFlow.selectBagSource(crossing, null);
+        if (bag != WorldFlow.BAG_CROSSING) {
+            throw new AssertionError("null start with crossing NORMALs should be BAG_CROSSING");
+        }
+        bag = WorldFlow.selectBagSource(crossing, new int[] {1, 4});
+        if (bag != WorldFlow.BAG_CROSSING) {
+            throw new AssertionError("specials-only start should not prevent crossing-only");
+        }
+    }
+
     private static void testIgnoreSpecials() {
         // PonyAction.PORT_O=1, PORT_I=2, SCREEN_IN=3, SCREEN_OUT=4
         int[] crossing = {1, 2, 3, 4};
@@ -73,6 +91,12 @@ public final class WorldFlowTest {
         bag = WorldFlow.selectBagSource(crossing, new int[] {1, 3});
         if (bag != WorldFlow.BAG_NONE) {
             throw new AssertionError("specials-only bags should be BAG_NONE; got " + bag);
+        }
+        // Crossing NORMAL + start specials → crossing only (not union).
+        bag = WorldFlow.selectBagSource(new int[] {WorldFlow.TYPE_NORMAL}, crossing);
+        if (bag != WorldFlow.BAG_CROSSING) {
+            throw new AssertionError("crossing NORMAL + start specials → BAG_CROSSING; got "
+                    + bag);
         }
     }
 

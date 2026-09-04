@@ -8,9 +8,11 @@ package uk.cpjsmith.ponypaper;
  * leave via the opposite horizontal gutter, with no idle waiting.
  *
  * <p>Only {@linkplain #TYPE_NORMAL NORMAL} movers are selected. Authored
- * {@code <crossingactions>} NORMAL entries are preferred; when that bag has
- * none, start-action NORMAL movers are used as a fallback (most built-ins have
- * an empty crossing list).
+ * {@code <crossingactions>} and {@code <startactions>} NORMAL entries are
+ * <strong>unioned</strong> so specialty crossing clips (e.g. Twilight's
+ * {@code owl_trot}) share the stage with ordinary start gaits. Customs need
+ * not duplicate their start list into crossing for World Flow variety; an
+ * empty crossing list still uses start NORMALs alone (most built-ins).
  *
  * <p>Technically incomplete until vertical-wander spawning support exists:
  * every transit still uses horizontal opposite-gutter enter/leave even when
@@ -24,6 +26,8 @@ public final class WorldFlow {
     public static final int BAG_NONE = -1;
     public static final int BAG_CROSSING = 0;
     public static final int BAG_START = 1;
+    /** Both bags contribute NORMAL movers (crossing first, then start). */
+    public static final int BAG_UNION = 2;
 
     private WorldFlow() {}
 
@@ -33,18 +37,26 @@ public final class WorldFlow {
     }
 
     /**
-     * Prefers crossing NORMAL movers; otherwise falls back to start NORMAL
-     * movers. Specials (teleport / screen-in/out) are never selected.
+     * Chooses which spawn bags supply World Flow NORMAL movers. When both
+     * crossing and start have at least one NORMAL, returns {@link #BAG_UNION}
+     * so specialty crossings need not re-list start gaits. Specials (teleport
+     * / screen-in/out) are never selected.
      *
      * @param crossingTypes action types in the crossing bag (may be null/empty)
      * @param startTypes    action types in the start bag (may be null/empty)
-     * @return {@link #BAG_CROSSING}, {@link #BAG_START}, or {@link #BAG_NONE}
+     * @return {@link #BAG_UNION}, {@link #BAG_CROSSING}, {@link #BAG_START},
+     *         or {@link #BAG_NONE}
      */
     public static int selectBagSource(int[] crossingTypes, int[] startTypes) {
-        if (countNormal(crossingTypes) > 0) {
+        boolean cross = countNormal(crossingTypes) > 0;
+        boolean start = countNormal(startTypes) > 0;
+        if (cross && start) {
+            return BAG_UNION;
+        }
+        if (cross) {
             return BAG_CROSSING;
         }
-        if (countNormal(startTypes) > 0) {
+        if (start) {
             return BAG_START;
         }
         return BAG_NONE;

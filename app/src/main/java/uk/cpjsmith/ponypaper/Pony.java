@@ -705,7 +705,7 @@ public class Pony {
                 return;
             }
             if (worldFlow) {
-                // Crossing-only spawn; NORMAL movers only (see WorldFlow).
+                // Always-leave spawn; NORMAL movers from crossing∪start (see WorldFlow).
                 PonyAction[] bag = worldFlowSpawnBag();
                 if (bag.length == 0) {
                     leavingMode = LM_GONE;
@@ -1309,13 +1309,17 @@ public class Pony {
     }
 
     /**
-     * World Flow spawn bag: NORMAL movers from crossing actions, else from
-     * start actions. Empty when the pony has no NORMAL transit clips.
+     * World Flow spawn bag: NORMAL movers from crossing and/or start actions
+     * (union when both have any). Empty when the pony has no NORMAL transit.
      */
     private PonyAction[] worldFlowSpawnBag() {
         int[] crossTypes = actionTypes(crossingActions);
         int[] startTypes = actionTypes(startActions);
         int source = WorldFlow.selectBagSource(crossTypes, startTypes);
+        if (source == WorldFlow.BAG_UNION) {
+            return concatActions(normalMovers(crossingActions),
+                    normalMovers(startActions));
+        }
         if (source == WorldFlow.BAG_CROSSING) {
             return normalMovers(crossingActions);
         }
@@ -1323,6 +1327,19 @@ public class Pony {
             return normalMovers(startActions);
         }
         return NO_ACTIONS;
+    }
+
+    private static PonyAction[] concatActions(PonyAction[] a, PonyAction[] b) {
+        if (a == null || a.length == 0) {
+            return b != null ? b : NO_ACTIONS;
+        }
+        if (b == null || b.length == 0) {
+            return a;
+        }
+        PonyAction[] out = new PonyAction[a.length + b.length];
+        System.arraycopy(a, 0, out, 0, a.length);
+        System.arraycopy(b, 0, out, a.length, b.length);
+        return out;
     }
 
     private static int[] actionTypes(PonyAction[] actions) {
