@@ -199,6 +199,7 @@ public class Settings extends AppCompatActivity
                     if (isLiveHerdPreferenceKey(key)) {
                         PonyMixes.noteManualHerdEdit(sharedPreferences);
                         refreshHerdScreenSummaries();
+                        refreshWaifuList(CustomStorage.listCustomXml(Settings.this));
                     }
                     refreshEnableAllToggles();
                     if (key == null
@@ -1745,34 +1746,48 @@ public class Settings extends AppCompatActivity
 
     /**
      * Rebuilds the Favorite (waifu) list from built-in arrays plus any custom
-     * pony XML basenames currently on disk.
+     * pony XML basenames currently on disk. Ponies whose herd checkbox is off
+     * get {@link R.string#pref_waifu_off_suffix} on the entry (and thus the
+     * closed summary).
      */
     private void refreshWaifuList(File[] customFiles) {
         ListPreference waifu = (ListPreference)findPreference("pref_waifu");
         if (waifu == null) return;
-        
+
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         CharSequence[] baseEntries = getResources().getTextArray(R.array.pref_waifu_entries);
         CharSequence[] baseValues = getResources().getTextArray(R.array.pref_waifu_values);
-        
+
         if (customFiles == null) customFiles = new File[0];
-        
+
         ArrayList<CharSequence> entries = new ArrayList<CharSequence>(baseEntries.length + customFiles.length);
         ArrayList<CharSequence> values = new ArrayList<CharSequence>(baseValues.length + customFiles.length);
+        String offSuffix = getString(R.string.pref_waifu_off_suffix);
         for (int i = 0; i < baseEntries.length; i++) {
-            entries.add(baseEntries[i]);
+            String value = baseValues[i].toString();
+            CharSequence entry = baseEntries[i];
+            if (value.length() > 0 && !prefs.getBoolean(value, true)) {
+                entry = entry.toString() + offSuffix;
+            }
+            entries.add(entry);
             values.add(baseValues[i]);
         }
         for (int i = 0; i < customFiles.length; i++) {
             String fileName = customFiles[i].getName();
-            entries.add(fileName);
-            values.add("pref_custom_" + fileName);
+            String prefKey = "pref_custom_" + fileName;
+            CharSequence entry = fileName;
+            if (!prefs.getBoolean(prefKey, true)) {
+                entry = fileName + offSuffix;
+            }
+            entries.add(entry);
+            values.add(prefKey);
         }
-        
+
         CharSequence[] entryArr = entries.toArray(new CharSequence[entries.size()]);
         CharSequence[] valueArr = values.toArray(new CharSequence[values.size()]);
         waifu.setEntries(entryArr);
         waifu.setEntryValues(valueArr);
-        
+
         // Keep summary correct when the stored value is still valid.
         String current = waifu.getValue();
         if (current == null) current = "";

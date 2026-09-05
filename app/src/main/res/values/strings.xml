@@ -7,6 +7,7 @@
     <string name="pref_screen_display_summary">Herd size, appearance, power, and screen saver</string>
     <string name="pref_screen_ponies_title">Ponies</string>
     <string name="pref_screen_ponies_summary">Choose which ponies can appear, and save mixes</string>
+    <string name="pref_waifu_off_suffix"> (off)</string>
     <string name="pref_herd_summary_title">Live herd</string>
     <string name="pref_herd_summary_live_placeholder">Counting ponies…</string>
     <string name="pref_herd_summary_live">%1$d built-in, %2$d custom on</string>
