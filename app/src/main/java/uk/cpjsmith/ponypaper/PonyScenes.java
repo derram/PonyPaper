@@ -16,6 +16,8 @@ import org.json.JSONObject;
  * <p>Library document: {@link #PREF_SCENES_JSON}. Active composition:
  * {@link #PREF_ACTIVE_JSON} (+ id / epoch). Structural and load writers always
  * put JSON + epoch (+ id) in one {@link SharedPreferences.Editor} batch.
+ * When the active id points at a library entry, hot and structural writes also
+ * sync that entry so Load / export / dream picks stay current (live document).
  *
  * <p>Library zip export stores the named list as a sidecar (see
  * {@link CustomStorage#SCENES_NAME}). Import merges by name and does not
@@ -41,8 +43,12 @@ final class PonyScenes {
     static final int MAX_NAME_LENGTH = 40;
 
     enum SaveResult {
+        /** New library entry created from the active layout. */
         SAVED,
+        /** Existing other-name entry overwritten with the active layout. */
         REPLACED,
+        /** Active library entry renamed in place (same id). */
+        RENAMED,
         FULL,
         BAD_NAME
     }
@@ -229,30 +235,91 @@ final class PonyScenes {
 
     static SaveResult save(SharedPreferences prefs, String rawName,
             List<TableauSlot> slots) {
+        return nameActive(prefs, rawName, slots, true);
+    }
+
+    /**
+     * Name, rename, or duplicate the active layout into the library, then point
+     * active id/name at that entry (no epoch bump).
+     *
+     * <p>{@code forceNew == false} (Name / Rename): renames the active library
+     * entry in place when possible; overwriting another name removes the old
+     * entry. Scratch creates a new entry (or replaces by name).
+     *
+     * <p>{@code forceNew == true} (Duplicate as…): always uses a new id unless
+     * replacing an existing name; leaves the previous library entry intact.
+     */
+    static SaveResult nameActive(SharedPreferences prefs, String rawName,
+            List<TableauSlot> slots, boolean forceNew) {
         if (prefs == null) return SaveResult.BAD_NAME;
         String name = normalizeName(rawName);
         if (name == null) return SaveResult.BAD_NAME;
+        ArrayList<TableauSlot> copy = copySlots(slots);
         ArrayList<TableauScene> scenes =
                 new ArrayList<TableauScene>(loadUserScenes(prefs));
-        int idx = indexOfName(scenes, name);
-        if (idx < 0 && scenes.size() >= MAX_USER_SCENES) return SaveResult.FULL;
-        ArrayList<TableauSlot> copy = new ArrayList<TableauSlot>();
-        if (slots != null) {
-            int n = Math.min(slots.size(), MAX_SLOTS);
-            for (int i = 0; i < n; i++) {
-                if (slots.get(i) != null) copy.add(slots.get(i));
+        String activeId = prefs.getString(PREF_ACTIVE_ID, "");
+        if (activeId == null) activeId = "";
+        int activeIdx = indexOfId(scenes, activeId);
+        int nameIdx = indexOfName(scenes, name);
+
+        SaveResult result;
+        TableauScene next;
+        if (!forceNew && activeIdx >= 0) {
+            if (nameIdx < 0) {
+                next = new TableauScene(scenes.get(activeIdx).id, name, copy);
+                scenes.set(activeIdx, next);
+                result = SaveResult.RENAMED;
+            } else if (nameIdx == activeIdx) {
+                next = new TableauScene(scenes.get(activeIdx).id, name, copy);
+                scenes.set(activeIdx, next);
+                result = SaveResult.SAVED;
+            } else {
+                // Rename onto another entry: keep target id, drop old id.
+                String keepId = scenes.get(nameIdx).id;
+                next = new TableauScene(keepId, name, copy);
+                scenes.set(nameIdx, next);
+                scenes.remove(activeIdx);
+                result = SaveResult.REPLACED;
+            }
+        } else {
+            if (nameIdx < 0 && scenes.size() >= MAX_USER_SCENES) {
+                return SaveResult.FULL;
+            }
+            if (nameIdx >= 0) {
+                next = new TableauScene(scenes.get(nameIdx).id, name, copy);
+                scenes.set(nameIdx, next);
+                result = SaveResult.REPLACED;
+            } else {
+                next = new TableauScene(newId(), name, copy);
+                scenes.add(next);
+                result = SaveResult.SAVED;
             }
         }
-        TableauScene next = idx >= 0
-                ? new TableauScene(scenes.get(idx).id, name, copy)
-                : new TableauScene(newId(), name, copy);
-        if (idx >= 0) {
-            scenes.set(idx, next);
-        } else {
-            scenes.add(next);
-        }
-        prefs.edit().putString(PREF_SCENES_JSON, encode(scenes)).commit();
-        return idx >= 0 ? SaveResult.REPLACED : SaveResult.SAVED;
+
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putString(PREF_SCENES_JSON, encode(scenes));
+        editor.putString(PREF_ACTIVE_ID, next.id);
+        editor.putString(PREF_ACTIVE_JSON, encodeScene(
+                new TableauScene(next.id, next.name, copy)));
+        editor.commit();
+        return result;
+    }
+
+    /**
+     * True when {@code rawName} collides with a library entry that is not the
+     * active scene (so Name/Rename onto one's own name is not an overwrite).
+     */
+    static boolean nameCollidesWithOther(SharedPreferences prefs, String rawName,
+            boolean forceNew) {
+        String name = normalizeName(rawName);
+        if (prefs == null || name == null) return false;
+        List<TableauScene> scenes = loadUserScenes(prefs);
+        int nameIdx = indexOfName(scenes, name);
+        if (nameIdx < 0) return false;
+        if (forceNew) return true;
+        String activeId = prefs.getString(PREF_ACTIVE_ID, "");
+        if (activeId == null || activeId.length() == 0) return true;
+        return !activeId.equals(scenes.get(nameIdx).id);
     }
 
     static void deleteById(SharedPreferences prefs, String id) {
@@ -267,11 +334,50 @@ final class PonyScenes {
             }
         }
         if (!removed) return;
+        SharedPreferences.Editor editor = prefs.edit();
         if (scenes.isEmpty()) {
-            prefs.edit().remove(PREF_SCENES_JSON).commit();
+            editor.remove(PREF_SCENES_JSON);
         } else {
-            prefs.edit().putString(PREF_SCENES_JSON, encode(scenes)).commit();
+            editor.putString(PREF_SCENES_JSON, encode(scenes));
         }
+        // Deleting the active library entry turns the layout into scratch;
+        // keep slots so the wallpaper composition is unchanged.
+        String activeId = prefs.getString(PREF_ACTIVE_ID, "");
+        if (id.equals(activeId)) {
+            TableauScene active = loadActiveScene(prefs);
+            List<TableauSlot> slots = active != null
+                    ? active.slots : Collections.<TableauSlot>emptyList();
+            editor.putString(PREF_ACTIVE_ID, "");
+            editor.putString(PREF_ACTIVE_JSON,
+                    encodeScene(new TableauScene("", "", slots)));
+        }
+        editor.commit();
+    }
+
+    /**
+     * When {@link #PREF_ACTIVE_ID} matches a library entry, copy active name +
+     * slots into that entry. No-op for scratch / orphan ids. Does not bump
+     * epoch.
+     */
+    static void syncActiveIntoLibrary(SharedPreferences prefs) {
+        if (prefs == null) return;
+        String id = prefs.getString(PREF_ACTIVE_ID, "");
+        if (id == null || id.length() == 0) return;
+        TableauScene active = loadActiveScene(prefs);
+        if (active == null) return;
+        ArrayList<TableauScene> scenes =
+                new ArrayList<TableauScene>(loadUserScenes(prefs));
+        int idx = indexOfId(scenes, id);
+        if (idx < 0) return;
+        TableauScene old = scenes.get(idx);
+        String name = active.name.length() > 0 ? active.name : old.name;
+        if (name.length() == 0) return;
+        TableauScene next = new TableauScene(id, name, active.slots);
+        if (old.name.equals(next.name) && slotsEqual(old.slots, next.slots)) {
+            return;
+        }
+        scenes.set(idx, next);
+        prefs.edit().putString(PREF_SCENES_JSON, encode(scenes)).commit();
     }
 
     /**
@@ -405,16 +511,20 @@ final class PonyScenes {
 
     /**
      * Structural / load write: active JSON + epoch bump (+ id) in one batch.
+     * Syncs the matching library entry when {@code id} is non-empty.
      */
     static void writeActiveStructural(SharedPreferences prefs, String id,
             TableauScene scene) {
         if (prefs == null || scene == null) return;
         int epoch = prefs.getInt(PREF_ACTIVE_EPOCH, 0) + 1;
+        String activeId = id != null ? id : "";
         SharedPreferences.Editor editor = prefs.edit();
-        editor.putString(PREF_ACTIVE_JSON, encodeScene(scene));
-        editor.putString(PREF_ACTIVE_ID, id != null ? id : "");
+        editor.putString(PREF_ACTIVE_JSON, encodeScene(
+                new TableauScene(activeId, scene.name, scene.slots)));
+        editor.putString(PREF_ACTIVE_ID, activeId);
         editor.putInt(PREF_ACTIVE_EPOCH, epoch);
         editor.commit();
+        syncActiveIntoLibrary(prefs);
     }
 
     /**
@@ -443,7 +553,10 @@ final class PonyScenes {
         return false;
     }
 
-    /** Hot path: rewrite active JSON only (no epoch bump). */
+    /**
+     * Hot path: rewrite active JSON only (no epoch bump). Syncs the matching
+     * library entry when the active id is set.
+     */
     static void writeActiveHot(SharedPreferences prefs, TableauScene scene) {
         if (prefs == null || scene == null) return;
         String id = prefs.getString(PREF_ACTIVE_ID, "");
@@ -451,6 +564,7 @@ final class PonyScenes {
                 .putString(PREF_ACTIVE_JSON, encodeScene(
                         new TableauScene(id, scene.name, scene.slots)))
                 .commit();
+        syncActiveIntoLibrary(prefs);
     }
 
     /**
@@ -648,6 +762,38 @@ final class PonyScenes {
             if (name.equalsIgnoreCase(scenes.get(i).name)) return i;
         }
         return -1;
+    }
+
+    private static int indexOfId(List<TableauScene> scenes, String id) {
+        if (scenes == null || id == null || id.length() == 0) return -1;
+        for (int i = 0; i < scenes.size(); i++) {
+            if (id.equals(scenes.get(i).id)) return i;
+        }
+        return -1;
+    }
+
+    private static ArrayList<TableauSlot> copySlots(List<TableauSlot> slots) {
+        ArrayList<TableauSlot> copy = new ArrayList<TableauSlot>();
+        if (slots == null) return copy;
+        int n = Math.min(slots.size(), MAX_SLOTS);
+        for (int i = 0; i < n; i++) {
+            if (slots.get(i) != null) copy.add(slots.get(i));
+        }
+        return copy;
+    }
+
+    private static boolean slotsEqual(List<TableauSlot> a, List<TableauSlot> b) {
+        if (a == b) return true;
+        if (a == null || b == null || a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) {
+            TableauSlot left = a.get(i);
+            TableauSlot right = b.get(i);
+            if (left == right) continue;
+            if (left == null || right == null) return false;
+            if (!left.ponyKey.equals(right.ponyKey)) return false;
+            if (!left.sameHot(right)) return false;
+        }
+        return true;
     }
 
     private static String newId() {

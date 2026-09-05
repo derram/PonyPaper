@@ -25,7 +25,9 @@ import java.util.List;
 
 /**
  * Tableau scene editor: slot list, pony/action/facing/position editors, and
- * library save/load. Structural edits bump epoch; hot edits debounce-write JSON.
+ * named library load/name/duplicate. Edits auto-persist to the active JSON and,
+ * when named, sync into the library entry. Structural edits bump epoch; hot
+ * edits debounce-write JSON.
  */
 public class TableauPreferencesFragment extends PonyPreferenceFragment {
 
@@ -160,6 +162,16 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
         } else {
             summary.setSummary(getString(R.string.pref_tableau_summary_scratch,
                     slots.size()));
+        }
+        Preference save = findPreference("pref_tableau_save");
+        if (save != null) {
+            if (activeName.length() > 0) {
+                save.setTitle(R.string.pref_tableau_rename_title);
+                save.setSummary(R.string.pref_tableau_rename_summary);
+            } else {
+                save.setTitle(R.string.pref_tableau_save_title);
+                save.setSummary(R.string.pref_tableau_save_summary);
+            }
         }
     }
 
@@ -537,7 +549,7 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
         return new PonyScenes.TableauScene(activeId, activeName, out);
     }
 
-    private void showSaveDialog(boolean forceNewName) {
+    private void showSaveDialog(final boolean forceNewName) {
         if (!validateSlotsForSave()) {
             showAlert(getString(R.string.pref_tableau_save_invalid_title),
                     getString(R.string.pref_tableau_save_invalid_message));
@@ -558,13 +570,19 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
                 | android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS);
         nameField.setImeOptions(EditorInfo.IME_ACTION_DONE);
         layout.addView(nameField);
+        int titleRes;
+        if (forceNewName) {
+            titleRes = R.string.pref_tableau_save_as_title;
+        } else if (activeName.length() > 0) {
+            titleRes = R.string.pref_tableau_rename_title;
+        } else {
+            titleRes = R.string.pref_tableau_save_title;
+        }
         AlertDialog.Builder builder = new AlertDialog.Builder(requireContext());
-        builder.setTitle(forceNewName
-                ? R.string.pref_tableau_save_as_title
-                : R.string.pref_tableau_save_title);
+        builder.setTitle(titleRes);
         builder.setView(layout);
         builder.setNegativeButton(R.string.dialog_cancel, null);
-        builder.setPositiveButton(R.string.dialog_save, new DialogInterface.OnClickListener() {
+        builder.setPositiveButton(R.string.dialog_ok, new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 // Replaced after show.
@@ -575,7 +593,7 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
         android.view.View.OnClickListener saveClick = new android.view.View.OnClickListener() {
             @Override
             public void onClick(android.view.View v) {
-                onSaveNameEntered(dialog, nameField.getText().toString());
+                onSaveNameEntered(dialog, nameField.getText().toString(), forceNewName);
             }
         };
         dialog.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener(saveClick);
@@ -583,7 +601,7 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
             @Override
             public boolean onEditorAction(TextView v, int actionId, android.view.KeyEvent event) {
                 if (actionId == EditorInfo.IME_ACTION_DONE) {
-                    onSaveNameEntered(dialog, nameField.getText().toString());
+                    onSaveNameEntered(dialog, nameField.getText().toString(), forceNewName);
                     return true;
                 }
                 return false;
@@ -591,23 +609,25 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
         });
     }
 
-    private void onSaveNameEntered(AlertDialog host, String rawName) {
+    private void onSaveNameEntered(AlertDialog host, String rawName,
+            boolean forceNewName) {
         String name = PonyScenes.normalizeName(rawName);
         if (name == null) {
             showAlert(getString(R.string.pref_tableau_save_title),
                     getString(R.string.pref_tableau_save_empty_name));
             return;
         }
-        if (PonyScenes.hasName(prefs, name)) {
-            confirmReplaceScene(host, name);
+        if (PonyScenes.nameCollidesWithOther(prefs, name, forceNewName)) {
+            confirmReplaceScene(host, name, forceNewName);
             return;
         }
-        if (commitSceneSave(name) && host != null) {
+        if (commitSceneSave(name, forceNewName) && host != null) {
             host.dismiss();
         }
     }
 
-    private void confirmReplaceScene(final AlertDialog host, final String name) {
+    private void confirmReplaceScene(final AlertDialog host, final String name,
+            final boolean forceNewName) {
         new AlertDialog.Builder(requireContext())
                 .setTitle(R.string.pref_tableau_save_overwrite_title)
                 .setMessage(getString(R.string.pref_tableau_save_overwrite_message, name))
@@ -616,7 +636,7 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
                         new DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
-                                if (commitSceneSave(name) && host != null) {
+                                if (commitSceneSave(name, forceNewName) && host != null) {
                                     host.dismiss();
                                 }
                             }
@@ -624,7 +644,7 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
                 .show();
     }
 
-    private boolean commitSceneSave(String name) {
+    private boolean commitSceneSave(String name, boolean forceNewName) {
         handler.removeCallbacks(hotWriteRunnable);
         flushHotWrite();
         ArrayList<PonyScenes.TableauSlot> list =
@@ -632,7 +652,8 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
         for (int i = 0; i < slots.size(); i++) {
             list.add(slots.get(i).toSlot());
         }
-        PonyScenes.SaveResult result = PonyScenes.save(prefs, name, list);
+        PonyScenes.SaveResult result =
+                PonyScenes.nameActive(prefs, name, list, forceNewName);
         if (result == PonyScenes.SaveResult.BAD_NAME) {
             showAlert(getString(R.string.pref_tableau_save_title),
                     getString(R.string.pref_tableau_save_empty_name));
@@ -644,23 +665,13 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
                             PonyScenes.MAX_USER_SCENES));
             return false;
         }
-        // Point active id/name at the library entry without bumping epoch.
-        List<PonyScenes.TableauScene> scenes = PonyScenes.loadUserScenes(prefs);
-        for (int i = 0; i < scenes.size(); i++) {
-            if (name.equalsIgnoreCase(scenes.get(i).name)) {
-                activeId = scenes.get(i).id;
-                activeName = scenes.get(i).name;
-                break;
-            }
-        }
-        SharedPreferences.Editor editor = prefs.edit();
-        editor.putString(PonyScenes.PREF_ACTIVE_ID, activeId);
-        editor.putString(PonyScenes.PREF_ACTIVE_JSON,
-                PonyScenes.encodeScene(buildScene()));
-        editor.commit();
-        updateSummary();
+        loadFromPrefs();
+        rebuildSlotPreferences();
+        int messageRes = forceNewName
+                ? R.string.pref_tableau_save_as_ok_message
+                : R.string.pref_tableau_save_ok_message;
         showAlert(getString(R.string.pref_tableau_save_ok_title),
-                getString(R.string.pref_tableau_save_ok_message, name, slots.size()));
+                getString(messageRes, activeName, slots.size()));
         return true;
     }
 
@@ -730,6 +741,8 @@ public class TableauPreferencesFragment extends PonyPreferenceFragment {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         PonyScenes.deleteById(prefs, scenes.get(which).id);
+                        loadFromPrefs();
+                        rebuildSlotPreferences();
                     }
                 })
                 .setNegativeButton(R.string.dialog_cancel, null)
