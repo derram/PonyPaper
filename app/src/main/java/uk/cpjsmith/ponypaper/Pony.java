@@ -711,8 +711,11 @@ public class Pony {
                     leavingMode = LM_GONE;
                     return;
                 }
-                changeAction(bag[random.nextInt(bag.length)]);
-                beginCrossingEnter();
+                // Position/travel/facing before changeAction so planted effects
+                // attach at the enter gutter (same ordering as tryBeginMoving).
+                PonyAction start = bag[random.nextInt(bag.length)];
+                beginCrossingEnter(start);
+                changeAction(start);
             } else {
                 int startLen = startActions != null ? startActions.length : 0;
                 int crossLen = crossingActions != null ? crossingActions.length : 0;
@@ -724,42 +727,12 @@ public class Pony {
                 int pick = random.nextInt(total);
                 boolean crossingSpawn = pick >= startLen;
                 if (crossingSpawn) {
-                    changeAction(crossingActions[pick - startLen]);
-                    beginCrossingEnter();
+                    PonyAction start = crossingActions[pick - startLen];
+                    beginCrossingEnter(start);
+                    changeAction(start);
                 } else {
-                    changeAction(startActions[pick]);
-                    if (currentAction.type == PonyAction.SCREEN_IN
-                            || currentAction.type == PonyAction.SCREEN_OUT) {
-                        // Appear/vanish clips spawn on-screen and do not interpolate.
-                        Point startOn = randomOnScreen();
-                        posX = startOn.x;
-                        posY = startOn.y;
-                        motion = MOTION_SPECIAL;
-                        if (currentAction.type == PonyAction.SCREEN_OUT) {
-                            leavingMode = LM_GOING;
-                        }
-                    } else if (currentAction.type == PonyAction.PORT_O
-                            || currentAction.type == PonyAction.PORT_I) {
-                        // Scene enter via teleport: only the visible half. Spawning
-                        // off-screen to play teleport-out lets VFX bleed at the gutter;
-                        // land on-screen and play teleport-in (or keep in if that was
-                        // the start pick). Mid-scene teleports still use the full pair.
-                        if (currentAction.type == PonyAction.PORT_O) {
-                            setMoving();
-                        }
-                        Point startOn = randomOnScreen();
-                        posX = startOn.x;
-                        posY = startOn.y;
-                        motion = MOTION_SPECIAL;
-                        targetPos = null;
-                    } else {
-                        Point startOff = randomOffScreenForEnter(currentAction);
-                        posX = startOff.x;
-                        posY = startOff.y;
-                        motion = currentAction.type == PonyAction.NORMAL
-                                ? MOTION_MOVING : MOTION_SPECIAL;
-                        setRandomTarget();
-                    }
+                    PonyAction start = startActions[pick];
+                    beginStartEnter(start);
                 }
             }
         } else if (deltaMs > 0) {
@@ -1290,6 +1263,63 @@ public class Pony {
     }
     
     /**
+     * Places feet / motion for a normal {@code <startactions>} pick, then
+     * calls {@link #changeAction} so effect spawn sees the enter pose.
+     */
+    private void beginStartEnter(PonyAction start) {
+        if (start.type == PonyAction.SCREEN_IN
+                || start.type == PonyAction.SCREEN_OUT) {
+            // Appear/vanish clips spawn on-screen and do not interpolate.
+            Point startOn = randomOnScreen();
+            posX = startOn.x;
+            posY = startOn.y;
+            motion = MOTION_SPECIAL;
+            targetPos = null;
+            travelX = 0;
+            travelY = 0;
+            if (start.type == PonyAction.SCREEN_OUT) {
+                leavingMode = LM_GOING;
+            }
+            changeAction(start);
+            return;
+        }
+        if (start.type == PonyAction.PORT_O || start.type == PonyAction.PORT_I) {
+            // Scene enter via teleport: only the visible half. Spawning
+            // off-screen to play teleport-out lets VFX bleed at the gutter;
+            // land on-screen and play teleport-in (or keep in if that was
+            // the start pick). Mid-scene teleports still use the full pair.
+            Point startOn = randomOnScreen();
+            posX = startOn.x;
+            posY = startOn.y;
+            motion = MOTION_SPECIAL;
+            targetPos = null;
+            travelX = 0;
+            travelY = 0;
+            if (start.type == PonyAction.PORT_O && start.hasNextMoving()) {
+                changeAction(start.getNextMoving(random));
+            } else {
+                changeAction(start);
+            }
+            return;
+        }
+        Point startOff = randomOffScreenForEnter(start);
+        posX = startOff.x;
+        posY = startOff.y;
+        motion = start.type == PonyAction.NORMAL
+                ? MOTION_MOVING : MOTION_SPECIAL;
+        setRandomTarget(start);
+        if (motion == MOTION_MOVING && targetPos != null) {
+            travelX = targetPos.x - posX;
+            travelY = targetPos.y - posY;
+            setDirection(targetPos);
+        } else {
+            travelX = 0;
+            travelY = 0;
+        }
+        changeAction(start);
+    }
+
+    /**
      * Crossing spawn: enter from a gutter and always leave by the opposite
      * gutter (no {@link SceneExit} roll). Special leave movers (screen-out /
      * teleport-out) play in place and mark the pony as going.
@@ -1297,12 +1327,16 @@ public class Pony {
      * <p>World Flow always uses this path for NORMAL movers. Soft/hard vertical
      * movers transit top↔bottom at constant X; other bands keep left↔right at
      * constant Y.
+     *
+     * <p>Sets position, travel, and facing for {@code action} but does not
+     * call {@link #changeAction} — callers must do that afterward so effect
+     * spawn sees the enter pose.
      */
-    private void beginCrossingEnter() {
-        if (currentAction.type == PonyAction.SCREEN_IN
-                || currentAction.type == PonyAction.SCREEN_OUT
-                || currentAction.type == PonyAction.PORT_O
-                || currentAction.type == PonyAction.PORT_I) {
+    private void beginCrossingEnter(PonyAction action) {
+        if (action.type == PonyAction.SCREEN_IN
+                || action.type == PonyAction.SCREEN_OUT
+                || action.type == PonyAction.PORT_O
+                || action.type == PonyAction.PORT_I) {
             Point startOn = randomOnScreen();
             posX = startOn.x;
             posY = startOn.y;
@@ -1316,13 +1350,13 @@ public class Pony {
             return;
         }
         boolean vertical = WanderTarget.usesVerticalGutters(wander,
-                currentAction.getMovement(), random);
+                action.getMovement(), random);
         Point startOff = vertical
                 ? randomOffScreenVertical()
                 : randomOffScreen();
         posX = startOff.x;
         posY = startOff.y;
-        motion = currentAction.type == PonyAction.NORMAL
+        motion = action.type == PonyAction.NORMAL
                 ? MOTION_MOVING : MOTION_SPECIAL;
         leavingMode = LM_GOING;
         targetPos = vertical
@@ -1442,13 +1476,13 @@ public class Pony {
             return;
         }
         Point exit = worldFlowExitPoint(next);
-        changeAction(next);
         motion = MOTION_MOVING;
         leavingMode = LM_GOING;
         targetPos = exit;
         travelX = targetPos.x - posX;
         travelY = targetPos.y - posY;
         setDirection(targetPos);
+        changeAction(next);
     }
 
     /**
