@@ -424,8 +424,9 @@ public class PonyEditorCLI {
         System.out.println("    drag override inherit this list.");
         System.out.println("-wander horizontal|vertical|both");
         System.out.println("    Pony wander default / authoring mode. vertical makes omitted");
-        System.out.println("    movement resolve as soft_vertical; both is for mixed H/V actions.");
-        System.out.println("    both = each pick is soft-horizontal or soft-vertical.");
+        System.out.println("    movement resolve as soft_vertical; both is for mixed H/V actions");
+        System.out.println("    (per-action movement; inherit stays soft-horizontal).");
+        System.out.println("    Soft/hard vertical movers spawn from top/bottom gutters.");
         System.out.println("-action NAME");
         System.out.println("    Switch to editing the named action, creating it if it does not exist.");
         System.out.println("-next TYPE NAMES");

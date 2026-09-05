@@ -2860,8 +2860,10 @@ public class PonyEditorGUI extends JPanel {
         result.add(crossingActionsLabel, c);
 
         crossingActionsField = new JTextField();
-        crossingActionsField.setToolTipText("Walk on and straight off (no idle). Same name:N weights as "
-                + "start actions. Combined with start for spawn picks. Tab completes the name.");
+        crossingActionsField.setToolTipText("Walk on and straight off (no idle). Horizontal movers "
+                + "use left↔right gutters; vertical wander / vertical-only use top↔bottom. "
+                + "Same name:N weights as start actions. Combined with start for spawn picks. "
+                + "Tab completes the name.");
         crossingActionsField.getDocument().addDocumentListener(crossingActionsListener);
         ActionNameCompleter.install(crossingActionsField, new ActionNameCompleter.CandidateSource() {
             @Override

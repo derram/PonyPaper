@@ -118,8 +118,8 @@ For characters that don't walk:
 
 `<crossingactions>` is a pony-level bag parallel to `<startactions>`. Entries use the same `name:N` weighting. On spawn, the engine picks from the **combined** start + crossing bags (each expanded entry keeps equal weight).
 
-- **Start pick**: unchanged (off-screen enter for movers, then a 1-in-8 chance the first destination is also off-screen — the incidental “walk straight across” path).
-- **Crossing pick**: force leave. Normal movers spawn in one horizontal gutter and target the **opposite** gutter at the same feet Y (no SceneExit roll). `teleport-out` / `screen-out` crossing entries play in place and leave.
+- **Start pick**: off-screen enter for movers (left/right for horizontal/`any` bands; top/bottom for soft/hard vertical), then a 1-in-8 chance the first destination is also off-screen — the incidental “walk straight across” path.
+- **Crossing pick**: force leave. Normal movers spawn in one gutter and target the **opposite** gutter (no SceneExit roll): horizontal bands use left↔right at the same feet Y; soft/hard vertical bands use top↔bottom at the same feet X. `teleport-out` / `screen-out` crossing entries play in place and leave.
 
 Crossing entries must be leave movers (walk/fly, `teleport-out`, or `screen-out` — not `screen-in` / `teleport-in`). Transit-only clips listed here may use `waiting=none` / `moving=none`. A pony is valid with only crossing actions (no start list), or only start actions (empty crossing = legacy behaviour). Empty `<crossingactions>` is omitted on save.
 

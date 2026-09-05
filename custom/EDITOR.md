@@ -95,4 +95,4 @@ On the left side of the editor is the list of actions. Selecting an action in th
 * **Next moving/waiting actions**: Lists of possible transitions. Use `name:N` for weighting. Use `none` or `-` to signify no successor.
 * **Drag override**: Optional per-action replacement for **Default drag**.
 
-The pony strip also holds **Start actions** (enter and maybe stay), **Crossing actions** (enter and always leave by the opposite gutter), and **Default drag** (fallback for actions with no override).
+The pony strip also holds **Start actions** (enter and maybe stay), **Crossing actions** (enter and always leave by the opposite gutter — left/right for horizontal movers, top/bottom for vertical wander / vertical-only), and **Default drag** (fallback for actions with no override).

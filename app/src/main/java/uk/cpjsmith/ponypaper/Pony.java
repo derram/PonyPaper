@@ -753,7 +753,7 @@ public class Pony {
                         motion = MOTION_SPECIAL;
                         targetPos = null;
                     } else {
-                        Point startOff = randomOffScreen();
+                        Point startOff = randomOffScreenForEnter(currentAction);
                         posX = startOff.x;
                         posY = startOff.y;
                         motion = currentAction.type == PonyAction.NORMAL
@@ -1013,11 +1013,35 @@ public class Pony {
             beginForcedExit(new Point(screenBounds.left - s, y));
         } else if (x >= screenBounds.right - s) {
             beginForcedExit(new Point(screenBounds.right + s, y));
+        } else if (shouldForceVerticalDragExit(y)) {
+            boolean exitTop = y < screenBounds.centerY();
+            beginForcedExit(new Point(x, offScreenExitY(exitTop)));
         } else if (worldFlow) {
             resumeWorldFlowExit();
         } else {
             beginWaitingInPlace();
         }
+    }
+
+    /**
+     * True when a vertical-wander mover was dragged past the on-screen Y band
+     * (top or bottom). Uses the on-screen feet clamp so standing near the
+     * bottom pad does not count as an edge leave.
+     */
+    private boolean shouldForceVerticalDragExit(int feetY) {
+        if (screenBounds == null || currentAction == null) {
+            return false;
+        }
+        if (!WanderTarget.usesVerticalGutters(wander, currentAction.getMovement(),
+                random)) {
+            return false;
+        }
+        float scale = getScale();
+        int top = SpawnYBand.onScreenTopInset(maxUnscaledFrameHeight(), scale);
+        int bottom = SpawnYBand.bottomInset(scale);
+        int minY = SpawnYBand.minY(screenBounds.top, screenBounds.height(), top, bottom);
+        int maxY = SpawnYBand.maxY(screenBounds.top, screenBounds.height(), top, bottom);
+        return feetY < minY || feetY > maxY;
     }
     
     /**
@@ -1270,9 +1294,9 @@ public class Pony {
      * gutter (no {@link SceneExit} roll). Special leave movers (screen-out /
      * teleport-out) play in place and mark the pony as going.
      *
-     * <p>World Flow always uses this path for NORMAL movers. Incomplete until
-     * vertical-wander spawning support exists: transit is always horizontal
-     * opposite-gutter even when the mover prefers vertical travel.
+     * <p>World Flow always uses this path for NORMAL movers. Soft/hard vertical
+     * movers transit top↔bottom at constant X; other bands keep left↔right at
+     * constant Y.
      */
     private void beginCrossingEnter() {
         if (currentAction.type == PonyAction.SCREEN_IN
@@ -1291,13 +1315,19 @@ public class Pony {
             leavingMode = LM_GOING;
             return;
         }
-        Point startOff = randomOffScreen();
+        boolean vertical = WanderTarget.usesVerticalGutters(wander,
+                currentAction.getMovement(), random);
+        Point startOff = vertical
+                ? randomOffScreenVertical()
+                : randomOffScreen();
         posX = startOff.x;
         posY = startOff.y;
         motion = currentAction.type == PonyAction.NORMAL
                 ? MOTION_MOVING : MOTION_SPECIAL;
         leavingMode = LM_GOING;
-        targetPos = oppositeHorizontalOffScreen(startOff);
+        targetPos = vertical
+                ? oppositeVerticalOffScreen(startOff)
+                : oppositeHorizontalOffScreen(startOff);
         if (motion == MOTION_MOVING && targetPos != null) {
             travelX = targetPos.x - posX;
             travelY = targetPos.y - posY;
@@ -1380,8 +1410,9 @@ public class Pony {
     }
 
     /**
-     * Continues or starts a horizontal crossing exit from the current feet
-     * position (drag release / accidental wait under World Flow).
+     * Continues or starts a crossing exit from the current feet position
+     * (drag release / accidental wait under World Flow). Axis follows the
+     * chosen clip's movement band (vertical → top/bottom at current X).
      *
      * <p>Reuses the current clip only when already {@link #MOTION_MOVING}:
      * wait and drag actions are also {@link PonyAction#NORMAL} typed, so a
@@ -1392,16 +1423,6 @@ public class Pony {
             leavingMode = LM_GONE;
             return;
         }
-        int s = (int)(30 * getScale());
-        int y = Math.round(posY);
-        boolean leaveLeft;
-        if (Math.abs(travelX) > 0.01f) {
-            leaveLeft = travelX < 0f;
-        } else {
-            leaveLeft = posX < screenBounds.centerX();
-        }
-        Point exit = new Point(
-                leaveLeft ? screenBounds.left - s : screenBounds.right + s, y);
         PonyAction next = null;
         // Drag/wait clips share NORMAL type with gaits; only keep a mover
         // that is already mid-transit.
@@ -1420,6 +1441,7 @@ public class Pony {
             leavingMode = LM_GONE;
             return;
         }
+        Point exit = worldFlowExitPoint(next);
         changeAction(next);
         motion = MOTION_MOVING;
         leavingMode = LM_GOING;
@@ -1427,6 +1449,35 @@ public class Pony {
         travelX = targetPos.x - posX;
         travelY = targetPos.y - posY;
         setDirection(targetPos);
+    }
+
+    /**
+     * Off-screen leave target for a World Flow resume, matching {@code next}'s
+     * gutter axis. Prefers continuing current travel when that axis is active.
+     */
+    private Point worldFlowExitPoint(PonyAction next) {
+        int s = (int)(30 * getScale());
+        boolean vertical = WanderTarget.usesVerticalGutters(wander,
+                next.getMovement(), random);
+        if (vertical) {
+            int x = Math.round(posX);
+            boolean leaveTop;
+            if (Math.abs(travelY) > 0.01f) {
+                leaveTop = travelY < 0f;
+            } else {
+                leaveTop = posY < screenBounds.centerY();
+            }
+            return new Point(x, offScreenExitY(leaveTop));
+        }
+        int y = Math.round(posY);
+        boolean leaveLeft;
+        if (Math.abs(travelX) > 0.01f) {
+            leaveLeft = travelX < 0f;
+        } else {
+            leaveLeft = posX < screenBounds.centerX();
+        }
+        return new Point(
+                leaveLeft ? screenBounds.left - s : screenBounds.right + s, y);
     }
 
     /**
@@ -1438,6 +1489,32 @@ public class Pony {
         int y = Math.round(posY);
         boolean startedLeft = start.x < screenBounds.centerX();
         return new Point(startedLeft ? screenBounds.right + s : screenBounds.left - s, y);
+    }
+
+    /**
+     * Off-screen point on the vertical gutter opposite {@code start}, at the
+     * current feet X so a vertical crossing reads as a straight transit.
+     */
+    private Point oppositeVerticalOffScreen(Point start) {
+        int x = Math.round(posX);
+        int y = SpawnYBand.oppositeVerticalGutterY(start.y, screenBounds.centerY(),
+                screenBounds.top, screenBounds.bottom, maxUnscaledFrameHeight(),
+                getScale());
+        return new Point(x, y);
+    }
+
+    /**
+     * Enter spawn just off-screen. Soft/hard vertical movers use top/bottom
+     * gutters; all other bands keep left/right.
+     */
+    private Point randomOffScreenForEnter(PonyAction action) {
+        String movement = action != null
+                ? action.getMovement()
+                : WanderTarget.MOVE_INHERIT;
+        if (WanderTarget.usesVerticalGutters(wander, movement, random)) {
+            return randomOffScreenVertical();
+        }
+        return randomOffScreen();
     }
 
     private void setRandomTarget() {
@@ -1722,22 +1799,15 @@ public class Pony {
     }
 
     /**
-     * Feet Y just past the top or bottom edge for a vertical leave.
-     * Top needs only a small pad (sprite hangs above the feet). Bottom must
-     * clear a full frame height plus pad so the body is fully off-screen when
-     * despawn runs.
+     * Feet Y just past the top or bottom edge for a vertical leave/enter.
+     * Delegates to {@link SpawnYBand#verticalGutterY}.
      *
      * @param exitTop {@code true} for above the top edge, {@code false} for
      *                below the bottom edge
      */
     private int offScreenExitY(boolean exitTop) {
-        float scale = getScale();
-        int pad = (int)(30 * scale);
-        if (exitTop) {
-            return screenBounds.top - pad;
-        }
-        int clear = SpawnYBand.onScreenTopInset(maxUnscaledFrameHeight(), scale);
-        return screenBounds.bottom + clear;
+        return SpawnYBand.verticalGutterY(exitTop, screenBounds.top,
+                screenBounds.bottom, maxUnscaledFrameHeight(), getScale());
     }
 
     private int clampOnScreenX(int x) {

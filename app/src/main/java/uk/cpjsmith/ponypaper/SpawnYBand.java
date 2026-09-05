@@ -8,6 +8,11 @@ package uk.cpjsmith.ponypaper;
  * enter/exit Y uses a shorter top inset so crossings may peek over the top,
  * while feet can still sit near the bottom (no dead band from the old
  * center-anchor symmetric margin).
+ *
+ * <p>Vertical gutter enter/exit Y (top/bottom off-screen) is asymmetric: a
+ * small pad above the top edge is enough (sprite hangs above the feet), while
+ * the bottom must clear a full frame height so the body is off-screen when
+ * despawn runs.
  */
 public final class SpawnYBand {
 
@@ -16,6 +21,9 @@ public final class SpawnYBand {
 
     /** Clearance below feet at the bottom edge. */
     public static final float BOTTOM_PAD = 8f;
+
+    /** Off-screen pad past the top edge for vertical gutter enter/exit. */
+    public static final float VERTICAL_GUTTER_PAD = 30f;
 
     /**
      * Fraction of scaled frame height used as the top inset for horizontal
@@ -103,5 +111,34 @@ public final class SpawnYBand {
     public static int usableHeight(int screenHeight, int topInset, int bottomInset) {
         int h = screenHeight - topInset - bottomInset;
         return h < 1 ? 0 : h;
+    }
+
+    /**
+     * Feet Y just past the top or bottom edge for a vertical gutter enter/exit.
+     *
+     * @param exitTop           {@code true} for above the top edge
+     * @param screenTop         clip top
+     * @param screenBottom      clip bottom ({@code top + height})
+     * @param maxUnscaledFrameH largest loaded frame height in unscaled pixels
+     * @param scale             pony draw scale
+     */
+    public static int verticalGutterY(boolean exitTop, int screenTop, int screenBottom,
+            int maxUnscaledFrameH, float scale) {
+        int pad = (int) (VERTICAL_GUTTER_PAD * scale);
+        if (exitTop) {
+            return screenTop - pad;
+        }
+        return screenBottom + onScreenTopInset(maxUnscaledFrameH, scale);
+    }
+
+    /**
+     * Opposite vertical-gutter Y for a crossing that started at {@code startY},
+     * keeping the same feet X at the call site.
+     */
+    public static int oppositeVerticalGutterY(int startY, int screenCenterY,
+            int screenTop, int screenBottom, int maxUnscaledFrameH, float scale) {
+        boolean startedTop = startY < screenCenterY;
+        return verticalGutterY(!startedTop, screenTop, screenBottom,
+                maxUnscaledFrameH, scale);
     }
 }

@@ -5,7 +5,8 @@ package uk.cpjsmith.ponypaper;
  *
  * <p>World Flow reuses Wander herd preferences (checkboxes, mixes, pony count,
  * size, battery/dream caps) and forces every enter to be a crossing: always
- * leave via the opposite horizontal gutter, with no idle waiting.
+ * leave via the opposite gutter, with no idle waiting. Soft/hard vertical
+ * movers use top↔bottom at constant X; other bands use left↔right at constant Y.
  *
  * <p>Only {@linkplain #TYPE_NORMAL NORMAL} movers are selected. Authored
  * {@code <crossingactions>} and {@code <startactions>} NORMAL entries are
@@ -13,10 +14,6 @@ package uk.cpjsmith.ponypaper;
  * {@code owl_trot}) share the stage with ordinary start gaits. Customs need
  * not duplicate their start list into crossing for World Flow variety; an
  * empty crossing list still uses start NORMALs alone (most built-ins).
- *
- * <p>Technically incomplete until vertical-wander spawning support exists:
- * every transit still uses horizontal opposite-gutter enter/leave even when
- * the picked mover prefers vertical travel.
  */
 public final class WorldFlow {
 

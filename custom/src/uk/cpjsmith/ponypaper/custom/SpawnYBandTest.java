@@ -19,6 +19,8 @@ public final class SpawnYBandTest {
         failures += run("bottomNearEdge", SpawnYBandTest::testBottomNearEdge);
         failures += run("usableAndClamp", SpawnYBandTest::testUsableAndClamp);
         failures += run("crossingReachesLowerThanLegacy", SpawnYBandTest::testCrossingReachesLowerThanLegacy);
+        failures += run("verticalGutterY", SpawnYBandTest::testVerticalGutterY);
+        failures += run("oppositeVerticalGutterY", SpawnYBandTest::testOppositeVerticalGutterY);
         if (failures > 0) {
             System.err.println(failures + " spawn-y-band check(s) failed.");
             System.exit(1);
@@ -140,6 +142,48 @@ public final class SpawnYBandTest {
         }
         if (maxY != screenH - bottom) {
             throw new AssertionError("maxY should be bottom-pad from edge: " + maxY);
+        }
+    }
+
+    private static void testVerticalGutterY() {
+        float scale = 2f;
+        int frameH = 50;
+        int screenTop = 0;
+        int screenBottom = 1920;
+        int topY = SpawnYBand.verticalGutterY(true, screenTop, screenBottom, frameH, scale);
+        int expectedTop = screenTop - (int) (SpawnYBand.VERTICAL_GUTTER_PAD * scale);
+        if (topY != expectedTop) {
+            throw new AssertionError("top gutter Y " + topY + " != " + expectedTop);
+        }
+        int bottomY = SpawnYBand.verticalGutterY(false, screenTop, screenBottom, frameH, scale);
+        int expectedBottom = screenBottom + SpawnYBand.onScreenTopInset(frameH, scale);
+        if (bottomY != expectedBottom) {
+            throw new AssertionError("bottom gutter Y " + bottomY + " != " + expectedBottom);
+        }
+        if (bottomY - screenBottom <= (int) (SpawnYBand.VERTICAL_GUTTER_PAD * scale)) {
+            throw new AssertionError("bottom clearance should exceed top pad");
+        }
+    }
+
+    private static void testOppositeVerticalGutterY() {
+        float scale = 1f;
+        int frameH = 40;
+        int screenTop = 10;
+        int screenBottom = 1010;
+        int centerY = 510;
+        int fromTop = SpawnYBand.verticalGutterY(true, screenTop, screenBottom, frameH, scale);
+        int opposite = SpawnYBand.oppositeVerticalGutterY(fromTop, centerY, screenTop,
+                screenBottom, frameH, scale);
+        int expectBottom = SpawnYBand.verticalGutterY(false, screenTop, screenBottom,
+                frameH, scale);
+        if (opposite != expectBottom) {
+            throw new AssertionError("from top should target bottom: " + opposite);
+        }
+        int fromBottom = expectBottom;
+        opposite = SpawnYBand.oppositeVerticalGutterY(fromBottom, centerY, screenTop,
+                screenBottom, frameH, scale);
+        if (opposite != fromTop) {
+            throw new AssertionError("from bottom should target top: " + opposite);
         }
     }
 }

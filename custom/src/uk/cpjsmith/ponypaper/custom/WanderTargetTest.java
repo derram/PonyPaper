@@ -22,6 +22,7 @@ public final class WanderTargetTest {
         failures += run("resolveBothInheritIsSoftH", WanderTargetTest::testResolveBothInheritIsSoftH);
         failures += run("softAccept", WanderTargetTest::testSoftAccept);
         failures += run("verticalFacing", WanderTargetTest::testVerticalFacing);
+        failures += run("verticalGutters", WanderTargetTest::testVerticalGutters);
         failures += run("defaultMovementForWander", WanderTargetTest::testDefaultMovementForWander);
         if (failures > 0) {
             System.err.println(failures + " wander target check(s) failed.");
@@ -234,6 +235,41 @@ public final class WanderTargetTest {
         if (WanderTarget.usesVerticalFacing(WanderTarget.WANDER_BOTH,
                 WanderTarget.MOVE_INHERIT)) {
             throw new AssertionError("both + inherit should not remap");
+        }
+    }
+
+    private static void testVerticalGutters() {
+        Random r = new Random(0);
+        if (!WanderTarget.usesVerticalGutters(WanderTarget.BAND_SOFT_V)) {
+            throw new AssertionError("soft V band");
+        }
+        if (!WanderTarget.usesVerticalGutters(WanderTarget.BAND_HARD_V)) {
+            throw new AssertionError("hard V band");
+        }
+        if (WanderTarget.usesVerticalGutters(WanderTarget.BAND_SOFT_H)
+                || WanderTarget.usesVerticalGutters(WanderTarget.BAND_HARD_H)
+                || WanderTarget.usesVerticalGutters(WanderTarget.BAND_ANY)) {
+            throw new AssertionError("H/any bands stay on horizontal gutters");
+        }
+        if (!WanderTarget.usesVerticalGutters(WanderTarget.WANDER_VERTICAL,
+                WanderTarget.MOVE_INHERIT, r)) {
+            throw new AssertionError("vertical pony + inherit → vertical gutters");
+        }
+        if (!WanderTarget.usesVerticalGutters(WanderTarget.WANDER_HORIZONTAL,
+                WanderTarget.MOVE_SOFT_VERTICAL, r)) {
+            throw new AssertionError("soft_vertical → vertical gutters");
+        }
+        if (!WanderTarget.usesVerticalGutters(WanderTarget.WANDER_BOTH,
+                WanderTarget.MOVE_VERTICAL, r)) {
+            throw new AssertionError("hard V → vertical gutters");
+        }
+        if (WanderTarget.usesVerticalGutters(WanderTarget.WANDER_BOTH,
+                WanderTarget.MOVE_INHERIT, r)) {
+            throw new AssertionError("both + inherit should spawn from sides");
+        }
+        if (WanderTarget.usesVerticalGutters(WanderTarget.WANDER_HORIZONTAL,
+                WanderTarget.MOVE_ANY, r)) {
+            throw new AssertionError("any stays on horizontal gutters");
         }
     }
 

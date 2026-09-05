@@ -211,6 +211,24 @@ public final class WanderTarget {
     }
 
     /**
+     * True when start/crossing spawn and World Flow exits should use the
+     * top/bottom gutters instead of left/right. Soft and hard vertical bands
+     * only; {@link #BAND_ANY} stays on horizontal gutters.
+     */
+    public static boolean usesVerticalGutters(int band) {
+        return band == BAND_SOFT_V || band == BAND_HARD_V;
+    }
+
+    /**
+     * Resolves wander + movement and reports whether enter/leave gutters are
+     * vertical. Equivalent to {@link #usesVerticalGutters}({@link #resolveBand}).
+     */
+    public static boolean usesVerticalGutters(String wander, String movement,
+            Random random) {
+        return usesVerticalGutters(resolveBand(wander, movement, random));
+    }
+
+    /**
      * Maps a Desktop Ponies Allowed Moves string onto an action
      * {@code <movement>} value. Stationary / drag tokens return
      * {@link #MOVE_INHERIT} (role classification handles those separately).
