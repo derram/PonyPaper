@@ -138,6 +138,13 @@ tasks.register<JavaExec>("testEditorEffects") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.PonyEditorEffectTest")
 }
 
+tasks.register<JavaExec>("testSpritesFromField") {
+    group = "verification"
+    description = "Run Sprites-from alias field DocumentListener checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.SpritesFromFieldTest")
+}
+
 tasks.register<JavaExec>("testTimingsAdjust") {
     group = "verification"
     description = "Run shared frame-timings +/- adjuster checks"
@@ -204,6 +211,7 @@ tasks.named("check") {
     dependsOn("testActionFrames")
     dependsOn("testFileChooserScroll")
     dependsOn("testEditorEffects")
+    dependsOn("testSpritesFromField")
     dependsOn("testTimingsAdjust")
     dependsOn("testDpEffects")
     dependsOn("testEffectPlacement")

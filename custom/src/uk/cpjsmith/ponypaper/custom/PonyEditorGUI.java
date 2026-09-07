@@ -907,23 +907,34 @@ public class PonyEditorGUI extends JPanel {
         }
 
         private void fillSpriteFields(int index) {
-            String from = editor.getActionSpritesFrom(index);
-            boolean alias = from != null && !from.isEmpty();
-            String leftImg = editor.getActionImage(index, "left");
-            String rightImg = editor.getActionImage(index, "right");
-            if (alias) {
-                setTextIfChanged(imageLeftField, leftImg.isEmpty() ? "(from " + from + ")" : "<image from " + from + ">");
-                setTextIfChanged(imageRightField, rightImg.isEmpty() ? "(from " + from + ")" : "<image from " + from + ">");
-            } else {
-                setTextIfChanged(imageLeftField, leftImg.isEmpty() ? "" : "<image>");
-                setTextIfChanged(imageRightField, rightImg.isEmpty() ? "" : "<image>");
+            // DocumentListeners treat setText as a user edit. Timings listeners
+            // detach an alias and write spritesFromField; doing that while
+            // spritesFromField is still notifying throws IllegalStateException
+            // ("Attempt to mutate in notification"). currentIndex < 0 is the
+            // same suppress used by setAction.
+            int savedIndex = currentIndex;
+            currentIndex = -1;
+            try {
+                String from = editor.getActionSpritesFrom(index);
+                boolean alias = from != null && !from.isEmpty();
+                String leftImg = editor.getActionImage(index, "left");
+                String rightImg = editor.getActionImage(index, "right");
+                if (alias) {
+                    setTextIfChanged(imageLeftField, leftImg.isEmpty() ? "(from " + from + ")" : "<image from " + from + ">");
+                    setTextIfChanged(imageRightField, rightImg.isEmpty() ? "(from " + from + ")" : "<image from " + from + ">");
+                } else {
+                    setTextIfChanged(imageLeftField, leftImg.isEmpty() ? "" : "<image>");
+                    setTextIfChanged(imageRightField, rightImg.isEmpty() ? "" : "<image>");
+                }
+                // Skip setText when the value already matches. Editing timings on an
+                // alias detaches it and refreshes these fields from inside the
+                // timings DocumentListener; mutating that same document throws
+                // IllegalStateException ("Attempt to mutate in notification").
+                setTextIfChanged(timingsLeftField, editor.getActionTimings(index, "left"));
+                setTextIfChanged(timingsRightField, editor.getActionTimings(index, "right"));
+            } finally {
+                currentIndex = savedIndex;
             }
-            // Skip setText when the value already matches. Editing timings on an
-            // alias detaches it and refreshes these fields from inside the
-            // timings DocumentListener; mutating that same document throws
-            // IllegalStateException ("Attempt to mutate in notification").
-            setTextIfChanged(timingsLeftField, editor.getActionTimings(index, "left"));
-            setTextIfChanged(timingsRightField, editor.getActionTimings(index, "right"));
         }
 
         /** No-op when {@code field} already shows {@code text} (avoids re-entrant DocumentEvents). */
@@ -2164,6 +2175,11 @@ public class PonyEditorGUI extends JPanel {
     
     private PonyEditorGUI(JFrame parentFrame) {
         this(parentFrame, null, null, false);
+    }
+
+    /** Package-visible factory for editor GUI tests. */
+    static PonyEditorGUI newForTest(JFrame parentFrame, PonyEditor existing) {
+        return new PonyEditorGUI(parentFrame, existing, null, false);
     }
 
     /**
