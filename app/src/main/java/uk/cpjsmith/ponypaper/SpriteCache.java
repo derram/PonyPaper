@@ -1,5 +1,6 @@
 package uk.cpjsmith.ponypaper;
 
+import android.content.ComponentCallbacks2;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.util.Log;
@@ -17,7 +18,8 @@ import java.util.concurrent.ThreadFactory;
  * Process-wide refcounted {@link SpriteSheet} store. Wallpaper and dream each
  * keep their own {@link Pony} motion state, but identical sheets (same resource
  * ids, or the same custom image bytes and frame times) share one decoded
- * bitmap. The last {@link Pin#unpin} recycles that bitmap.
+ * bitmap. The last {@link Pin#unpin} keeps the sheet in an unpinned LRU until
+ * the decoded-byte budget is exceeded or {@link #trimMemory} drops it.
  *
  * <p>BitmapFactory work runs on a single background thread. {@link #pin}
  * returns immediately; a cache hit is ready, a miss completes when decode
@@ -41,10 +43,19 @@ final class SpriteCache {
             new IdentityHashMap<SpriteSheet, Entry>();
     private static final HashMap<String, InFlight> IN_FLIGHT = new HashMap<String, InFlight>();
     private static final ArrayList<Runnable> CPU_WAITERS = new ArrayList<Runnable>();
+    private static final UnpinnedLru UNPINNED = new UnpinnedLru();
+
+    /**
+     * Decoded bytes of unpinned sheets kept for herd-churn hits. Pinned sheets
+     * are extra and not counted against this cap.
+     */
+    private static final long UNPINNED_BUDGET_BYTES = 24L * 1024 * 1024;
 
     /** Hosts that need software-canvas blit (refcount). */
     private static int cpuDemand = 0;
     private static boolean cpuEnsureInFlight = false;
+    /** A pin arrived during {@link #ensureCpuBitmapsWork}; run another pass. */
+    private static boolean cpuEnsureAgain = false;
 
     private static final Executor DECODE_EXECUTOR = Executors.newSingleThreadExecutor(new ThreadFactory() {
         @Override
@@ -191,26 +202,30 @@ final class SpriteCache {
         if (key == null || factory == null) {
             throw new IllegalArgumentException("key/factory");
         }
-        final InFlight started;
+        InFlight startedLocal = null;
+        boolean ensureCpu = false;
         final Pin pin = new Pin(key);
         synchronized (LOCK) {
             Entry existing = BY_KEY.get(key);
             if (existing != null) {
                 existing.refs++;
+                UNPINNED.remove(existing.key);
                 pin.sheet = existing.sheet;
-                return pin;
-            }
-            InFlight inflight = IN_FLIGHT.get(key);
-            if (inflight == null) {
-                inflight = new InFlight(key, factory);
-                IN_FLIGHT.put(key, inflight);
-                started = inflight;
+                if (cpuDemand > 0 && !existing.sheet.hasCpuBitmap()) {
+                    ensureCpu = scheduleCpuEnsureLocked();
+                }
             } else {
-                started = null;
+                InFlight inflight = IN_FLIGHT.get(key);
+                if (inflight == null) {
+                    inflight = new InFlight(key, factory);
+                    IN_FLIGHT.put(key, inflight);
+                    startedLocal = inflight;
+                }
+                inflight.refs++;
+                inflight.waiters.add(pin);
             }
-            inflight.refs++;
-            inflight.waiters.add(pin);
         }
+        final InFlight started = startedLocal;
         if (started != null) {
             DECODE_EXECUTOR.execute(new Runnable() {
                 @Override
@@ -219,17 +234,22 @@ final class SpriteCache {
                 }
             });
         }
+        if (ensureCpu) {
+            startCpuEnsureWork();
+        }
         return pin;
     }
 
     /**
      * Declare that a host needs CPU-resident sprite pixels (software
      * {@code lockCanvas}). Re-decodes any HARDWARE-only pinned sheets on the
-     * decode thread. {@code whenReady} runs on that thread when every published
-     * sheet has a CPU bitmap (or immediately if already satisfied).
+     * decode thread. {@code whenReady} runs on that thread when every pinned
+     * sheet has a CPU bitmap (or immediately if already satisfied). Unpinned
+     * LRU sheets stay hardware-only until they are pinned again.
      */
     static void addCpuDemand(Runnable whenReady) {
         final ArrayList<Runnable> readyNow;
+        final boolean startEnsure;
         synchronized (LOCK) {
             cpuDemand++;
             if (whenReady != null) {
@@ -237,18 +257,14 @@ final class SpriteCache {
             }
             if (allHaveCpuLocked()) {
                 readyNow = takeCpuWaitersLocked();
+                startEnsure = false;
             } else {
                 readyNow = null;
-                if (!cpuEnsureInFlight) {
-                    cpuEnsureInFlight = true;
-                    DECODE_EXECUTOR.execute(new Runnable() {
-                        @Override
-                        public void run() {
-                            ensureCpuBitmapsWork();
-                        }
-                    });
-                }
+                startEnsure = scheduleCpuEnsureLocked();
             }
+        }
+        if (startEnsure) {
+            startCpuEnsureWork();
         }
         runAll(readyNow);
     }
@@ -283,11 +299,15 @@ final class SpriteCache {
                 if (cpuDemand > 0) {
                     return;
                 }
-                if (BY_SHEET.get(sheet) == null) {
+                Entry live = BY_SHEET.get(sheet);
+                if (live == null) {
                     continue;
                 }
                 if (sheet.hasHardwareBitmap()) {
                     sheet.recycleCpuBitmap();
+                }
+                if (live.refs <= 0) {
+                    UNPINNED.addOrTouch(live.key, live.sheet.decodedByteCount());
                 }
             }
         }
@@ -346,6 +366,9 @@ final class SpriteCache {
         final ArrayList<CpuReload> jobs = new ArrayList<CpuReload>();
         synchronized (LOCK) {
             for (Entry entry : BY_KEY.values()) {
+                if (entry.refs <= 0) {
+                    continue;
+                }
                 if (!entry.sheet.hasCpuBitmap()) {
                     jobs.add(new CpuReload(entry.key, entry.factory, entry.sheet));
                 }
@@ -375,7 +398,7 @@ final class SpriteCache {
                     }
                     continue;
                 }
-                if (cpuDemand <= 0) {
+                if (cpuDemand <= 0 || live.refs <= 0) {
                     if (cpu != null && !cpu.isRecycled()) {
                         cpu.recycle();
                     }
@@ -393,19 +416,56 @@ final class SpriteCache {
             }
         }
 
+        boolean rerun = false;
         final ArrayList<Runnable> ready;
         synchronized (LOCK) {
-            cpuEnsureInFlight = false;
             // finishDecode keeps CPU while cpuDemand > 0, so one pass covers
             // published sheets. Failed reloads stay undrawable on software;
             // still notify waiters so the host can redraw.
-            ready = takeCpuWaitersLocked();
+            if (cpuEnsureAgain && cpuDemand > 0) {
+                cpuEnsureAgain = false;
+                rerun = true;
+                ready = null;
+            } else {
+                cpuEnsureInFlight = false;
+                cpuEnsureAgain = false;
+                ready = takeCpuWaitersLocked();
+            }
+        }
+        if (rerun) {
+            ensureCpuBitmapsWork();
+            return;
         }
         runAll(ready);
     }
 
+    /**
+     * Mark that pinned sheets need CPU pixels. Caller starts the worker when
+     * this returns true (was not already running).
+     */
+    private static boolean scheduleCpuEnsureLocked() {
+        if (cpuEnsureInFlight) {
+            cpuEnsureAgain = true;
+            return false;
+        }
+        cpuEnsureInFlight = true;
+        return true;
+    }
+
+    private static void startCpuEnsureWork() {
+        DECODE_EXECUTOR.execute(new Runnable() {
+            @Override
+            public void run() {
+                ensureCpuBitmapsWork();
+            }
+        });
+    }
+
     private static boolean allHaveCpuLocked() {
         for (Entry entry : BY_KEY.values()) {
+            if (entry.refs <= 0) {
+                continue;
+            }
             if (!entry.sheet.hasCpuBitmap()) {
                 return false;
             }
@@ -461,8 +521,8 @@ final class SpriteCache {
     }
 
     /**
-     * Drop one pin on a published sheet. Recycles and evicts when the count
-     * reaches zero. Unknown or already-evicted sheets are ignored.
+     * Drop one pin on a published sheet. Moves the sheet to the unpinned LRU
+     * when the count reaches zero. Unknown or already-evicted sheets are ignored.
      */
     static void unpin(SpriteSheet sheet) {
         if (sheet == null) {
@@ -473,18 +533,63 @@ final class SpriteCache {
         }
     }
 
+    /**
+     * Recycle every unpinned sheet. Called from {@link android.app.Service#onTrimMemory}
+     * at {@link ComponentCallbacks2#TRIM_MEMORY_RUNNING_LOW} and above.
+     */
+    static void trimMemory(int level) {
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            trimUnpinned();
+        }
+    }
+
+    /** Recycle all refs==0 sheets, ignoring the byte budget. */
+    static void trimUnpinned() {
+        final ArrayList<SpriteSheet> recycle = new ArrayList<SpriteSheet>();
+        synchronized (LOCK) {
+            ArrayList<String> keys = UNPINNED.keysEldestFirst();
+            for (int i = 0; i < keys.size(); i++) {
+                Entry entry = BY_KEY.get(keys.get(i));
+                if (entry == null || entry.refs > 0) {
+                    continue;
+                }
+                BY_KEY.remove(entry.key);
+                BY_SHEET.remove(entry.sheet);
+                recycle.add(entry.sheet);
+            }
+            UNPINNED.clear();
+        }
+        for (int i = 0; i < recycle.size(); i++) {
+            recycle.get(i).recycle();
+        }
+    }
+
     private static void unpinLocked(SpriteSheet sheet) {
         Entry entry = BY_SHEET.get(sheet);
-        if (entry == null) {
+        if (entry == null || entry.refs <= 0) {
             return;
         }
         entry.refs--;
         if (entry.refs > 0) {
             return;
         }
-        BY_SHEET.remove(sheet);
-        BY_KEY.remove(entry.key);
-        entry.sheet.recycle();
+        UNPINNED.addOrTouch(entry.key, entry.sheet.decodedByteCount());
+        evictUnpinnedOverBudgetLocked();
+    }
+
+    private static void evictUnpinnedOverBudgetLocked() {
+        ArrayList<String> victims = UNPINNED.eldestOverBudget(UNPINNED_BUDGET_BYTES);
+        for (int i = 0; i < victims.size(); i++) {
+            String key = victims.get(i);
+            UNPINNED.remove(key);
+            Entry entry = BY_KEY.get(key);
+            if (entry == null || entry.refs > 0) {
+                continue;
+            }
+            BY_KEY.remove(entry.key);
+            BY_SHEET.remove(entry.sheet);
+            entry.sheet.recycle();
+        }
     }
 
     private static String toHex(byte[] digest) {

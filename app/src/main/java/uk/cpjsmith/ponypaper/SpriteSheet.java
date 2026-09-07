@@ -147,6 +147,22 @@ public class SpriteSheet {
     boolean hasDrawable() {
         return hasHardwareBitmap() || hasCpuBitmap();
     }
+
+    /**
+     * Decoded pixel bytes currently retained (CPU and/or HARDWARE copies).
+     * Used by {@link SpriteCache} to budget unpinned LRU entries.
+     */
+    long decodedByteCount() {
+        long n = 0;
+        if (bitmap != null && !bitmap.isRecycled()) {
+            n += bitmap.getByteCount();
+        }
+        if (hardwareBitmap != null && hardwareBitmap != bitmap
+                && !hardwareBitmap.isRecycled()) {
+            n += hardwareBitmap.getByteCount();
+        }
+        return n;
+    }
     
     /**
      * Upload {@link #bitmap} to {@link #hardwareBitmap} once (API 26+). Keeps
@@ -227,7 +243,8 @@ public class SpriteSheet {
      * after this, the sheet must not be drawn until reloaded.
      *
      * <p>Shared sheets are recycled only by {@link SpriteCache} when the last
-     * pin is dropped. Direct callers must own the bitmap exclusively.
+     * pin is dropped and the unpinned LRU evicts the entry. Direct callers
+     * must own the bitmap exclusively.
      */
     void recycle() {
         if (hardwareBitmap != null && hardwareBitmap != bitmap

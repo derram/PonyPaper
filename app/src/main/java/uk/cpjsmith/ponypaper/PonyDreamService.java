@@ -473,6 +473,12 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        SpriteCache.trimMemory(level);
+    }
+
+    @Override
     public void onDetachedFromWindow() {
         dreaming = false;
         exiting = false;

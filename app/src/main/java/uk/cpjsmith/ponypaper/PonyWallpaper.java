@@ -161,6 +161,12 @@ public class PonyWallpaper extends WallpaperService {
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        SpriteCache.trimMemory(level);
+    }
+
+    @Override
     public Engine onCreateEngine() {
         PonySize.ensureDefault(this);
         TargetFps.ensureDefault(this);

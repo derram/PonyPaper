@@ -85,10 +85,10 @@ public class Ponies implements Pony.EffectHost {
      */
     private final String waifuKey;
     /**
-     * Inactive pony whose sheets are pinned because an on-screen pony is
-     * leaving. At most one extra character is decoded this way.
+     * Inactive ponies whose sheets are pinned because that many on-screen
+     * ponies are leaving. Same pick as {@link #takeFromInactive}.
      */
-    private Pony prefetched;
+    private final ArrayList<Pony> prefetched = new ArrayList<Pony>();
     /** When true, each enter from the inactive pool rolls a ladder size. */
     private final boolean randomSizeMode;
     
@@ -331,10 +331,11 @@ public class Ponies implements Pony.EffectHost {
 
     /**
      * Unpin every pony's sprite sheets so {@link SpriteCache} can recycle
-     * bitmaps no other host still holds. Call before dropping this herd.
+     * bitmaps no other host still holds (or keep them in the unpinned LRU).
+     * Call before dropping this herd.
      */
     public void unloadSprites() {
-        prefetched = null;
+        prefetched.clear();
         clearAllEffects();
         for (Pony pony : activePonies) {
             pony.unloadActions();
@@ -750,63 +751,60 @@ public class Ponies implements Pony.EffectHost {
     }
     
     /**
-     * Removes and returns one pony from the inactive pool. If a waifu key is set
-     * and any inactive pony matches it, picks uniformly among those; otherwise
-     * picks uniformly among all inactive ponies.
-     */
-    /**
-     * When someone is leaving, pin one inactive replacement (same pick as
-     * {@link #takeFromInactive}). Drop that pin if the exit is cancelled.
+     * When ponies are leaving, pin that many inactive replacements (same pick
+     * as {@link #takeFromInactive}). Drop extras if exits are cancelled; keep
+     * the rest while any crossing is still in flight.
      */
     private void updateReplacementPrefetch() {
-        boolean leaving = false;
+        int leaving = 0;
         for (int i = 0; i < activePonies.length; i++) {
             if (activePonies[i].isLeavingScene()) {
-                leaving = true;
+                leaving++;
+            }
+        }
+        for (int i = prefetched.size() - 1; i >= 0; i--) {
+            if (!inactivePonies.contains(prefetched.get(i))) {
+                prefetched.remove(i);
+            }
+        }
+        int want = leaving;
+        if (want > inactivePonies.size()) {
+            want = inactivePonies.size();
+        }
+        while (prefetched.size() > want) {
+            Pony extra = prefetched.remove(prefetched.size() - 1);
+            extra.unloadActions();
+        }
+        while (prefetched.size() < want) {
+            int idx = indexToTakeFromInactive();
+            if (idx < 0) {
                 break;
             }
-        }
-        if (!leaving) {
-            if (prefetched != null) {
-                if (inactivePonies.contains(prefetched)) {
-                    prefetched.unloadActions();
-                }
-                prefetched = null;
-            }
-            return;
-        }
-        if (prefetched != null && inactivePonies.contains(prefetched)) {
-            return;
-        }
-        prefetched = peekFromInactive();
-        if (prefetched != null) {
-            prefetched.loadActions();
+            Pony next = inactivePonies.get(idx);
+            prefetched.add(next);
+            next.loadActions();
         }
     }
 
-    private Pony peekFromInactive() {
-        if (inactivePonies.isEmpty()) {
-            return null;
-        }
-        return inactivePonies.get(indexToTakeFromInactive());
-    }
-
+    /**
+     * Removes and returns one pony from the inactive pool. If a waifu key is set
+     * and any inactive pony matches it, picks uniformly among those; otherwise
+     * picks uniformly among all inactive ponies. Prefetched replacements are
+     * consumed first so their sheets stay warm.
+     */
     private Pony takeFromInactive() {
         if (inactivePonies.isEmpty()) {
             throw new IllegalStateException("inactive pool is empty");
         }
-        Pony pony;
-        if (prefetched != null) {
-            int prefIdx = inactivePonies.indexOf(prefetched);
-            if (prefIdx >= 0) {
-                prefetched = null;
-                pony = inactivePonies.remove(prefIdx);
-            } else {
-                prefetched = null;
-                pony = inactivePonies.remove(indexToTakeFromInactive());
-            }
+        Pony pony = takePrefetchedStillInactive();
+        if (pony != null) {
+            inactivePonies.remove(pony);
         } else {
-            pony = inactivePonies.remove(indexToTakeFromInactive());
+            int idx = indexToTakeFromInactive();
+            if (idx < 0) {
+                idx = 0;
+            }
+            pony = inactivePonies.remove(idx);
         }
         if (randomSizeMode) {
             pony.setSizeFactor(PonySize.randomFactor(random));
@@ -814,27 +812,37 @@ public class Ponies implements Pony.EffectHost {
         return pony;
     }
 
-    private int indexToTakeFromInactive() {
-        if (waifuKey.length() > 0) {
-            int matchCount = 0;
-            for (int i = 0; i < inactivePonies.size(); i++) {
-                if (waifuKey.equals(inactivePonies.get(i).getPrefKey())) {
-                    matchCount++;
-                }
+    private Pony takePrefetchedStillInactive() {
+        for (int i = 0; i < prefetched.size(); i++) {
+            Pony warmed = prefetched.get(i);
+            if (inactivePonies.contains(warmed)) {
+                prefetched.remove(i);
+                return warmed;
             }
-            if (matchCount > 0) {
-                int pick = random.nextInt(matchCount);
-                for (int i = 0; i < inactivePonies.size(); i++) {
-                    if (waifuKey.equals(inactivePonies.get(i).getPrefKey())) {
-                        if (pick == 0) {
-                            return i;
-                        }
-                        pick--;
-                    }
-                }
+            prefetched.remove(i);
+            i--;
+        }
+        return null;
+    }
+
+    private int indexToTakeFromInactive() {
+        int n = inactivePonies.size();
+        if (n == 0) {
+            return -1;
+        }
+        String[] keys = new String[n];
+        boolean[] skip = null;
+        if (!prefetched.isEmpty()) {
+            skip = new boolean[n];
+        }
+        for (int i = 0; i < n; i++) {
+            Pony pony = inactivePonies.get(i);
+            keys[i] = pony.getPrefKey();
+            if (skip != null && prefetched.contains(pony)) {
+                skip[i] = true;
             }
         }
-        return random.nextInt(inactivePonies.size());
+        return InactivePick.index(n, keys, skip, waifuKey, random);
     }
     
 }

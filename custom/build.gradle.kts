@@ -40,6 +40,8 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/SceneExit.java",
                 "uk/cpjsmith/ponypaper/WorldFlow.java",
                 "uk/cpjsmith/ponypaper/SpawnYBand.java",
+                "uk/cpjsmith/ponypaper/UnpinnedLru.java",
+                "uk/cpjsmith/ponypaper/InactivePick.java",
             )
         }
     }
@@ -171,6 +173,20 @@ tasks.register<JavaExec>("testWorldFlow") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.WorldFlowTest")
 }
 
+tasks.register<JavaExec>("testUnpinnedLru") {
+    group = "verification"
+    description = "Run unpinned sprite LRU byte-budget checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.UnpinnedLruTest")
+}
+
+tasks.register<JavaExec>("testInactivePick") {
+    group = "verification"
+    description = "Run inactive-pool prefetch pick checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.InactivePickTest")
+}
+
 tasks.register<JavaExec>("testSpawnYBand") {
     group = "verification"
     description = "Run feet-anchored spawn Y inset checks"
@@ -194,4 +210,6 @@ tasks.named("check") {
     dependsOn("testWanderTarget")
     dependsOn("testWorldFlow")
     dependsOn("testSpawnYBand")
+    dependsOn("testUnpinnedLru")
+    dependsOn("testInactivePick")
 }
