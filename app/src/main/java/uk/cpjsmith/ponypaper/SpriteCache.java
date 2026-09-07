@@ -185,13 +185,21 @@ final class SpriteCache {
         });
     }
 
-    static Pin pinBytes(final byte[] bitmapData, final int[] frameTimes) {
-        return pin(bytesKey(bitmapData, frameTimes), new SheetFactory() {
+    /**
+     * Factory that captures only the PNG bytes and frame times (not the owning
+     * {@link PonyAction}), so a cache entry can outlive a herd.
+     */
+    static SheetFactory bytesFactory(final byte[] bitmapData, final int[] frameTimes) {
+        return new SheetFactory() {
             @Override
             public SpriteSheet create() {
                 return new SpriteSheet(bitmapData, frameTimes);
             }
-        });
+        };
+    }
+
+    static Pin pinBytes(byte[] bitmapData, int[] frameTimes) {
+        return pin(bytesKey(bitmapData, frameTimes), bytesFactory(bitmapData, frameTimes));
     }
 
     /**

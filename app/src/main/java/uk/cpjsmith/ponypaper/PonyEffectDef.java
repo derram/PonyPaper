@@ -46,6 +46,10 @@ final class PonyEffectDef {
     private final int[] leftTimes;
     private final byte[] rightBytes;
     private final int[] rightTimes;
+    private final SpriteCache.SheetFactory leftFactory;
+    private final SpriteCache.SheetFactory rightFactory;
+    private String leftKey;
+    private String rightKey;
 
     private SpriteSheet[] sprites;
     private SpriteCache.Pin leftPin;
@@ -72,6 +76,8 @@ final class PonyEffectDef {
         this.rightTimes = parseTimes(def.timings.get("right"));
         validateSide(leftBytes, leftTimes, "left");
         validateSide(rightBytes, rightTimes, "right");
+        this.leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
+        this.rightFactory = SpriteCache.bytesFactory(rightBytes, rightTimes);
     }
 
     boolean triggersOn(PonyAction action) {
@@ -91,9 +97,15 @@ final class PonyEffectDef {
             if (sprites != null || leftPin != null) {
                 return;
             }
-            leftPin = SpriteCache.pinBytes(leftBytes, leftTimes);
+            if (leftKey == null) {
+                leftKey = SpriteCache.bytesKey(leftBytes, leftTimes);
+            }
+            if (rightKey == null) {
+                rightKey = SpriteCache.bytesKey(rightBytes, rightTimes);
+            }
+            leftPin = SpriteCache.pin(leftKey, leftFactory);
             try {
-                rightPin = SpriteCache.pinBytes(rightBytes, rightTimes);
+                rightPin = SpriteCache.pin(rightKey, rightFactory);
             } catch (RuntimeException e) {
                 leftPin.unpin();
                 leftPin = null;

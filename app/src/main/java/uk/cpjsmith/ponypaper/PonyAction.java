@@ -104,9 +104,12 @@ public class PonyAction {
     
     /* To create the sprite sheets for a built-in pony. */
     private Resources res;
-    private int arrayId;
+    private int leftDrawableId;
+    private int leftTimingId;
+    private int rightDrawableId;
+    private int rightTimingId;
     /* To create the sprite sheets for a custom pony. */
-    private PonyDefinition.Action definition;
+    private CustomSheets custom;
     /**
      * When non-null, this action reuses {@code spriteSource}'s loaded sheets
      * (gait/idle aliases). Load/unload ownership stays with the source.
@@ -193,10 +196,18 @@ public class PonyAction {
      */
     public PonyAction(Resources res, int arrayId, int type, float speed) {
         this.res = res;
-        this.arrayId = arrayId;
         this.type = type;
         this.speed = sanitizeSpeed(speed);
         this.loops = true;
+        TypedArray array = res.obtainTypedArray(arrayId);
+        try {
+            this.leftDrawableId = array.getResourceId(0, 0);
+            this.leftTimingId = array.getResourceId(1, 0);
+            this.rightDrawableId = array.getResourceId(2, 0);
+            this.rightTimingId = array.getResourceId(3, 0);
+        } finally {
+            array.recycle();
+        }
     }
     
     /**
@@ -245,8 +256,10 @@ public class PonyAction {
         this.speed = sanitizeSpeed(speed);
         this.loops = loops;
         this.res = this.spriteSource.res;
-        this.arrayId = this.spriteSource.arrayId;
-        this.definition = this.spriteSource.definition;
+        this.leftDrawableId = this.spriteSource.leftDrawableId;
+        this.leftTimingId = this.spriteSource.leftTimingId;
+        this.rightDrawableId = this.spriteSource.rightDrawableId;
+        this.rightTimingId = this.spriteSource.rightTimingId;
         this.movement = this.spriteSource.movement;
         // Same sheets → same feet hotspots unless the alias overrides later.
         this.anchorX[LEFT] = this.spriteSource.anchorX[LEFT];
@@ -263,7 +276,7 @@ public class PonyAction {
      * @param definition the action definition extracted from XML
      */
     public PonyAction(PonyDefinition.Action definition) {
-        this.definition = definition;
+        this.custom = new CustomSheets(definition);
         this.type = typeFromSpecial(definition.specialType);
         this.speed = sanitizeSpeed(definition.speed);
         this.loops = definition.loops;
@@ -272,7 +285,6 @@ public class PonyAction {
             this.actionId = definition.name;
         }
         copyDefinitionAnchors(definition);
-        validateDefinitionBitmaps(definition);
     }
 
     /** Stable action id for catalog / Tableau JSON (empty when unset). */
@@ -319,22 +331,52 @@ public class PonyAction {
      * Confirm custom images decode (bounds only) and timings are non-empty.
      * Full pixel decode happens later on the cache worker.
      */
-    private static void validateDefinitionBitmaps(PonyDefinition.Action definition) {
-        validateDefinitionSide(definition, "left");
-        validateDefinitionSide(definition, "right");
-    }
-
-    private static void validateDefinitionSide(PonyDefinition.Action definition, String side) {
-        byte[] data = Base64.decode(definition.images.get(side), 0);
+    private static void validateDefinitionSide(byte[] data, int[] times, String side) {
         BitmapFactory.Options opts = new BitmapFactory.Options();
         opts.inJustDecodeBounds = true;
         BitmapFactory.decodeByteArray(data, 0, data.length, opts);
         if (opts.outWidth <= 0 || opts.outHeight <= 0) {
             throw new IllegalArgumentException("Failed to decode " + side + " sprite sheet");
         }
-        int[] times = parseInts(definition.timings.get(side));
-        if (times.length == 0) {
+        if (times == null || times.length == 0) {
             throw new IllegalArgumentException("Sprite sheet has no frame times");
+        }
+    }
+
+    /**
+     * Decoded custom sheets plus a {@link SpriteCache} factory that captures
+     * only those arrays (so an LRU entry does not pin this action). Keys are
+     * filled on first {@link #load()} so Tableau wait-bag-only pins do not
+     * SHA-256 unused sheets.
+     */
+    private static final class CustomSheets {
+        final byte[] leftBytes;
+        final byte[] rightBytes;
+        final int[] leftTimes;
+        final int[] rightTimes;
+        final SpriteCache.SheetFactory leftFactory;
+        final SpriteCache.SheetFactory rightFactory;
+        String leftKey;
+        String rightKey;
+
+        CustomSheets(PonyDefinition.Action definition) {
+            leftBytes = Base64.decode(definition.images.get("left"), 0);
+            rightBytes = Base64.decode(definition.images.get("right"), 0);
+            leftTimes = parseInts(definition.timings.get("left"));
+            rightTimes = parseInts(definition.timings.get("right"));
+            validateDefinitionSide(leftBytes, leftTimes, "left");
+            validateDefinitionSide(rightBytes, rightTimes, "right");
+            leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
+            rightFactory = SpriteCache.bytesFactory(rightBytes, rightTimes);
+        }
+
+        void ensureKeys() {
+            if (leftKey == null) {
+                leftKey = SpriteCache.bytesKey(leftBytes, leftTimes);
+            }
+            if (rightKey == null) {
+                rightKey = SpriteCache.bytesKey(rightBytes, rightTimes);
+            }
         }
     }
     
@@ -511,31 +553,19 @@ public class PonyAction {
                 return;
             }
             if (res != null) {
-                TypedArray array = res.obtainTypedArray(arrayId);
+                leftPin = SpriteCache.pinResource(res, leftDrawableId, leftTimingId);
                 try {
-                    int leftDrawableId = array.getResourceId(0, 0);
-                    int leftTimingId = array.getResourceId(1, 0);
-                    int rightDrawableId = array.getResourceId(2, 0);
-                    int rightTimingId = array.getResourceId(3, 0);
-                    leftPin = SpriteCache.pinResource(res, leftDrawableId, leftTimingId);
-                    try {
-                        rightPin = SpriteCache.pinResource(res, rightDrawableId, rightTimingId);
-                    } catch (RuntimeException e) {
-                        leftPin.unpin();
-                        leftPin = null;
-                        throw e;
-                    }
-                } finally {
-                    array.recycle();
+                    rightPin = SpriteCache.pinResource(res, rightDrawableId, rightTimingId);
+                } catch (RuntimeException e) {
+                    leftPin.unpin();
+                    leftPin = null;
+                    throw e;
                 }
-            } else if (definition != null) {
-                leftPin = SpriteCache.pinBytes(
-                        Base64.decode(definition.images.get("left"), 0),
-                        parseInts(definition.timings.get("left")));
+            } else if (custom != null) {
+                custom.ensureKeys();
+                leftPin = SpriteCache.pin(custom.leftKey, custom.leftFactory);
                 try {
-                    rightPin = SpriteCache.pinBytes(
-                            Base64.decode(definition.images.get("right"), 0),
-                            parseInts(definition.timings.get("right")));
+                    rightPin = SpriteCache.pin(custom.rightKey, custom.rightFactory);
                 } catch (RuntimeException e) {
                     leftPin.unpin();
                     leftPin = null;
