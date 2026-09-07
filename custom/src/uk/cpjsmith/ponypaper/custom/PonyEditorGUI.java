@@ -1424,7 +1424,7 @@ public class PonyEditorGUI extends JPanel {
                     ImageImport.permute(sourceFrames, packed.order);
             ImageImport.PackOptions options = new ImageImport.PackOptions();
             options.lifts = packed.lifts;
-            options.scaleDivisor = packed.scaleDivisor;
+            packed.copyScaleTo(options);
             if (sourceTimingsCs != null) {
                 options.timingsCs = ImageImport.permute(sourceTimingsCs, packed.order);
             }

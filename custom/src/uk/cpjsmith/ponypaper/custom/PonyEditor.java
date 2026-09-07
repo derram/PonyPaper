@@ -1406,7 +1406,7 @@ public class PonyEditor {
             System.out.println("-gif-to-sheet [options] INPUT.gif [OUTPUT.png]");
             System.out.println("    Convert a GIF to a PonyPaper spritesheet (standalone; ignores other options).");
             System.out.println("    Same ImageImport path as Import image. Default is native size;");
-            System.out.println("    use --half for 50%, or --scale 25|12.5|6.25|fit for other dyadic shrinks.");
+            System.out.println("    use --half for 50%, --scale 200 for ×2, or --scale 25|12.5|6.25|fit.");
             System.out.println("    Run with -gif-to-sheet -help for converter options.");
             System.out.println("-pack-sheet [options] OUTPUT.png FRAME.png...|DIR");
             System.out.println("    Pack PNG frames (or a folder of them) into a left-to-right spritesheet.");

@@ -54,7 +54,7 @@ import javax.swing.event.ListSelectionListener;
 
 /**
  * Modal dialog: review imported frames (PNG stills or coalesced GIF frames),
- * choose a dyadic pack scale (100%…6.25%, or fit-to-built-in), rearrange
+ * choose a dyadic pack scale (200%…6.25%, or fit-to-built-in), rearrange
  * playback order, set per-frame lift (or apply one value to all frames), and
  * pack. Frames taller than built-in open on Fit. Sheets over
  * {@link ImageImport#SHEET_PIXEL_BUDGET} defer the strip preview and require
@@ -71,34 +71,50 @@ public final class FramePackDialog extends JDialog {
      * User choices after Pack. Lift values are in <em>output</em> pixels
      * (after scale) and follow playback order. {@link #order} is a
      * permutation of source indices ({@code 0..n-1}).
-     * {@link #scaleDivisor} is the resolved dyadic divisor actually applied
-     * (never a "fit" sentinel).
+     * {@link #scaleNumerator}/{@link #scaleDivisor} is the resolved dyadic
+     * ratio actually applied (never a "fit" sentinel).
      */
     public static final class Result {
         public final int[] lifts;
+        public final int scaleNumerator;
         public final int scaleDivisor;
         public final int[] order;
 
-        Result(int[] lifts, int scaleDivisor, int[] order) {
+        Result(int[] lifts, int scaleNumerator, int scaleDivisor, int[] order) {
             this.lifts = lifts;
+            this.scaleNumerator = scaleNumerator;
             this.scaleDivisor = scaleDivisor;
             this.order = order;
+        }
+
+        /** Copies the resolved pack scale onto {@code options} (clears Fit). */
+        public void copyScaleTo(ImageImport.PackOptions options) {
+            options.scaleNumerator = scaleNumerator;
+            options.scaleDivisor = scaleDivisor;
+            options.scaleFitBuiltin = false;
         }
     }
 
     private static final class ScaleItem {
-        /** Resolved divisor, or {@code -1} for fit-to-built-in. */
+        final int numerator;
+        /** Resolved divisor; Fit stores the shrink it would apply. */
         final int divisor;
         final boolean fit;
         String label;
 
         ScaleItem(int divisor, String label) {
+            this(ImageImport.SCALE_NUMERATOR_NATIVE, divisor, label);
+        }
+
+        ScaleItem(int numerator, int divisor, String label) {
+            this.numerator = numerator;
             this.divisor = divisor;
             this.fit = false;
             this.label = label;
         }
 
         ScaleItem(boolean fit, int resolvedDivisor, String label) {
+            this.numerator = ImageImport.SCALE_NUMERATOR_NATIVE;
             this.divisor = resolvedDivisor;
             this.fit = fit;
             this.label = label;
@@ -137,6 +153,7 @@ public final class FramePackDialog extends JDialog {
     private final JButton moveUpButton;
     private final JButton moveDownButton;
     private final JButton resetOrderButton;
+    private int scaleNumerator;
     private int scaleDivisor;
     private List<BufferedImage> scaledFrames;
     private boolean updatingSpinner;
@@ -173,6 +190,7 @@ public final class FramePackDialog extends JDialog {
                 initialDivisor = ImageImport.SCALE_DIVISOR_NATIVE;
             }
         }
+        this.scaleNumerator = ImageImport.SCALE_NUMERATOR_NATIVE;
         this.scaleDivisor = initialDivisor;
 
         int computedFitDivisor = ImageImport.SCALE_DIVISOR_NATIVE;
@@ -230,6 +248,11 @@ public final class FramePackDialog extends JDialog {
         ScaleItem[] scaleItems;
         try {
             scaleItems = new ScaleItem[] {
+                new ScaleItem(ImageImport.SCALE_NUMERATOR_DOUBLE,
+                        ImageImport.SCALE_DIVISOR_NATIVE,
+                        ImageImport.formatScaleLabel(
+                                ImageImport.SCALE_NUMERATOR_DOUBLE,
+                                ImageImport.SCALE_DIVISOR_NATIVE)),
                 new ScaleItem(ImageImport.SCALE_DIVISOR_NATIVE,
                         ImageImport.formatScaleDivisorLabel(ImageImport.SCALE_DIVISOR_NATIVE)),
                 new ScaleItem(ImageImport.SCALE_DIVISOR_HALF,
@@ -244,29 +267,37 @@ public final class FramePackDialog extends JDialog {
             };
         } catch (IOException e) {
             scaleItems = new ScaleItem[] {
+                new ScaleItem(ImageImport.SCALE_NUMERATOR_DOUBLE,
+                        ImageImport.SCALE_DIVISOR_NATIVE, "200% (×2)"),
                 new ScaleItem(ImageImport.SCALE_DIVISOR_NATIVE, "100% (native)"),
                 fitScaleItem,
             };
         }
         scaleCombo = new JComboBox<ScaleItem>(scaleItems);
-        selectScaleItem(initialDivisor, selectFitByDefault);
+        selectScaleItem(ImageImport.SCALE_NUMERATOR_NATIVE, initialDivisor, selectFitByDefault);
         scaleCombo.setToolTipText(
-                "Nearest-neighbour dyadic shrink before packing. "
-                        + "Prefer ÷2 / ÷4 / ÷8 / ÷16 for crisp sprites. "
-                        + "Fit picks the largest scale whose tallest frame is ≤ "
-                        + ImageImport.LARGE_CELL_HEIGHT_PX + "px. "
-                        + "Oversized imports open on Fit automatically.");
+                "Nearest-neighbour dyadic scale before packing. "
+                        + "200% pixel-doubles undersized art. "
+                        + "Prefer ÷2 / ÷4 / ÷8 / ÷16 to shrink. "
+                        + "Fit picks the largest shrink whose tallest frame is ≤ "
+                        + ImageImport.LARGE_CELL_HEIGHT_PX + "px (never 200%). "
+                        + "Oversized imports open on Fit automatically. "
+                        + "Lifts are in output pixels after scale.");
         scaleCombo.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 ScaleItem item = (ScaleItem) scaleCombo.getSelectedItem();
-                int next = item != null
+                int nextNum = item != null
+                        ? (item.fit ? ImageImport.SCALE_NUMERATOR_NATIVE : item.numerator)
+                        : ImageImport.SCALE_NUMERATOR_NATIVE;
+                int nextDiv = item != null
                         ? (item.fit ? fitScaleDivisor : item.divisor)
                         : ImageImport.SCALE_DIVISOR_NATIVE;
-                if (next == scaleDivisor) {
+                if (nextNum == scaleNumerator && nextDiv == scaleDivisor) {
                     return;
                 }
-                scaleDivisor = next;
+                scaleNumerator = nextNum;
+                scaleDivisor = nextDiv;
                 scaledFrames = null;
                 refreshAll();
             }
@@ -348,7 +379,7 @@ public final class FramePackDialog extends JDialog {
                     return;
                 }
                 packed = true;
-                result = new Result(lifts.clone(), scaleDivisor, order.clone());
+                result = new Result(lifts.clone(), scaleNumerator, scaleDivisor, order.clone());
                 dispose();
             }
         });
@@ -581,7 +612,7 @@ public final class FramePackDialog extends JDialog {
         return names;
     }
 
-    private void selectScaleItem(int divisor, boolean preferFitWhenMatching) {
+    private void selectScaleItem(int numerator, int divisor, boolean preferFitWhenMatching) {
         int match = -1;
         int fitIndex = -1;
         for (int i = 0; i < scaleCombo.getItemCount(); i++) {
@@ -593,28 +624,31 @@ public final class FramePackDialog extends JDialog {
                 fitIndex = i;
                 continue;
             }
-            if (item.divisor == divisor && match < 0) {
+            if (item.numerator == numerator && item.divisor == divisor && match < 0) {
                 match = i;
             }
         }
-        if (preferFitWhenMatching && fitIndex >= 0 && fitScaleDivisor == divisor) {
+        if (preferFitWhenMatching && fitIndex >= 0 && fitScaleDivisor == divisor
+                && numerator == ImageImport.SCALE_NUMERATOR_NATIVE) {
             scaleCombo.setSelectedIndex(fitIndex);
         } else if (match >= 0) {
             scaleCombo.setSelectedIndex(match);
-        } else if (fitIndex >= 0 && fitScaleDivisor == divisor) {
+        } else if (fitIndex >= 0 && fitScaleDivisor == divisor
+                && numerator == ImageImport.SCALE_NUMERATOR_NATIVE) {
             scaleCombo.setSelectedIndex(fitIndex);
         } else {
-            scaleCombo.setSelectedIndex(0);
+            scaleCombo.setSelectedIndex(Math.min(1, scaleCombo.getItemCount() - 1));
         }
     }
 
     private List<BufferedImage> packFrames() {
-        if (scaleDivisor == ImageImport.SCALE_DIVISOR_NATIVE) {
+        if (scaleNumerator == ImageImport.SCALE_NUMERATOR_NATIVE
+                && scaleDivisor == ImageImport.SCALE_DIVISOR_NATIVE) {
             return frames;
         }
         if (scaledFrames == null) {
             try {
-                scaledFrames = ImageImport.scaleFrames(frames, scaleDivisor);
+                scaledFrames = ImageImport.scaleFrames(frames, scaleNumerator, scaleDivisor);
             } catch (IOException e) {
                 return frames;
             }
@@ -785,19 +819,29 @@ public final class FramePackDialog extends JDialog {
             ImageImport.PackPreview preview = ImageImport.inspectFrames(toPack, lifts);
             int sheetW = preview.sheetWidth();
             int sheetH = preview.cellHeight;
-            if (!ImageImport.exceedsSheetPixelBudget(sheetW, sheetH)) {
+            boolean hugePixels = ImageImport.exceedsSheetPixelBudget(sheetW, sheetH);
+            boolean hugeWidth = ImageImport.exceedsSheetWidthBudget(sheetW);
+            if (!hugePixels && !hugeWidth) {
                 return true;
             }
-            String message = String.format(
-                    "This sheet would be %d×%d (~%s as ARGB), which is very large.%n%n"
-                            + "Prefer Fit to built-in or a smaller scale unless you need "
-                            + "the full resolution.%n%nPack anyway?",
-                    sheetW,
-                    sheetH,
-                    ImageImport.formatByteSize(ImageImport.sheetArgbBytes(sheetW, sheetH)));
+            StringBuilder message = new StringBuilder();
+            message.append(String.format("This sheet would be %d×%d", sheetW, sheetH));
+            if (hugePixels) {
+                message.append(String.format(" (~%s as ARGB)",
+                        ImageImport.formatByteSize(ImageImport.sheetArgbBytes(sheetW, sheetH))));
+            }
+            message.append(", which is very large.\n\n");
+            if (hugeWidth) {
+                message.append("Strip width exceeds ")
+                        .append(ImageImport.SHEET_WIDTH_BUDGET)
+                        .append("px (a common GPU texture limit).\n\n");
+            }
+            message.append("Prefer Fit to built-in, fewer frames, or a smaller scale ")
+                    .append("(200% quadruples pixels) unless you need the full resolution.")
+                    .append("\n\nPack anyway?");
             int choice = JOptionPane.showConfirmDialog(
                     this,
-                    message,
+                    message.toString(),
                     "Large spritesheet",
                     JOptionPane.YES_NO_OPTION,
                     JOptionPane.WARNING_MESSAGE);
@@ -818,10 +862,9 @@ public final class FramePackDialog extends JDialog {
             ImageImport.PackPreview preview = ImageImport.inspectFrames(toPack, lifts);
             String scaleLabel;
             try {
-                scaleLabel = ImageImport.formatScaleDivisor(scaleDivisor)
-                        + " (÷" + scaleDivisor + ")";
+                scaleLabel = ImageImport.formatScaleMarker(scaleNumerator, scaleDivisor);
             } catch (IOException e) {
-                scaleLabel = "÷" + scaleDivisor;
+                scaleLabel = scaleNumerator + "/" + scaleDivisor;
             }
             ScaleItem selectedScale = (ScaleItem) scaleCombo.getSelectedItem();
             if (selectedScale != null && selectedScale.fit) {
@@ -839,6 +882,7 @@ public final class FramePackDialog extends JDialog {
                     sheetH,
                     scaleLabel));
             boolean hugeSheet = ImageImport.exceedsSheetPixelBudget(sheetW, sheetH);
+            boolean hugeWidth = ImageImport.exceedsSheetWidthBudget(sheetW);
             if (hugeSheet) {
                 warningLabel.setText(String.format(
                         "Sheet preview deferred (%d×%d, ~%s) — choose a smaller scale, "
@@ -848,6 +892,16 @@ public final class FramePackDialog extends JDialog {
                         ImageImport.formatByteSize(ImageImport.sheetArgbBytes(sheetW, sheetH))));
                 warningLabel.setVisible(true);
                 stripPreview.setDeferred(preview.frameCount, sheetH);
+            } else if (hugeWidth) {
+                warningLabel.setText(String.format(
+                        "Sheet is %dpx wide (GPU textures often cap at %d). "
+                                + "Prefer fewer frames or a smaller scale.",
+                        sheetW,
+                        ImageImport.SHEET_WIDTH_BUDGET));
+                warningLabel.setVisible(true);
+                stripPreview.setSheet(ImageImport.packSheetImage(
+                        toPack, preview.cellWidth, preview.cellHeight, lifts),
+                        preview.frameCount, preview.cellHeight);
             } else if (ImageImport.isLargeCell(preview.cellHeight)) {
                 warningLabel.setText(ImageImport.largeCellWarning());
                 warningLabel.setVisible(true);

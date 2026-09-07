@@ -14,7 +14,7 @@ Converts a GIF into a packed PNG strip with timings.
 java -jar custom/build/libs/customponies.jar \
   -gif-to-sheet walk_left.gif walk_left.png
 
-# Options: -q (quiet), -t timings.txt, --scale 100|50|25|12.5|6.25|fit, --half, -h (help)
+# Options: -q (quiet), -t timings.txt, --scale 200|100|50|25|12.5|6.25|fit|2x|double, --half, -h (help)
 ```
 
 ### PNG frames → spritesheet packer
@@ -25,7 +25,7 @@ Packs individual PNG frames into a single strip.
 java -jar custom/build/libs/customponies.jar \
   -pack-sheet walk_left.png walk_left_frames/
 
-# Options: --timing-cs N, --strict-size, --scale 100|50|25|12.5|6.25|fit, --lifts N,N,...
+# Options: --timing-cs N, --strict-size, --scale 200|100|50|25|12.5|6.25|fit|2x|double, --lifts N,N,...
 ```
 
 ### CLI Pony Creation
@@ -40,6 +40,8 @@ java -jar custom/build/libs/customponies.jar \
   -mirror-facing left \
   -save oc.xml
 ```
+
+`-scale` is dyadic nearest-neighbour for the next GIF/`-sprite-frames` import (`200`/`2x`/`double` pixel-doubles; bare `2` is ÷2 / 50%). Fit never selects 200%.
 
 ## Engine Logic & Behaviors
 

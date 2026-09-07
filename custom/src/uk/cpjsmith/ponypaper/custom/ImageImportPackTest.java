@@ -43,7 +43,11 @@ public final class ImageImportPackTest {
         failures += run("scaleDropsLonelyEvenSpeckles", ImageImportPackTest::testScaleDropsLonelyEvenSpeckles);
         failures += run("scaleHalfKeepsLonelyPixel", ImageImportPackTest::testScaleHalfKeepsLonelyPixel);
         failures += run("scaleInvalidRejected", ImageImportPackTest::testScaleInvalidRejected);
+        failures += run("scale200DoublesCell", ImageImportPackTest::testScale200DoublesCell);
+        failures += run("scale200ThenHalfIsIdentity", ImageImportPackTest::testScale200ThenHalfIsIdentity);
+        failures += run("scale200CannotCombineWithShrink", ImageImportPackTest::testScale200CannotCombineWithShrink);
         failures += run("parseScaleDivisor", ImageImportPackTest::testParseScaleDivisor);
+        failures += run("parseScale200", ImageImportPackTest::testParseScale200);
         failures += run("fitBuiltinScaleDivisor", ImageImportPackTest::testFitBuiltinScaleDivisor);
         failures += run("defaultScaleForOversizedFrames", ImageImportPackTest::testDefaultScaleForOversizedFrames);
         failures += run("sheetPixelBudget", ImageImportPackTest::testSheetPixelBudget);
@@ -438,6 +442,72 @@ public final class ImageImportPackTest {
         }
     }
 
+    private static void testScale200DoublesCell() throws IOException {
+        BufferedImage a = new BufferedImage(5, 3, BufferedImage.TYPE_INT_ARGB);
+        a.setRGB(0, 0, 0xffff0000);
+        a.setRGB(4, 2, 0xff00ff00);
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        opts.scaleNumerator = ImageImport.SCALE_NUMERATOR_DOUBLE;
+        ImageImport packed = ImageImport.fromFrames(Arrays.asList(a), opts);
+        assertEq("cellW", 10, packed.cellWidth);
+        assertEq("cellH", 6, packed.cellHeight);
+        BufferedImage sheet = decode(packed.loadedImage);
+        assertEq("tl", 0xffff0000, sheet.getRGB(0, 0));
+        assertEq("tl replica", 0xffff0000, sheet.getRGB(1, 1));
+        assertEq("br", 0xff00ff00, sheet.getRGB(8, 4));
+        assertEq("br replica", 0xff00ff00, sheet.getRGB(9, 5));
+        assertEq("dim", 10, ImageImport.scaleDimension(5,
+                ImageImport.SCALE_NUMERATOR_DOUBLE, ImageImport.SCALE_DIVISOR_NATIVE));
+        try {
+            ImageImport.scaleDimension(Integer.MAX_VALUE / 2 + 1,
+                    ImageImport.SCALE_NUMERATOR_DOUBLE, ImageImport.SCALE_DIVISOR_NATIVE);
+            throw new AssertionError("expected overflow failure");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("too large")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void testScale200ThenHalfIsIdentity() throws IOException {
+        BufferedImage src = new BufferedImage(4, 2, BufferedImage.TYPE_INT_ARGB);
+        src.setRGB(0, 0, 0xffff0000);
+        src.setRGB(1, 0, 0xff00ff00);
+        src.setRGB(2, 0, 0xff0000ff);
+        src.setRGB(3, 0, 0xffffff00);
+        src.setRGB(0, 1, 0xff00ffff);
+        src.setRGB(1, 1, 0xffff00ff);
+        src.setRGB(2, 1, 0xff000000);
+        src.setRGB(3, 1, 0xffffffff);
+        BufferedImage doubled = ImageImport.scaleImage(src,
+                ImageImport.SCALE_NUMERATOR_DOUBLE, ImageImport.SCALE_DIVISOR_NATIVE);
+        assertEq("doubled W", 8, doubled.getWidth());
+        assertEq("doubled H", 4, doubled.getHeight());
+        BufferedImage back = ImageImport.scaleImage(doubled, ImageImport.SCALE_DIVISOR_HALF);
+        assertEq("back W", src.getWidth(), back.getWidth());
+        assertEq("back H", src.getHeight(), back.getHeight());
+        for (int y = 0; y < src.getHeight(); y++) {
+            for (int x = 0; x < src.getWidth(); x++) {
+                assertEq("px " + x + "," + y, src.getRGB(x, y), back.getRGB(x, y));
+            }
+        }
+    }
+
+    private static void testScale200CannotCombineWithShrink() throws IOException {
+        BufferedImage a = solid(4, 4, 0xff112233);
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        opts.scaleNumerator = ImageImport.SCALE_NUMERATOR_DOUBLE;
+        opts.scaleDivisor = ImageImport.SCALE_DIVISOR_HALF;
+        try {
+            ImageImport.fromFrames(Arrays.asList(a), opts);
+            throw new AssertionError("expected combine failure");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("cannot combine")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+    }
+
     private static void testParseScaleDivisor() throws IOException {
         assertEq("100", ImageImport.SCALE_DIVISOR_NATIVE, ImageImport.parseScaleDivisor("100"));
         assertEq("50%", ImageImport.SCALE_DIVISOR_HALF, ImageImport.parseScaleDivisor("50%"));
@@ -458,6 +528,51 @@ public final class ImageImportPackTest {
                 throw new AssertionError("unexpected message: " + e.getMessage());
             }
         }
+        try {
+            ImageImport.parseScaleDivisor("200");
+            throw new AssertionError("expected 200 shrink parse to fail");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("200%")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void testParseScale200() throws IOException {
+        assertScale("200", 2, 1, false, ImageImport.parseScale("200"));
+        assertScale("200%", 2, 1, false, ImageImport.parseScale("200%"));
+        assertScale("2x", 2, 1, false, ImageImport.parseScale("2x"));
+        assertScale("double", 2, 1, false, ImageImport.parseScale("double"));
+        assertScale("2/1", 2, 1, false, ImageImport.parseScale("2/1"));
+        assertScale("bare 2 is half", 1, 2, false, ImageImport.parseScale("2"));
+        assertScale("fit", 1, 1, true, ImageImport.parseScale("fit"));
+        assertEq("format 200", "200%", ImageImport.formatScale(2, 1));
+        assertEq("label 200", "200% (×2)", ImageImport.formatScaleLabel(2, 1));
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        ImageImport.applyScale(opts, ImageImport.parseScale("2x"));
+        assertEq("applied num", 2, opts.scaleNumerator);
+        assertEq("applied div", 1, opts.scaleDivisor);
+        assertEq("applied fit", false, opts.scaleFitBuiltin);
+        ImageImport.applyScale(opts, ImageImport.parseScale("fit"));
+        assertEq("fit flag", true, opts.scaleFitBuiltin);
+
+        BufferedImage small = solid(40, 40, 0xff112233);
+        ImageImport.PackOptions fit = new ImageImport.PackOptions();
+        fit.scaleFitBuiltin = true;
+        ImageImport.ScaleSpec resolved = ImageImport.resolveScale(fit, Arrays.asList(small));
+        assertEq("fit num", 1, resolved.numerator);
+        assertEq("fit div", ImageImport.SCALE_DIVISOR_NATIVE, resolved.divisor);
+        assertEq("fit not pending", false, resolved.fit);
+    }
+
+    private static void assertScale(String label, int numerator, int divisor, boolean fit,
+            ImageImport.ScaleSpec spec) throws IOException {
+        if (spec == null) {
+            throw new AssertionError(label + ": null spec");
+        }
+        assertEq(label + " num", numerator, spec.numerator);
+        assertEq(label + " div", divisor, spec.divisor);
+        assertEq(label + " fit", fit, spec.fit);
     }
 
     private static void testFitBuiltinScaleDivisor() throws IOException {
@@ -523,6 +638,10 @@ public final class ImageImportPackTest {
         }
         assertEq("notes mention fit", true,
                 ImageImport.packerScaleNotes().contains("Fit to built-in"));
+        assertEq("notes mention 200", true,
+                ImageImport.packerScaleNotes().contains("200%"));
+        assertEq("width under", false, ImageImport.exceedsSheetWidthBudget(4096));
+        assertEq("width over", true, ImageImport.exceedsSheetWidthBudget(4097));
     }
 
     private static void testExplicitTimingsCs() throws IOException {

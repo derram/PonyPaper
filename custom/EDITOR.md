@@ -88,7 +88,7 @@ On the left side of the editor is the list of actions. Selecting an action in th
 * **Gaits**: Optional load-time bag of `speed:weight` entries (e.g. `0.5:1,0.7:3,1:1`). Use the **Ground** button for the built-in ground bag.
 * **Left/right sprite** (Back/Front when Movement is Vertical wander or Vertical only):
     * **Import image**: Loads one already-packed PNG strip or one GIF.
-    * **Import frames**: Opens a folder of PNGs and handles packing, scaling, and per-frame **lift**. In the packer, **Apply to all** sets every frame to the current Lift value; **Reset lifts** clears to 0; **Apply hop** builds a parabola.
+    * **Import frames**: Opens a folder of PNGs and handles packing, scaling, and per-frame **lift**. Scale is dyadic nearest-neighbour: **200%** (×2) for undersized pixel art, **100%** native, **50%** (Desktop Ponies), down to **6.25%**, plus **Fit to built-in**. Fit is auto-selected when frames are taller than a stock pony; 200% is never auto-selected. Lifts are in **output** pixels (after scale). **Apply to all** sets every frame to the current Lift value; **Reset lifts** clears to 0; **Apply hop** builds a parabola. If you 2× a sheet that already has explicit anchors, re-pick or double those anchors.
     * **Mirror to right/left** (or front/back): Builds the opposite facing by flopping cells. Distinct back art usually needs its own import — a flopped side view is not a convincing back.
     * **Preview**: Displays the strip and highlights frames.
 * **Left/right timings**: Comma-separated durations for each frame (hundredths of a second).

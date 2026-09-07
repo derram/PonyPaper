@@ -26,10 +26,14 @@ import javax.imageio.ImageIO;
  * Animated GIFs are decoded, fully coalesced (so each frame is a complete
  * image, not a dirty-rectangle delta), and packed left-to-right into a
  * single PNG spritesheet with matching frame timings. Scale is an exact
- * dyadic divisor ({@link #SCALE_DIVISOR_NATIVE}…{@link #SCALE_DIVISOR_SIXTEENTH}):
- * nearest-neighbour point samples on the even lattice ({@code src[x·D, y·D]}),
- * equivalent to successive top-left halvings, so ÷2 / ÷4 / ÷8 / ÷16 match
- * re-running the 50% option. {@link #SCALE_DIVISOR_HALF} is what the
+ * dyadic ratio: numerator {@link #SCALE_NUMERATOR_NATIVE} or
+ * {@link #SCALE_NUMERATOR_DOUBLE} over a divisor
+ * ({@link #SCALE_DIVISOR_NATIVE}…{@link #SCALE_DIVISOR_SIXTEENTH}). Shrinks
+ * are nearest-neighbour point samples on the even lattice
+ * ({@code src[x·D, y·D]}), equivalent to successive top-left halvings, so
+ * ÷2 / ÷4 / ÷8 / ÷16 match re-running the 50% option. 200% is pixel doubling
+ * (each source texel becomes a 2×2 block), the inverse of ÷2, and never
+ * combines with a shrink. {@link #SCALE_DIVISOR_HALF} is what the
  * Desktop Ponies folder importer uses so stock ponies match built-in sheet
  * size. Integer sampling avoids {@code Graphics2D} nearest-neighbour, which
  * picks the odd pixel of each 2×2 and can turn isolated encoder speckles
@@ -48,6 +52,20 @@ public class ImageImport {
 
     /** Default per-frame duration when packing stills (hundredths of a second). */
     public static final int DEFAULT_FRAME_TIMING_CS = 10;
+
+    /** Pack at the source pixel size (numerator 1). */
+    public static final int SCALE_NUMERATOR_NATIVE = 1;
+
+    /** Double linear size (×2 / 200%) — nearest-neighbour pixel doubling. */
+    public static final int SCALE_NUMERATOR_DOUBLE = 2;
+
+    /**
+     * Allowed dyadic scale numerators, largest scale first (×2 then native).
+     */
+    public static final int[] SCALE_NUMERATORS = {
+        SCALE_NUMERATOR_DOUBLE,
+        SCALE_NUMERATOR_NATIVE,
+    };
 
     /** Pack at the source pixel size (÷1). */
     public static final int SCALE_DIVISOR_NATIVE = 1;
@@ -80,10 +98,24 @@ public class ImageImport {
     };
 
     /**
+     * Percent label for 200% / ×2. Prefer {@link #SCALE_NUMERATOR_DOUBLE} in
+     * new code.
+     */
+    public static final int SCALE_DOUBLE = 200;
+
+    /**
      * Percent label for native size. Prefer {@link #SCALE_DIVISOR_NATIVE} in
      * new code; kept for call sites and docs that speak in percents.
      */
     public static final int SCALE_NATIVE = 100;
+
+    /**
+     * Tokens accepted by {@link #parseScale(String)} / {@code --scale}.
+     * {@code 2} remains ÷2 (50%); use {@code 200}, {@code 2x}, or {@code double}
+     * for 200%.
+     */
+    public static final String SCALE_CLI_TOKENS =
+            "200|100|50|25|12.5|6.25|fit|2x|double";
 
     /**
      * Percent label for half size / Desktop Ponies. Prefer
@@ -104,6 +136,13 @@ public class ImageImport {
      * ~8 Mpx ≈ 32 MB as ARGB.
      */
     public static final int SHEET_PIXEL_BUDGET = 8_000_000;
+
+    /**
+     * Soft cap on packed strip width. Many GPU texture limits are 4096; a 200%
+     * walk cycle can exceed that while still sitting under
+     * {@link #SHEET_PIXEL_BUDGET}.
+     */
+    public static final int SHEET_WIDTH_BUDGET = 4096;
 
     public final byte[] loadedImage;
     public final String timings;
@@ -137,6 +176,14 @@ public class ImageImport {
          */
         public int[] lifts;
         /**
+         * Dyadic linear upscale applied before packing:
+         * {@link #SCALE_NUMERATOR_NATIVE} (default) or
+         * {@link #SCALE_NUMERATOR_DOUBLE} (200%). Must stay native when
+         * {@link #scaleDivisor} is not {@link #SCALE_DIVISOR_NATIVE}. Ignored
+         * when {@link #scaleFitBuiltin} is true. Fit never selects 200%.
+         */
+        public int scaleNumerator = SCALE_NUMERATOR_NATIVE;
+        /**
          * Dyadic linear shrink applied before packing:
          * {@link #SCALE_DIVISOR_NATIVE} (default), {@link #SCALE_DIVISOR_HALF},
          * {@link #SCALE_DIVISOR_QUARTER}, {@link #SCALE_DIVISOR_EIGHTH}, or
@@ -145,8 +192,9 @@ public class ImageImport {
          */
         public int scaleDivisor = SCALE_DIVISOR_NATIVE;
         /**
-         * When true, pick the largest dyadic scale whose max frame height is
-         * ≤ {@link #LARGE_CELL_HEIGHT_PX} (see {@link #fitBuiltinScaleDivisor}).
+         * When true, pick the largest dyadic <em>shrink</em> whose max frame
+         * height is ≤ {@link #LARGE_CELL_HEIGHT_PX} (see
+         * {@link #fitBuiltinScaleDivisor}). Never resolves to 200%.
          */
         public boolean scaleFitBuiltin = false;
         /**
@@ -155,6 +203,37 @@ public class ImageImport {
          * must match the frame count; each value is clamped to {@code >= 1}.
          */
         public int[] timingsCs;
+    }
+
+    /**
+     * Resolved or requested pack scale: {@code numerator/divisor}, or
+     * {@link #FIT} when the caller asked for fit-to-built-in (unresolved).
+     */
+    public static final class ScaleSpec {
+        public final int numerator;
+        public final int divisor;
+        public final boolean fit;
+
+        public static final ScaleSpec NATIVE =
+                new ScaleSpec(SCALE_NUMERATOR_NATIVE, SCALE_DIVISOR_NATIVE, false);
+        public static final ScaleSpec DOUBLE =
+                new ScaleSpec(SCALE_NUMERATOR_DOUBLE, SCALE_DIVISOR_NATIVE, false);
+        public static final ScaleSpec HALF =
+                new ScaleSpec(SCALE_NUMERATOR_NATIVE, SCALE_DIVISOR_HALF, false);
+        public static final ScaleSpec FIT =
+                new ScaleSpec(SCALE_NUMERATOR_NATIVE, SCALE_DIVISOR_NATIVE, true);
+
+        public ScaleSpec(int numerator, int divisor, boolean fit) {
+            this.numerator = numerator;
+            this.divisor = divisor;
+            this.fit = fit;
+        }
+
+        /** True when this is an already-resolved 100% (not Fit). */
+        public boolean isIdentity() {
+            return !fit && numerator == SCALE_NUMERATOR_NATIVE
+                    && divisor == SCALE_DIVISOR_NATIVE;
+        }
     }
 
     /**
@@ -247,6 +326,7 @@ public class ImageImport {
         opts.defaultTimingCs = options.defaultTimingCs;
         opts.rejectMixedSizes = options.rejectMixedSizes;
         opts.lifts = options.lifts;
+        opts.scaleNumerator = options.scaleNumerator;
         opts.scaleDivisor = options.scaleDivisor;
         opts.scaleFitBuiltin = options.scaleFitBuiltin;
         opts.timingsCs = options.timingsCs;
@@ -283,9 +363,55 @@ public class ImageImport {
                 "Scale divisor must be 1, 2, 4, 8, or 16 (got " + scaleDivisor + ").");
     }
 
+    public static int normalizeScaleNumerator(int scaleNumerator) throws IOException {
+        if (scaleNumerator == SCALE_NUMERATOR_NATIVE
+                || scaleNumerator == SCALE_NUMERATOR_DOUBLE) {
+            return scaleNumerator;
+        }
+        throw new IOException(
+                "Scale numerator must be 1 or 2 (got " + scaleNumerator + ").");
+    }
+
+    /**
+     * Normalises a dyadic scale pair. 200% ({@link #SCALE_NUMERATOR_DOUBLE})
+     * only pairs with {@link #SCALE_DIVISOR_NATIVE}.
+     */
+    public static ScaleSpec normalizeScale(int scaleNumerator, int scaleDivisor)
+            throws IOException {
+        int numerator = normalizeScaleNumerator(scaleNumerator);
+        int divisor = normalizeScaleDivisor(scaleDivisor);
+        if (numerator == SCALE_NUMERATOR_DOUBLE && divisor != SCALE_DIVISOR_NATIVE) {
+            throw new IOException("200% cannot combine with a shrink divisor.");
+        }
+        return new ScaleSpec(numerator, divisor, false);
+    }
+
+    /**
+     * Copies a resolved (non-fit) scale onto pack options and clears Fit.
+     */
+    public static void applyScale(PackOptions options, ScaleSpec spec) throws IOException {
+        if (options == null) {
+            throw new IOException("Pack options are required.");
+        }
+        if (spec == null) {
+            throw new IOException("Scale is required.");
+        }
+        if (spec.fit) {
+            options.scaleFitBuiltin = true;
+            options.scaleNumerator = SCALE_NUMERATOR_NATIVE;
+            options.scaleDivisor = SCALE_DIVISOR_NATIVE;
+            return;
+        }
+        ScaleSpec normalised = normalizeScale(spec.numerator, spec.divisor);
+        options.scaleFitBuiltin = false;
+        options.scaleNumerator = normalised.numerator;
+        options.scaleDivisor = normalised.divisor;
+    }
+
     /**
      * Maps legacy percent labels ({@link #SCALE_NATIVE}, {@link #SCALE_DESKTOP_PONIES},
-     * 25) onto a dyadic divisor. Prefer passing divisors directly.
+     * 25) onto a dyadic divisor. Prefer passing divisors directly. 200% is an
+     * upscale — use {@link #scaleSpecFromPercent(int)}.
      */
     public static int scaleDivisorFromPercent(int scalePercent) throws IOException {
         if (scalePercent == SCALE_NATIVE || scalePercent == 100) {
@@ -299,7 +425,19 @@ public class ImageImport {
         }
         throw new IOException(
                 "Scale percent must be 100, 50, or 25 (got " + scalePercent
-                        + "). Use divisor 8 or 16 for 12.5% / 6.25%.");
+                        + "). Use 200% via scaleSpecFromPercent, or divisor 8 or 16 "
+                        + "for 12.5% / 6.25%.");
+    }
+
+    /**
+     * Percent labels including {@link #SCALE_DOUBLE} (200%).
+     */
+    public static ScaleSpec scaleSpecFromPercent(int scalePercent) throws IOException {
+        if (scalePercent == SCALE_DOUBLE || scalePercent == 200) {
+            return ScaleSpec.DOUBLE;
+        }
+        return new ScaleSpec(SCALE_NUMERATOR_NATIVE,
+                scaleDivisorFromPercent(scalePercent), false);
     }
 
     /**
@@ -314,7 +452,23 @@ public class ImageImport {
      * One dimension after {@code scaleDivisor} successive integer halvings.
      */
     public static int scaleDimension(int size, int scaleDivisor) throws IOException {
-        int halvings = scaleHalveCount(scaleDivisor);
+        return scaleDimension(size, SCALE_NUMERATOR_NATIVE, scaleDivisor);
+    }
+
+    /**
+     * One dimension after the dyadic scale {@code numerator/divisor}.
+     */
+    public static int scaleDimension(int size, int scaleNumerator, int scaleDivisor)
+            throws IOException {
+        ScaleSpec spec = normalizeScale(scaleNumerator, scaleDivisor);
+        if (spec.numerator == SCALE_NUMERATOR_DOUBLE) {
+            long value = (long) Math.max(1, size) * spec.numerator;
+            if (value > Integer.MAX_VALUE) {
+                throw new IOException("Scaled dimension is too large (" + size + " × 2).");
+            }
+            return (int) value;
+        }
+        int halvings = scaleHalveCount(spec.divisor);
         int value = Math.max(0, size);
         for (int i = 0; i < halvings; i++) {
             value = Math.max(1, value / 2);
@@ -368,16 +522,30 @@ public class ImageImport {
     }
 
     /**
-     * Resolves {@link PackOptions#scaleFitBuiltin} or
-     * {@link PackOptions#scaleDivisor} against the source frames.
+     * Resolves {@link PackOptions#scaleFitBuiltin} or the requested
+     * numerator/divisor against the source frames. Fit always yields
+     * numerator {@link #SCALE_NUMERATOR_NATIVE}.
      */
-    public static int resolveScaleDivisor(PackOptions options, List<BufferedImage> frames)
+    public static ScaleSpec resolveScale(PackOptions options, List<BufferedImage> frames)
             throws IOException {
         PackOptions opts = options != null ? options : new PackOptions();
         if (opts.scaleFitBuiltin) {
-            return fitBuiltinScaleDivisor(maxFrameHeight(frames));
+            return new ScaleSpec(SCALE_NUMERATOR_NATIVE,
+                    fitBuiltinScaleDivisor(maxFrameHeight(frames)), false);
         }
-        return normalizeScaleDivisor(opts.scaleDivisor);
+        return normalizeScale(opts.scaleNumerator, opts.scaleDivisor);
+    }
+
+    /**
+     * Shrink-only resolve. Throws when the resolved scale is 200%.
+     */
+    public static int resolveScaleDivisor(PackOptions options, List<BufferedImage> frames)
+            throws IOException {
+        ScaleSpec spec = resolveScale(options, frames);
+        if (spec.numerator != SCALE_NUMERATOR_NATIVE) {
+            throw new IOException("Resolved scale is 200%; use resolveScale.");
+        }
+        return spec.divisor;
     }
 
     /** Human-readable scale, e.g. {@code 100%}, {@code 12.5%}. */
@@ -401,7 +569,26 @@ public class ImageImport {
 
     /** Short label including the divisor, e.g. {@code 25% (÷4)}. */
     public static String formatScaleDivisorLabel(int scaleDivisor) throws IOException {
-        int divisor = normalizeScaleDivisor(scaleDivisor);
+        return formatScaleLabel(SCALE_NUMERATOR_NATIVE, scaleDivisor);
+    }
+
+    /** Human-readable scale, e.g. {@code 200%}, {@code 12.5%}. */
+    public static String formatScale(int scaleNumerator, int scaleDivisor) throws IOException {
+        ScaleSpec spec = normalizeScale(scaleNumerator, scaleDivisor);
+        if (spec.numerator == SCALE_NUMERATOR_DOUBLE) {
+            return "200%";
+        }
+        return formatScaleDivisor(spec.divisor);
+    }
+
+    /** Combo / header label, e.g. {@code 200% (×2)}, {@code 25% (÷4)}. */
+    public static String formatScaleLabel(int scaleNumerator, int scaleDivisor)
+            throws IOException {
+        ScaleSpec spec = normalizeScale(scaleNumerator, scaleDivisor);
+        if (spec.numerator == SCALE_NUMERATOR_DOUBLE) {
+            return "200% (×2)";
+        }
+        int divisor = spec.divisor;
         if (divisor == SCALE_DIVISOR_NATIVE) {
             return "100% (native)";
         }
@@ -412,12 +599,25 @@ public class ImageImport {
     }
 
     /**
-     * Accepts {@code 100}, {@code 50%}, {@code 12.5}, {@code 1/8}, {@code half},
-     * {@code quarter}, {@code eighth}, {@code 16}, {@code fit}, {@code native}.
-     * Returns a scale divisor, or {@code -1} for {@code fit} (caller must
-     * resolve against frame heights).
+     * Status line marker: {@code 200% (×2)} or {@code 50% (÷2)}.
      */
-    public static int parseScaleDivisor(String text) throws IOException {
+    public static String formatScaleMarker(int scaleNumerator, int scaleDivisor)
+            throws IOException {
+        ScaleSpec spec = normalizeScale(scaleNumerator, scaleDivisor);
+        if (spec.numerator == SCALE_NUMERATOR_DOUBLE) {
+            return "200% (×2)";
+        }
+        return formatScaleDivisor(spec.divisor) + " (÷" + spec.divisor + ")";
+    }
+
+    /**
+     * Accepts {@code 200}, {@code 2x}, {@code double}, {@code 100}, {@code 50%},
+     * {@code 12.5}, {@code 1/8}, {@code 2/1}, {@code half}, {@code fit},
+     * {@code native}. Bare {@code 2} is ÷2 (50%), not 200%.
+     * {@link ScaleSpec#fit} is true for {@code fit} (caller must resolve
+     * against frame heights).
+     */
+    public static ScaleSpec parseScale(String text) throws IOException {
         if (text == null || text.trim().isEmpty()) {
             throw new IOException("Scale is empty.");
         }
@@ -426,30 +626,46 @@ public class ImageImport {
                 || "builtin".equalsIgnoreCase(t)
                 || "built-in".equalsIgnoreCase(t)
                 || "auto".equalsIgnoreCase(t)) {
-            return -1;
+            return ScaleSpec.FIT;
+        }
+        if ("double".equalsIgnoreCase(t)
+                || "2x".equalsIgnoreCase(t)
+                || "x2".equalsIgnoreCase(t)
+                || "×2".equals(t)) {
+            return ScaleSpec.DOUBLE;
         }
         if ("half".equalsIgnoreCase(t)
                 || "dp".equalsIgnoreCase(t)
                 || "desktop".equalsIgnoreCase(t)) {
-            return SCALE_DIVISOR_HALF;
+            return ScaleSpec.HALF;
         }
         if ("quarter".equalsIgnoreCase(t)) {
-            return SCALE_DIVISOR_QUARTER;
+            return new ScaleSpec(SCALE_NUMERATOR_NATIVE, SCALE_DIVISOR_QUARTER, false);
         }
         if ("eighth".equalsIgnoreCase(t)) {
-            return SCALE_DIVISOR_EIGHTH;
+            return new ScaleSpec(SCALE_NUMERATOR_NATIVE, SCALE_DIVISOR_EIGHTH, false);
         }
         if ("sixteenth".equalsIgnoreCase(t)) {
-            return SCALE_DIVISOR_SIXTEENTH;
+            return new ScaleSpec(SCALE_NUMERATOR_NATIVE, SCALE_DIVISOR_SIXTEENTH, false);
         }
         if ("native".equalsIgnoreCase(t)
                 || "full".equalsIgnoreCase(t)) {
-            return SCALE_DIVISOR_NATIVE;
+            return ScaleSpec.NATIVE;
         }
-        if (t.startsWith("1/") || t.startsWith("÷")) {
-            String rest = t.startsWith("1/") ? t.substring(2).trim() : t.substring("÷".length()).trim();
+        if (t.startsWith("÷")) {
+            String rest = t.substring("÷".length()).trim();
             try {
-                return normalizeScaleDivisor(Integer.parseInt(rest));
+                return normalizeScale(SCALE_NUMERATOR_NATIVE, Integer.parseInt(rest));
+            } catch (NumberFormatException e) {
+                throw new IOException("Invalid scale: " + text);
+            }
+        }
+        int slash = t.indexOf('/');
+        if (slash > 0) {
+            try {
+                int num = Integer.parseInt(t.substring(0, slash).trim());
+                int den = Integer.parseInt(t.substring(slash + 1).trim());
+                return normalizeScale(num, den);
             } catch (NumberFormatException e) {
                 throw new IOException("Invalid scale: " + text);
             }
@@ -458,10 +674,10 @@ public class ImageImport {
             t = t.substring(0, t.length() - 1).trim();
         }
         if ("12.5".equals(t) || "12,5".equals(t)) {
-            return SCALE_DIVISOR_EIGHTH;
+            return new ScaleSpec(SCALE_NUMERATOR_NATIVE, SCALE_DIVISOR_EIGHTH, false);
         }
         if ("6.25".equals(t) || "6,25".equals(t)) {
-            return SCALE_DIVISOR_SIXTEENTH;
+            return new ScaleSpec(SCALE_NUMERATOR_NATIVE, SCALE_DIVISOR_SIXTEENTH, false);
         }
         int value;
         try {
@@ -469,22 +685,38 @@ public class ImageImport {
         } catch (NumberFormatException e) {
             throw new IOException("Invalid scale: " + text);
         }
-        // Bare 1/2/4/8/16 are divisors; 100/50/25 are percent labels.
-        if (value == 100 || value == 50 || value == 25) {
-            return scaleDivisorFromPercent(value);
+        // Bare 1/2/4/8/16 are divisors; 200/100/50/25 are percent labels.
+        if (value == 200 || value == 100 || value == 50 || value == 25) {
+            return scaleSpecFromPercent(value);
         }
-        return normalizeScaleDivisor(value);
+        return normalizeScale(SCALE_NUMERATOR_NATIVE, value);
     }
 
     /**
-     * @deprecated use {@link #parseScaleDivisor(String)}; still returns a
-     *             divisor (not a percent) for the values it accepts.
+     * Shrink-only parse. Returns a scale divisor, or {@code -1} for {@code fit}.
+     * 200% tokens fail — use {@link #parseScale(String)}.
+     */
+    public static int parseScaleDivisor(String text) throws IOException {
+        ScaleSpec spec = parseScale(text);
+        if (spec.fit) {
+            return -1;
+        }
+        if (spec.numerator != SCALE_NUMERATOR_NATIVE) {
+            throw new IOException(
+                    "Scale 200% is not a shrink divisor (got " + text + ").");
+        }
+        return spec.divisor;
+    }
+
+    /**
+     * @deprecated use {@link #parseScale(String)}; still returns a
+     *             divisor (not a percent) for the shrink values it accepts.
      */
     @Deprecated
     public static int parseScalePercent(String text) throws IOException {
         int parsed = parseScaleDivisor(text);
         if (parsed < 0) {
-            throw new IOException("Scale 'fit' needs frame heights; use parseScaleDivisor.");
+            throw new IOException("Scale 'fit' needs frame heights; use parseScale.");
         }
         return parsed;
     }
@@ -510,6 +742,14 @@ public class ImageImport {
      */
     public static boolean exceedsSheetPixelBudget(int width, int height) {
         return sheetPixelCount(width, height) > SHEET_PIXEL_BUDGET;
+    }
+
+    /**
+     * True when the packed strip is wider than {@link #SHEET_WIDTH_BUDGET}
+     * (typical GPU max texture width).
+     */
+    public static boolean exceedsSheetWidthBudget(int width) {
+        return width > SHEET_WIDTH_BUDGET;
     }
 
     /**
@@ -583,29 +823,36 @@ public class ImageImport {
 
     /**
      * Short note for packer dialogs: Fit is auto-selected when frames are
-     * taller than built-in; otherwise 100% is the default.
+     * taller than built-in; otherwise 100% is the default. 200% is never
+     * auto-selected.
      */
     public static String packerScaleNotes() {
         return "Scale defaults to 100%, or Fit to built-in when frames are taller than "
-                + LARGE_CELL_HEIGHT_PX + "px. Choose 50%/25%/12.5%/6.25% or Fit to shrink further.";
+                + LARGE_CELL_HEIGHT_PX + "px. Choose 200% (×2) for undersized pixel art, "
+                + "or 50%/25%/12.5%/6.25% or Fit to shrink. 200% is never auto-selected.";
     }
 
     /**
-     * Nearest-neighbour dyadic scale. {@link #SCALE_DIVISOR_NATIVE} returns
-     * {@code frames} itself. Other divisors allocate new images by point-sampling
-     * {@code src[x·divisor, y·divisor]} (even lattice / top-left of each block),
-     * which matches successive integer halvings. For {@link #SCALE_DIVISOR_QUARTER}
-     * and smaller scales, an opaque sample whose block has fewer than
-     * {@code divisor} opaque pixels becomes transparent so sparse encoder
-     * speckles do not survive large shrinks.
+     * Nearest-neighbour dyadic scale. Native 100% returns {@code frames} itself.
+     * Shrinks point-sample {@code src[x·divisor, y·divisor]} (even lattice /
+     * top-left of each block), which matches successive integer halvings.
+     * 200% pixel-doubles. For {@link #SCALE_DIVISOR_QUARTER} and smaller
+     * shrinks, an opaque sample whose block has fewer than {@code divisor}
+     * opaque pixels becomes transparent so sparse encoder speckles do not
+     * survive large shrinks.
      */
     public static List<BufferedImage> scaleFrames(List<BufferedImage> frames, int scaleDivisor)
             throws IOException {
-        int divisor = normalizeScaleDivisor(scaleDivisor);
+        return scaleFrames(frames, SCALE_NUMERATOR_NATIVE, scaleDivisor);
+    }
+
+    public static List<BufferedImage> scaleFrames(List<BufferedImage> frames,
+            int scaleNumerator, int scaleDivisor) throws IOException {
+        ScaleSpec spec = normalizeScale(scaleNumerator, scaleDivisor);
         if (frames == null || frames.isEmpty()) {
             throw new IOException("No frames to scale.");
         }
-        if (divisor == SCALE_DIVISOR_NATIVE) {
+        if (spec.isIdentity()) {
             return frames;
         }
         List<BufferedImage> out = new ArrayList<BufferedImage>(frames.size());
@@ -614,19 +861,28 @@ public class ImageImport {
             if (frame == null) {
                 throw new IOException("Null frame");
             }
-            out.add(scaleImage(frame, divisor));
+            out.add(scaleImage(frame, spec.numerator, spec.divisor));
         }
         return out;
     }
 
     public static BufferedImage scaleImage(BufferedImage src, int scaleDivisor) throws IOException {
-        int divisor = normalizeScaleDivisor(scaleDivisor);
+        return scaleImage(src, SCALE_NUMERATOR_NATIVE, scaleDivisor);
+    }
+
+    public static BufferedImage scaleImage(BufferedImage src, int scaleNumerator, int scaleDivisor)
+            throws IOException {
+        ScaleSpec spec = normalizeScale(scaleNumerator, scaleDivisor);
         if (src == null) {
             throw new IOException("Null frame");
         }
-        if (divisor == SCALE_DIVISOR_NATIVE) {
+        if (spec.isIdentity()) {
             return src;
         }
+        if (spec.numerator == SCALE_NUMERATOR_DOUBLE) {
+            return scaleImageDouble(src);
+        }
+        int divisor = spec.divisor;
         // Even-lattice point sample. Equivalent to successive top-left halvings;
         // do not use Graphics2D drawImage NN — it samples the odd pixel of each
         // 2×2 and amplifies isolated opaque speckles after ÷4 / ÷8 / ÷16.
@@ -654,6 +910,35 @@ public class ImageImport {
                     sample = 0x00000000;
                 }
                 dstPixels[dstRow + x] = sample;
+            }
+        }
+        out.setRGB(0, 0, w, h, dstPixels, 0, w);
+        return out;
+    }
+
+    /**
+     * Nearest-neighbour pixel doubling. Inverse of even-lattice ÷2: doubling
+     * then halving recovers the source. Sparse-block dropping does not apply.
+     */
+    private static BufferedImage scaleImageDouble(BufferedImage src) throws IOException {
+        int sw = src.getWidth();
+        int sh = src.getHeight();
+        int w = scaleDimension(sw, SCALE_NUMERATOR_DOUBLE, SCALE_DIVISOR_NATIVE);
+        int h = scaleDimension(sh, SCALE_NUMERATOR_DOUBLE, SCALE_DIVISOR_NATIVE);
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        int[] srcPixels = src.getRGB(0, 0, sw, sh, null, 0, sw);
+        int[] dstPixels = new int[w * h];
+        for (int y = 0; y < sh; y++) {
+            int srcRow = y * sw;
+            int dstRow0 = (y * 2) * w;
+            int dstRow1 = dstRow0 + w;
+            for (int x = 0; x < sw; x++) {
+                int p = srcPixels[srcRow + x];
+                int dx = x * 2;
+                dstPixels[dstRow0 + dx] = p;
+                dstPixels[dstRow0 + dx + 1] = p;
+                dstPixels[dstRow1 + dx] = p;
+                dstPixels[dstRow1 + dx + 1] = p;
             }
         }
         out.setRGB(0, 0, w, h, dstPixels, 0, w);
@@ -1151,8 +1436,8 @@ public class ImageImport {
     public static ImageImport fromFrames(List<BufferedImage> frames, PackOptions options)
             throws IOException {
         PackOptions opts = options != null ? options : new PackOptions();
-        int scaleDivisor = resolveScaleDivisor(opts, frames);
-        List<BufferedImage> scaled = scaleFrames(frames, scaleDivisor);
+        ScaleSpec spec = resolveScale(opts, frames);
+        List<BufferedImage> scaled = scaleFrames(frames, spec.numerator, spec.divisor);
         PackPreview preview = inspectFrames(scaled, opts.lifts);
         if (opts.rejectMixedSizes && preview.mixedSizes) {
             throw new IOException("Frame sizes differ; every frame must be the same size.");

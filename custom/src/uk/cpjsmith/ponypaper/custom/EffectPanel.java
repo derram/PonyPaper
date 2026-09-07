@@ -570,7 +570,7 @@ final class EffectPanel extends JPanel {
         List<BufferedImage> frames = ImageImport.permute(gif.frames, packed.order);
         ImageImport.PackOptions options = new ImageImport.PackOptions();
         options.lifts = packed.lifts;
-        options.scaleDivisor = packed.scaleDivisor;
+        packed.copyScaleTo(options);
         if (gif.timingsCs != null) {
             options.timingsCs = ImageImport.permute(gif.timingsCs, packed.order);
         }
@@ -624,7 +624,7 @@ final class EffectPanel extends JPanel {
             List<BufferedImage> ordered = ImageImport.permute(frames, packed.order);
             ImageImport.PackOptions options = new ImageImport.PackOptions();
             options.lifts = packed.lifts;
-            options.scaleDivisor = packed.scaleDivisor;
+            packed.copyScaleTo(options);
             host.editor().loadEffectSpriteFromFrames(currentIndex, direction, ordered, options);
             setEffect(currentIndex);
             host.markDirty();
@@ -776,7 +776,7 @@ final class EffectPanel extends JPanel {
         List<BufferedImage> frames = ImageImport.permute(sourceFrames, packed.order);
         ImageImport.PackOptions options = new ImageImport.PackOptions();
         options.lifts = packed.lifts;
-        options.scaleDivisor = packed.scaleDivisor;
+        packed.copyScaleTo(options);
         if (sourceTimingsCs != null) {
             options.timingsCs = ImageImport.permute(sourceTimingsCs, packed.order);
         }

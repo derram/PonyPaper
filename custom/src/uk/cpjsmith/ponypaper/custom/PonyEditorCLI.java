@@ -58,6 +58,7 @@ public class PonyEditorCLI {
         try {
             int currentAction = -1;
             int[] packLifts = null;
+            int packScaleNumerator = ImageImport.SCALE_NUMERATOR_NATIVE;
             int packScaleDivisor = ImageImport.SCALE_DIVISOR_NATIVE;
             boolean packScaleFit = false;
             
@@ -279,13 +280,15 @@ public class PonyEditorCLI {
                     {
                         checkArgument(args, i);
                         try {
-                            int parsed = ImageImport.parseScaleDivisor(args[++i]);
-                            if (parsed < 0) {
+                            ImageImport.ScaleSpec spec = ImageImport.parseScale(args[++i]);
+                            if (spec.fit) {
                                 packScaleFit = true;
+                                packScaleNumerator = ImageImport.SCALE_NUMERATOR_NATIVE;
                                 packScaleDivisor = ImageImport.SCALE_DIVISOR_NATIVE;
                             } else {
                                 packScaleFit = false;
-                                packScaleDivisor = parsed;
+                                packScaleNumerator = spec.numerator;
+                                packScaleDivisor = spec.divisor;
                             }
                         } catch (java.io.IOException e) {
                             throw new PonyEditor.GenericException("", "Invalid scale: " + e.getMessage());
@@ -301,8 +304,11 @@ public class PonyEditorCLI {
                         String spritePath = args[++i];
                         try {
                             ImageImport.PackOptions spriteOpts = null;
-                            if (packScaleFit || packScaleDivisor != ImageImport.SCALE_DIVISOR_NATIVE) {
+                            if (packScaleFit
+                                    || packScaleNumerator != ImageImport.SCALE_NUMERATOR_NATIVE
+                                    || packScaleDivisor != ImageImport.SCALE_DIVISOR_NATIVE) {
                                 spriteOpts = new ImageImport.PackOptions();
+                                spriteOpts.scaleNumerator = packScaleNumerator;
                                 spriteOpts.scaleDivisor = packScaleDivisor;
                                 spriteOpts.scaleFitBuiltin = packScaleFit;
                             }
@@ -346,6 +352,7 @@ public class PonyEditorCLI {
                         }
                         try {
                             ImageImport.PackOptions packOpts = new ImageImport.PackOptions();
+                            packOpts.scaleNumerator = packScaleNumerator;
                             packOpts.scaleDivisor = packScaleDivisor;
                             packOpts.scaleFitBuiltin = packScaleFit;
                             if (packLifts != null) {
@@ -462,15 +469,17 @@ public class PonyEditorCLI {
         System.out.println("-clone-gait NAME SPEED");
         System.out.println("    Create NAME as a spritesfrom-alias of the current action at SPEED,");
         System.out.println("    then select the new action.");
-        System.out.println("-scale 100|50|25|12.5|6.25|fit|native|half|quarter|eighth");
-        System.out.println("    Dyadic nearest-neighbour shrink for the next -sprite (GIF only)");
-        System.out.println("    and -sprite-frames. 100/native is default. 50/half matches built-in");
-        System.out.println("    ponies for Desktop Ponies art. fit picks the largest scale whose");
-        System.out.println("    tallest frame is ≤ " + ImageImport.LARGE_CELL_HEIGHT_PX + "px.");
+        System.out.println("-scale " + ImageImport.SCALE_CLI_TOKENS + "|native|half|quarter|eighth");
+        System.out.println("    Dyadic nearest-neighbour scale for the next -sprite (GIF only)");
+        System.out.println("    and -sprite-frames. 100/native is default. 200/2x/double pixel-doubles.");
+        System.out.println("    Bare 2 is ÷2 (50%), not 200%. 50/half matches built-in ponies for");
+        System.out.println("    Desktop Ponies art. fit picks the largest shrink whose tallest");
+        System.out.println("    frame is ≤ " + ImageImport.LARGE_CELL_HEIGHT_PX + "px (never 200%).");
         System.out.println("    Persists until changed.");
         System.out.println("-sprite DIRECTION FILE");
         System.out.println("    Set the current action's sprite for the given direction.");
-        System.out.println("    GIFs are coalesced and packed (scale from -scale; default 100%).");
+        System.out.println("    GIFs are coalesced and packed (scale from -scale; default 100%,");
+        System.out.println("    including 200% when set).");
         System.out.println("    PNG strips are stored as-is.");
         System.out.println("-lifts N,N,...|none");
         System.out.println("    Per-frame lift in pixels up from the baseline for the next");
