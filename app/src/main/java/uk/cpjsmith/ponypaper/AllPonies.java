@@ -12,8 +12,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import javax.xml.parsers.DocumentBuilder;
-import org.w3c.dom.Document;
 
 /**
  * Contains the definitions of the available ponies.
@@ -1132,7 +1130,8 @@ public class AllPonies {
         
         File[] files = dir.listFiles(xmlFilter);
         if (files == null) return;
-        
+        CustomDefinitionCache.retainOnly(files);
+
         for (int i = 0; i < files.length; i++) {
             String prefKey = "pref_custom_" + files[i].getName();
             if (prefs.getBoolean(prefKey, true)) {
@@ -1156,14 +1155,12 @@ public class AllPonies {
         if (dir == null) return null;
         File file = new File(dir, fileName);
         if (!file.isFile()) {
+            CustomDefinitionCache.invalidate(file);
             android.util.Log.w("PonyPaper", "Custom pony missing: " + fileName);
             return null;
         }
         try {
-            DocumentBuilder docBuilder = SecureXml.newDocumentBuilder();
-            Document document = docBuilder.parse(file);
-            PonyDefinition definition = new PonyDefinition(document);
-            definition.validate();
+            PonyDefinition definition = CustomDefinitionCache.get(file);
             return makeCustomPony(definition).withPrefKey(ponyKey);
         } catch (Exception e) {
             android.util.Log.e("PonyPaper", "Error loading " + file + ": " + e.toString());

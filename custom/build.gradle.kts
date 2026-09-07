@@ -42,6 +42,8 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/SpawnYBand.java",
                 "uk/cpjsmith/ponypaper/UnpinnedLru.java",
                 "uk/cpjsmith/ponypaper/InactivePick.java",
+                "uk/cpjsmith/ponypaper/CustomDefinitionCache.java",
+                "uk/cpjsmith/ponypaper/SecureXml.java",
             )
         }
     }
@@ -187,6 +189,13 @@ tasks.register<JavaExec>("testUnpinnedLru") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.UnpinnedLruTest")
 }
 
+tasks.register<JavaExec>("testDefinitionCache") {
+    group = "verification"
+    description = "Run custom XML definition cache stamp checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.CustomDefinitionCacheTest")
+}
+
 tasks.register<JavaExec>("testInactivePick") {
     group = "verification"
     description = "Run inactive-pool prefetch pick checks"
@@ -219,5 +228,6 @@ tasks.named("check") {
     dependsOn("testWorldFlow")
     dependsOn("testSpawnYBand")
     dependsOn("testUnpinnedLru")
+    dependsOn("testDefinitionCache")
     dependsOn("testInactivePick")
 }
