@@ -17,7 +17,7 @@ Each project [Release](https://github.com/derram/PonyPaper/releases) includes a 
 java -jar PonyPaper-CustomEditor-<version>.jar
 ```
 
-With no arguments the GUI starts. Use `-help` for the command-line interface.
+With no arguments the GUI starts. Pass a pony XML path to open it (`java -jar … twilight-sparkle.xml` is the same as `-load twilight-sparkle.xml`). Use `-help` for the rest of the command-line interface.
 
 ### Build from source
 

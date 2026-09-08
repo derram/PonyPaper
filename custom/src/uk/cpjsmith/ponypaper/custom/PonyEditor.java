@@ -1399,6 +1399,7 @@ public class PonyEditor {
         } else if (args.length == 1 && "-help".equals(args[0])) {
             System.out.println("PonyPaper custom pony editor");
             System.out.println("With no arguments, run a graphical user interface.");
+            System.out.println("With a pony XML path, load it and open the GUI (same as -load FILE).");
             System.out.println("With -help, print this help.");
             System.out.println("With other arguments, process them in turn as follows:");
             System.out.println("");

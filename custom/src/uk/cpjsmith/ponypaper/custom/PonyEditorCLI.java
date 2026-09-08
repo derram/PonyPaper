@@ -11,7 +11,7 @@ public class PonyEditorCLI {
     private boolean hadError;
     /** Unsaved changes for the GUI: true after import or CLI mutations; false after a pure load. */
     private boolean guiDirty;
-    /** Path from the most recent {@code -load}, or {@code null} after import. */
+    /** Path from the most recent {@code -load} (or implied load), or {@code null} after import. */
     private File loadedFile;
     
     public PonyEditorCLI() {
@@ -78,11 +78,7 @@ public class PonyEditorCLI {
                     case "-load":
                     {
                         checkArgument(args, i);
-                        File file = new File(args[++i]);
-                        editor.load(file);
-                        usedLoad = true;
-                        loadedFile = file;
-                        guiDirty = false;
+                        loadDefinition(new File(args[++i]));
                         break;
                     }
 
@@ -401,6 +397,10 @@ public class PonyEditorCLI {
                         break;
                         
                     default:
+                        if (isImpliedLoadPath(args[i])) {
+                            loadDefinition(new File(args[i]));
+                            break;
+                        }
                         throw new PonyEditor.GenericException("", "Invalid option: " + args[i]);
                 }
             }
@@ -410,7 +410,31 @@ public class PonyEditorCLI {
         }
     }
     
+    /**
+     * Whether argument processing recorded an error (unknown option, bad load, etc.).
+     */
+    public boolean hadError() {
+        return hadError;
+    }
+
+    private void loadDefinition(File file) throws PonyEditor.GenericException {
+        editor.load(file);
+        usedLoad = true;
+        loadedFile = file;
+        guiDirty = false;
+    }
+
+    /**
+     * A bare path (no leading {@code -}) is treated as {@code -load FILE}.
+     * Unknown {@code -flags} still error so typos are not silently opened as files.
+     */
+    static boolean isImpliedLoadPath(String arg) {
+        return arg != null && !arg.isEmpty() && !arg.startsWith("-");
+    }
+
     public static void showArguments() {
+        System.out.println("FILE");
+        System.out.println("    Same as -load FILE. Lets you omit -load when opening a pony XML.");
         System.out.println("-load FILE");
         System.out.println("    Load a pony definition from the given file path.");
         System.out.println("    Without -save, opens the GUI with that pony loaded.");
@@ -522,6 +546,7 @@ public class PonyEditorCLI {
             case "-lifts":
             case "-mirror-facing":
             case "-start":
+            case "-crossing":
             case "-defaultdrag":
             case "-wander":
                 return true;

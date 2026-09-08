@@ -30,9 +30,12 @@ java -jar custom/build/libs/customponies.jar \
 
 ### CLI Pony Creation
 
-You can build or modify XML files entirely from the command line:
+You can build or modify XML files entirely from the command line. A bare path is treated as `-load`:
 
 ```bash
+java -jar custom/build/libs/customponies.jar oc.xml
+# same as: … -load oc.xml
+
 java -jar custom/build/libs/customponies.jar \
   -action walk \
   -scale 50 \

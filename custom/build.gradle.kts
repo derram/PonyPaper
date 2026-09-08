@@ -203,6 +203,13 @@ tasks.register<JavaExec>("testInactivePick") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.InactivePickTest")
 }
 
+tasks.register<JavaExec>("testEditorCli") {
+    group = "verification"
+    description = "Run custom editor CLI implied -load checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.PonyEditorCLITest")
+}
+
 tasks.register<JavaExec>("testSpawnYBand") {
     group = "verification"
     description = "Run feet-anchored spawn Y inset checks"
@@ -230,4 +237,5 @@ tasks.named("check") {
     dependsOn("testUnpinnedLru")
     dependsOn("testDefinitionCache")
     dependsOn("testInactivePick")
+    dependsOn("testEditorCli")
 }
