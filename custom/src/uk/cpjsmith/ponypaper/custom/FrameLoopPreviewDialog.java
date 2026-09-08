@@ -222,8 +222,15 @@ public final class FrameLoopPreviewDialog extends JDialog {
         int[] times = timingsCs != null && timingsCs.length > 0
                 ? timingsCs.clone()
                 : new int[] { ImageImport.DEFAULT_FRAME_TIMING_CS };
-        ActionFrameSource source = ActionFrameSource.fromImage(
-                sheet, times, Float.NaN, Float.NaN);
+        showDialog(parent, ActionFrameSource.fromImage(sheet, times, Float.NaN, Float.NaN),
+                title);
+    }
+
+    /** Opens a looping feet-locked preview of an already-built frame source. */
+    public static void showDialog(Component parent, ActionFrameSource source, String title) {
+        if (source == null) {
+            throw new IllegalArgumentException("source");
+        }
         FrameLoopPreviewDialog dialog = new FrameLoopPreviewDialog(parent, source, title);
         dialog.setVisible(true);
     }

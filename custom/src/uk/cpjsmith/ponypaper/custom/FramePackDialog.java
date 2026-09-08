@@ -769,20 +769,17 @@ public final class FramePackDialog extends JDialog {
     }
 
     /**
-     * Builds the current draft sheet (order / scale / lifts) and opens a looping
-     * feet-locked preview. Does not commit Pack.
+     * Opens a looping feet-locked preview of the current draft (order / scale /
+     * lifts). Does not allocate a packed strip and does not commit Pack.
      */
     private void openLoopPreview() {
-        if (!confirmPackIfHuge()) {
-            return;
-        }
         try {
             List<BufferedImage> toPack = playbackFrames();
             ImageImport.PackPreview preview = ImageImport.inspectFrames(toPack, lifts);
-            BufferedImage sheet = ImageImport.packSheetImage(
-                    toPack, preview.cellWidth, preview.cellHeight, lifts);
             int[] timings = playbackTimings(preview.frameCount);
-            FrameLoopPreviewDialog.showDialog(this, sheet, timings, "Loop Preview");
+            ActionFrameSource source = ActionFrameSource.fromDraftFrames(
+                    toPack, lifts, preview.cellWidth, preview.cellHeight, timings);
+            FrameLoopPreviewDialog.showDialog(this, source, "Loop Preview");
         } catch (IOException e) {
             JOptionPane.showMessageDialog(
                     this,

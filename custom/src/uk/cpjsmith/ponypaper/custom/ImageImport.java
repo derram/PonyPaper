@@ -1391,6 +1391,35 @@ public class ImageImport {
     }
 
     /**
+     * One packed cell: centred horizontally, {@code lift} pixels of air under
+     * the sprite. Same placement as {@link #packSheetImage}.
+     */
+    public static BufferedImage packCellImage(
+            BufferedImage frame, int cellW, int cellH, int lift)
+            throws IOException {
+        if (frame == null) {
+            throw new IOException("Null frame");
+        }
+        if (cellW < 1 || cellH < 1) {
+            throw new IOException("Cell has no size");
+        }
+        if (lift < 0) {
+            throw new IOException("Lift must be >= 0.");
+        }
+        BufferedImage cell = new BufferedImage(cellW, cellH, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = cell.createGraphics();
+        try {
+            g.setComposite(AlphaComposite.SrcOver);
+            int dx = (cellW - frame.getWidth()) / 2;
+            int dy = cellH - frame.getHeight() - lift;
+            g.drawImage(frame, dx, dy, null);
+        } finally {
+            g.dispose();
+        }
+        return cell;
+    }
+
+    /**
      * Composites frames into a left-to-right strip using the same placement as
      * {@link #fromFrames}: centred horizontally, {@code lift} pixels of air
      * under each sprite, no gutters. {@code lifts} must already be

@@ -31,6 +31,7 @@ public final class ImageImportPackTest {
         failures += run("parseAndNormalizeLifts", ImageImportPackTest::testParseAndNormalizeLifts);
         failures += run("hopCurve", ImageImportPackTest::testHopCurve);
         failures += run("packLiftsHop", ImageImportPackTest::testPackLiftsHop);
+        failures += run("packCellMatchesSheetSlice", ImageImportPackTest::testPackCellMatchesSheetSlice);
         failures += run("inspectIncludesLiftInCellHeight", ImageImportPackTest::testInspectIncludesLiftInCellHeight);
         failures += run("liftsLengthMismatch", ImageImportPackTest::testLiftsLengthMismatch);
         failures += run("negativeLiftRejected", ImageImportPackTest::testNegativeLiftRejected);
@@ -266,6 +267,29 @@ public final class ImageImportPackTest {
         assertEq("hop body", 0xff0000ff, sheet.getRGB(12, 3));
         assertEq("hop air under", 0, sheet.getRGB(12, 10));
         assertEq("hop top", 0xff0000ff, sheet.getRGB(12, 0));
+    }
+
+    private static void testPackCellMatchesSheetSlice() throws IOException {
+        BufferedImage a = solid(8, 8, 0xffff0000);
+        BufferedImage b = solid(8, 8, 0xff0000ff);
+        int[] lifts = new int[] {0, 4};
+        List<BufferedImage> frames = Arrays.asList(a, b);
+        ImageImport.PackPreview preview = ImageImport.inspectFrames(frames, lifts);
+        BufferedImage sheet = ImageImport.packSheetImage(
+                frames, preview.cellWidth, preview.cellHeight, lifts);
+        BufferedImage cell0 = ImageImport.packCellImage(
+                a, preview.cellWidth, preview.cellHeight, lifts[0]);
+        BufferedImage cell1 = ImageImport.packCellImage(
+                b, preview.cellWidth, preview.cellHeight, lifts[1]);
+        assertEq("cellW", preview.cellWidth, cell0.getWidth());
+        assertEq("cellH", preview.cellHeight, cell0.getHeight());
+        for (int y = 0; y < preview.cellHeight; y++) {
+            for (int x = 0; x < preview.cellWidth; x++) {
+                assertEq("cell0 " + x + "," + y, sheet.getRGB(x, y), cell0.getRGB(x, y));
+                assertEq("cell1 " + x + "," + y,
+                        sheet.getRGB(preview.cellWidth + x, y), cell1.getRGB(x, y));
+            }
+        }
     }
 
     private static void testInspectIncludesLiftInCellHeight() throws IOException {

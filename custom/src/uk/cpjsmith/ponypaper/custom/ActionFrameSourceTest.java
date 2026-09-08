@@ -9,6 +9,8 @@ import java.awt.RenderingHints;
 import java.awt.Transparency;
 import java.awt.image.BufferedImage;
 import java.awt.image.VolatileImage;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * Checks that late cells of a wide spritesheet stay drawable on-screen.
@@ -26,6 +28,8 @@ public final class ActionFrameSourceTest {
         failures += run("lateFramePixelsMatchSheet", ActionFrameSourceTest::testLateFramePixelsMatchSheet);
         failures += run("isolatedLateFrameDrawsOnVolatileImage",
                 ActionFrameSourceTest::testIsolatedLateFrameDrawsOnVolatileImage);
+        failures += run("draftFramesMatchPackedCells",
+                ActionFrameSourceTest::testDraftFramesMatchPackedCells);
         if (failures > 0) {
             System.err.println(failures + " action-frame check(s) failed.");
             System.exit(1);
@@ -156,6 +160,44 @@ public final class ActionFrameSourceTest {
             g.dispose();
         }
         return sheet;
+    }
+
+    private static void testDraftFramesMatchPackedCells() throws Exception {
+        BufferedImage a = solid(8, 8, EARLY_RGB);
+        BufferedImage b = solid(8, 8, LATE_RGB);
+        int[] lifts = new int[] {0, 4};
+        List<BufferedImage> frames = Arrays.asList(a, b);
+        ImageImport.PackPreview preview = ImageImport.inspectFrames(frames, lifts);
+        ActionFrameSource src = ActionFrameSource.fromDraftFrames(
+                frames, lifts, preview.cellWidth, preview.cellHeight, new int[] {10, 10});
+        assertEq("frameCount", 2, src.frameCount);
+        assertEq("cellW", preview.cellWidth, src.frameWidth);
+        assertEq("cellH", preview.cellHeight, src.frameHeight);
+
+        BufferedImage packed0 = ImageImport.packCellImage(
+                a, preview.cellWidth, preview.cellHeight, lifts[0]);
+        BufferedImage packed1 = ImageImport.packCellImage(
+                b, preview.cellWidth, preview.cellHeight, lifts[1]);
+        BufferedImage cell0 = src.frameImage(0);
+        BufferedImage cell1 = src.frameImage(1);
+        assertEq("ground foot", packed0.getRGB(4, packed0.getHeight() - 1),
+                cell0.getRGB(4, cell0.getHeight() - 1));
+        assertEq("hop air under", packed1.getRGB(4, packed1.getHeight() - 1),
+                cell1.getRGB(4, cell1.getHeight() - 1));
+        assertEq("hop body", packed1.getRGB(4, 3), cell1.getRGB(4, 3));
+        // One-cell cache: requesting frame 0 again still matches.
+        assertEq("cached ground", packed0.getRGB(4, packed0.getHeight() - 1),
+                src.frameImage(0).getRGB(4, packed0.getHeight() - 1));
+    }
+
+    private static BufferedImage solid(int w, int h, int argb) {
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                img.setRGB(x, y, argb);
+            }
+        }
+        return img;
     }
 
     private static ActionFrameSource sourceFromSheet(BufferedImage sheet) {

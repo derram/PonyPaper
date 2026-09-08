@@ -7,7 +7,9 @@ import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import javax.imageio.ImageIO;
 import uk.cpjsmith.ponypaper.PonyDefinition;
 
@@ -45,6 +47,16 @@ public final class ActionFrameSource {
      * {@link SpriteSheetPreview}'s place-mode isolation.
      */
     private BufferedImage[] isolatedFrames;
+    /**
+     * Unpacked draft frames (playback order) when this source is a packer
+     * preview rather than a decoded strip. Null for sheet-backed sources.
+     */
+    private final List<BufferedImage> draftFrames;
+    /** Per-frame lift for {@link #draftFrames}; null when unused. */
+    private final int[] draftLifts;
+    /** Single-cell cache for draft playback so a huge strip is never allocated. */
+    private BufferedImage draftCell;
+    private int draftCellIndex = -1;
 
     private ActionFrameSource(
             String actionName,
@@ -58,15 +70,43 @@ public final class ActionFrameSource {
             boolean loops,
             float speed,
             String specialType) {
+        this(actionName, actionIndex, direction, image, frameCount, 0, 0,
+                frameTimesCs, explicitAnchorX, explicitAnchorY, loops, speed,
+                specialType, null, null);
+    }
+
+    private ActionFrameSource(
+            String actionName,
+            int actionIndex,
+            String direction,
+            Image image,
+            int frameCount,
+            int frameWidth,
+            int frameHeight,
+            int[] frameTimesCs,
+            float explicitAnchorX,
+            float explicitAnchorY,
+            boolean loops,
+            float speed,
+            String specialType,
+            List<BufferedImage> draftFrames,
+            int[] draftLifts) {
         this.actionName = actionName;
         this.actionIndex = actionIndex;
         this.direction = direction;
         this.image = image;
-        this.imageWidth = image.getWidth(null);
-        this.imageHeight = image.getHeight(null);
         this.frameCount = frameCount;
-        this.frameWidth = Math.max(1, imageWidth / frameCount);
-        this.frameHeight = imageHeight;
+        if (frameWidth > 0 && frameHeight > 0) {
+            this.frameWidth = frameWidth;
+            this.frameHeight = frameHeight;
+            this.imageWidth = frameWidth * Math.max(1, frameCount);
+            this.imageHeight = frameHeight;
+        } else {
+            this.imageWidth = image.getWidth(null);
+            this.imageHeight = image.getHeight(null);
+            this.frameWidth = Math.max(1, this.imageWidth / frameCount);
+            this.frameHeight = this.imageHeight;
+        }
         this.frameTimesCs = frameTimesCs;
         int total = 0;
         for (int t : frameTimesCs) {
@@ -78,6 +118,8 @@ public final class ActionFrameSource {
         this.loops = loops;
         this.speed = speed > 0f ? speed : 1f;
         this.specialType = specialType != null ? specialType : "";
+        this.draftFrames = draftFrames;
+        this.draftLifts = draftLifts;
     }
 
     public float getDefaultAnchorX() {
@@ -159,6 +201,9 @@ public final class ActionFrameSource {
      */
     public BufferedImage frameImage(int frameIndex) {
         int fi = Math.max(0, Math.min(frameCount - 1, frameIndex));
+        if (draftFrames != null) {
+            return draftCellImage(fi);
+        }
         if (isolatedFrames == null) {
             isolatedFrames = new BufferedImage[frameCount];
         }
@@ -190,6 +235,23 @@ public final class ActionFrameSource {
         }
         isolatedFrames[fi] = copy;
         return copy;
+    }
+
+    private BufferedImage draftCellImage(int frameIndex) {
+        if (draftCellIndex == frameIndex && draftCell != null) {
+            return draftCell;
+        }
+        try {
+            draftCell = ImageImport.packCellImage(
+                    draftFrames.get(frameIndex),
+                    frameWidth,
+                    frameHeight,
+                    draftLifts[frameIndex]);
+        } catch (IOException e) {
+            draftCell = new BufferedImage(frameWidth, frameHeight, BufferedImage.TYPE_INT_ARGB);
+        }
+        draftCellIndex = frameIndex;
+        return draftCell;
     }
 
     /**
@@ -233,6 +295,59 @@ public final class ActionFrameSource {
                 false,
                 1f,
                 "");
+    }
+
+    /**
+     * Packer draft preview: cells are composited on demand from individual
+     * frames (order / scale / lift) so a huge strip is never allocated.
+     * {@code frameTimesCs} length is the frame count.
+     */
+    static ActionFrameSource fromDraftFrames(
+            List<BufferedImage> frames,
+            int[] lifts,
+            int cellW,
+            int cellH,
+            int[] frameTimesCs)
+            throws IOException {
+        if (frames == null || frames.isEmpty()) {
+            throw new IOException("No frames to pack.");
+        }
+        if (cellW < 1 || cellH < 1) {
+            throw new IOException("Cell has no size");
+        }
+        int n = frames.size();
+        int[] resolvedLifts = ImageImport.normalizeLifts(lifts, n);
+        int[] times = frameTimesCs != null && frameTimesCs.length > 0
+                ? frameTimesCs.clone()
+                : new int[] { 100 };
+        if (times.length != n) {
+            throw new IOException("Expected " + n + " timings, got " + times.length + ".");
+        }
+        List<BufferedImage> copy = new ArrayList<BufferedImage>(n);
+        for (int i = 0; i < n; i++) {
+            BufferedImage frame = frames.get(i);
+            if (frame == null) {
+                throw new IOException("Null frame");
+            }
+            copy.add(frame);
+        }
+        BufferedImage dummy = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        return new ActionFrameSource(
+                "draft",
+                0,
+                "left",
+                dummy,
+                n,
+                cellW,
+                cellH,
+                times,
+                Float.NaN,
+                Float.NaN,
+                false,
+                1f,
+                "",
+                copy,
+                resolvedLifts);
     }
 
     /**
