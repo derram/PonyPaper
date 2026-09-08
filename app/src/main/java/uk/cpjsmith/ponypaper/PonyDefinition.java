@@ -559,6 +559,9 @@ public class PonyDefinition {
             // Bare (no direction) anchor applies to any facing without a directed tag.
             Float bareAnchorX = null;
             Float bareAnchorY = null;
+            // Bare / direction="both" image and timings fill any facing without a directed tag.
+            String bareImage = null;
+            String bareTimings = null;
             
             for (Node node = element.getFirstChild(); node != null; node = node.getNextSibling()) {
                 switch (node.getNodeType()) {
@@ -582,9 +585,9 @@ public class PonyDefinition {
                         } else if (nodeName.equals("anchory")) {
                             bareAnchorY = addAnchorAxis((Element)node, "anchory", anchorY, bareAnchorY, errors);
                         } else if (nodeName.equals("image")) {
-                            addImage((Element)node, errors);
+                            bareImage = addImage((Element)node, bareImage, errors);
                         } else if (nodeName.equals("timings")) {
-                            addTimings((Element)node, errors);
+                            bareTimings = addTimings((Element)node, bareTimings, errors);
                         } else if (nodeName.equals("nextactions")) {
                             addNextActions((Element)node, errors);
                         } else {
@@ -608,6 +611,8 @@ public class PonyDefinition {
                 }
             }
             
+            rejectBareWhenBothDirected(bareImage, images, "image", errors);
+            rejectBareWhenBothDirected(bareTimings, timings, "timings", errors);
             if (!errors.isEmpty()) throw new InvalidPonyException(errors);
             
             if (specialType == null) specialType = "";
@@ -621,6 +626,8 @@ public class PonyDefinition {
             // Directed tags win; bare (legacy) fills any missing facing.
             applyBareAnchor(anchorX, bareAnchorX);
             applyBareAnchor(anchorY, bareAnchorY);
+            applyBareFacing(images, bareImage);
+            applyBareFacing(timings, bareTimings);
             if (!anchorX.containsKey("left")) anchorX.put("left", Float.NaN);
             if (!anchorX.containsKey("right")) anchorX.put("right", Float.NaN);
             if (!anchorY.containsKey("left")) anchorY.put("left", Float.NaN);
@@ -828,30 +835,12 @@ public class PonyDefinition {
             }
         }
         
-        private void addImage(Element element, List<String> errors) {
-            String direction = element.getAttribute("direction");
-            if (!(direction.equals("left") || direction.equals("right"))) {
-                errors.add("<image> must have a direction of left or right.");
-                return;
-            }
-            if (images.containsKey(direction)) {
-                errors.add("Too many <image> elements with direction " + direction + ".");
-                return;
-            }
-            images.put(direction, getContent(element, errors).replaceAll("\\s+", ""));
+        private String addImage(Element element, String bareExisting, List<String> errors) {
+            return addFacingScopedText(element, "image", images, bareExisting, true, errors);
         }
         
-        private void addTimings(Element element, List<String> errors) {
-            String direction = element.getAttribute("direction");
-            if (!(direction.equals("left") || direction.equals("right"))) {
-                errors.add("<timings> must have a direction of left or right.");
-                return;
-            }
-            if (timings.containsKey(direction)) {
-                errors.add("Too many <timings> elements with direction " + direction + ".");
-                return;
-            }
-            timings.put(direction, getContent(element, errors));
+        private String addTimings(Element element, String bareExisting, List<String> errors) {
+            return addFacingScopedText(element, "timings", timings, bareExisting, false, errors);
         }
         
         private void addNextActions(Element element, List<String> errors) {
@@ -947,6 +936,8 @@ public class PonyDefinition {
             Boolean parsedFollow = null;
             Boolean parsedNoLoop = null;
             String parsedPlacementMode = null;
+            String bareImage = null;
+            String bareTimings = null;
 
             for (Node node = element.getFirstChild(); node != null; node = node.getNextSibling()) {
                 switch (node.getNodeType()) {
@@ -975,9 +966,9 @@ public class PonyDefinition {
                         } else if (nodeName.equals("centering")) {
                             addDirectedToken((Element)node, "centering", centering, errors);
                         } else if (nodeName.equals("image")) {
-                            addImage((Element)node, errors);
+                            bareImage = addImage((Element)node, bareImage, errors);
                         } else if (nodeName.equals("timings")) {
-                            addTimings((Element)node, errors);
+                            bareTimings = addTimings((Element)node, bareTimings, errors);
                         } else {
                             errors.add("Unexpected " + node.getNodeName()
                                     + " element in <effect>.");
@@ -1025,6 +1016,10 @@ public class PonyDefinition {
             if (!centering.containsKey("right")) {
                 centering.put("right", "Center");
             }
+            rejectBareWhenBothDirected(bareImage, images, "image", errors);
+            rejectBareWhenBothDirected(bareTimings, timings, "timings", errors);
+            applyBareFacing(images, bareImage);
+            applyBareFacing(timings, bareTimings);
             if (!images.containsKey("left")) {
                 images.put("left", "");
             }
@@ -1147,30 +1142,12 @@ public class PonyDefinition {
             target.put(direction, canon);
         }
 
-        private void addImage(Element element, List<String> errors) {
-            String direction = element.getAttribute("direction");
-            if (!(direction.equals("left") || direction.equals("right"))) {
-                errors.add("<image> must have a direction of left or right.");
-                return;
-            }
-            if (images.containsKey(direction)) {
-                errors.add("Too many <image> elements with direction " + direction + ".");
-                return;
-            }
-            images.put(direction, getContent(element, errors).replaceAll("\\s+", ""));
+        private String addImage(Element element, String bareExisting, List<String> errors) {
+            return addFacingScopedText(element, "image", images, bareExisting, true, errors);
         }
 
-        private void addTimings(Element element, List<String> errors) {
-            String direction = element.getAttribute("direction");
-            if (!(direction.equals("left") || direction.equals("right"))) {
-                errors.add("<timings> must have a direction of left or right.");
-                return;
-            }
-            if (timings.containsKey(direction)) {
-                errors.add("Too many <timings> elements with direction " + direction + ".");
-                return;
-            }
-            timings.put(direction, getContent(element, errors));
+        private String addTimings(Element element, String bareExisting, List<String> errors) {
+            return addFacingScopedText(element, "timings", timings, bareExisting, false, errors);
         }
     }
     
@@ -1331,6 +1308,108 @@ public class PonyDefinition {
         }
         
         return valid ? result.trim() : null;
+    }
+
+    /**
+     * Parses {@code <image>} or {@code <timings>}. {@code direction="left|right"}
+     * stores on {@code directed}. Omitted direction or {@code both} is the bare
+     * value applied later to any facing without a directed tag.
+     *
+     * @return updated bare value
+     */
+    private static String addFacingScopedText(Element element, String tagName,
+            Map<String, String> directed, String bareExisting,
+            boolean stripWhitespace, List<String> errors) {
+        String direction = element.getAttribute("direction");
+        if (direction == null) {
+            direction = "";
+        }
+        direction = direction.trim().toLowerCase();
+
+        String text = getContent(element, errors);
+        if (text == null) {
+            return bareExisting;
+        }
+        if (stripWhitespace) {
+            text = text.replaceAll("\\s+", "");
+        }
+
+        if (direction.isEmpty() || "both".equals(direction)) {
+            if (bareExisting != null) {
+                errors.add("Too many bare <" + tagName
+                        + "> elements (omit direction or use both to apply to both facings).");
+                return bareExisting;
+            }
+            return text;
+        }
+        if (!("left".equals(direction) || "right".equals(direction))) {
+            errors.add("<" + tagName
+                    + "> direction must be left, right, both, or omitted for both.");
+            return bareExisting;
+        }
+        if (directed.containsKey(direction)) {
+            errors.add("Too many <" + tagName + "> elements with direction "
+                    + direction + ".");
+            return bareExisting;
+        }
+        directed.put(direction, text);
+        return bareExisting;
+    }
+
+    private static void applyBareFacing(Map<String, String> map, String bare) {
+        if (bare == null) {
+            return;
+        }
+        if (!map.containsKey("left")) {
+            map.put("left", bare);
+        }
+        if (!map.containsKey("right")) {
+            map.put("right", bare);
+        }
+    }
+
+    private static void rejectBareWhenBothDirected(String bare, Map<String, String> directed,
+            String tagName, List<String> errors) {
+        if (bare != null && directed.containsKey("left") && directed.containsKey("right")) {
+            errors.add("Too many <" + tagName
+                    + "> elements (omit direction for both, or use left/right).");
+        }
+    }
+
+    /**
+     * True when both facings store the same non-empty image bytes and the same
+     * timings string. Used to coalesce XML and to collapse editor sprite panes.
+     */
+    public static boolean sharesFacingSprites(Map<String, String> images,
+            Map<String, String> timings) {
+        if (images == null) {
+            return false;
+        }
+        String leftImage = images.get("left");
+        String rightImage = images.get("right");
+        if (leftImage == null || leftImage.isEmpty() || !leftImage.equals(rightImage)) {
+            return false;
+        }
+        String leftTimes = timings != null ? timings.get("left") : null;
+        String rightTimes = timings != null ? timings.get("right") : null;
+        if (leftTimes == null) {
+            leftTimes = "";
+        }
+        if (rightTimes == null) {
+            rightTimes = "";
+        }
+        return leftTimes.equals(rightTimes);
+    }
+
+    /** {@code "right"} for {@code "left"} and vice versa; {@code null} otherwise. */
+    public static String oppositeFacing(String direction) {
+        if ("left".equals(direction)) {
+            return "right";
+        }
+        if ("right".equals(direction)) {
+            return "left";
+        }
+        return null;
     }
     
     private boolean hasAction(String name) {
@@ -2056,21 +2135,8 @@ public class PonyDefinition {
                 writeCharacters(writer, action.spritesFrom);
                 writer.println("</spritesfrom>");
             } else {
-                writer.println("        <image direction=\"left\">");
-                writeSplit(writer, action.images.get("left"), "            ");
-                writer.println("        </image>");
-                
-                writer.print("        <timings direction=\"left\">");
-                writeCharacters(writer, action.timings.get("left"));
-                writer.println("</timings>");
-                
-                writer.println("        <image direction=\"right\">");
-                writeSplit(writer, action.images.get("right"), "            ");
-                writer.println("        </image>");
-                
-                writer.print("        <timings direction=\"right\">");
-                writeCharacters(writer, action.timings.get("right"));
-                writer.println("</timings>");
+                writeImageAndTimings(writer, action.images.get("left"), action.timings.get("left"),
+                        action.images.get("right"), action.timings.get("right"));
             }
             
             if (!action.gaits.isEmpty()) {
@@ -2164,21 +2230,55 @@ public class PonyDefinition {
         writeDirectedToken(writer, "placement", "left", effect.placement.get("left"));
         writeDirectedToken(writer, "centering", "left", effect.centering.get("left"));
 
-        writer.println("        <image direction=\"left\">");
-        writeSplit(writer, nullToEmpty(effect.images.get("left")), "            ");
-        writer.println("        </image>");
-        writer.print("        <timings direction=\"left\">");
-        writeCharacters(writer, nullToEmpty(effect.timings.get("left")));
-        writer.println("</timings>");
-
-        writer.println("        <image direction=\"right\">");
-        writeSplit(writer, nullToEmpty(effect.images.get("right")), "            ");
-        writer.println("        </image>");
-        writer.print("        <timings direction=\"right\">");
-        writeCharacters(writer, nullToEmpty(effect.timings.get("right")));
-        writer.println("</timings>");
+        writeImageAndTimings(writer, effect.images.get("left"), effect.timings.get("left"),
+                effect.images.get("right"), effect.timings.get("right"));
 
         writer.println("    </effect>");
+    }
+
+    /**
+     * Writes {@code <image>} / {@code <timings>}. Identical non-empty sides
+     * become one bare element (both facings). Mixed image vs timings still
+     * coalesce the matching pair.
+     */
+    private static void writeImageAndTimings(PrintWriter writer, String leftImage,
+            String leftTimings, String rightImage, String rightTimings) {
+        String li = nullToEmpty(leftImage);
+        String ri = nullToEmpty(rightImage);
+        String lt = nullToEmpty(leftTimings);
+        String rt = nullToEmpty(rightTimings);
+        if (!li.isEmpty() && li.equals(ri)) {
+            writer.println("        <image>");
+            writeSplit(writer, li, "            ");
+            writer.println("        </image>");
+        } else {
+            writeDirectedImage(writer, "left", li);
+            writeDirectedImage(writer, "right", ri);
+        }
+        if (lt.equals(rt)) {
+            writer.print("        <timings>");
+            writeCharacters(writer, lt);
+            writer.println("</timings>");
+        } else {
+            writeDirectedTimings(writer, "left", lt);
+            writeDirectedTimings(writer, "right", rt);
+        }
+    }
+
+    private static void writeDirectedImage(PrintWriter writer, String direction, String value) {
+        writer.print("        <image");
+        writeAttribute(writer, "direction", direction);
+        writer.println(">");
+        writeSplit(writer, value, "            ");
+        writer.println("        </image>");
+    }
+
+    private static void writeDirectedTimings(PrintWriter writer, String direction, String value) {
+        writer.print("        <timings");
+        writeAttribute(writer, "direction", direction);
+        writer.print(">");
+        writeCharacters(writer, value);
+        writer.println("</timings>");
     }
 
     private static void writeDirectedToken(PrintWriter writer, String tag, String direction,

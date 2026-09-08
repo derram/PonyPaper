@@ -1889,23 +1889,31 @@ public class Pony {
                 : WanderTarget.MOVE_INHERIT;
         if (WanderTarget.usesVerticalFacing(wander, movement)) {
             float dY = targetPos.y - posY;
-            if (dY < 0 && direction != PonyAction.LEFT) {
-                direction = PonyAction.LEFT;
-                frameTime = 0;
-            }
-            if (dY > 0 && direction != PonyAction.RIGHT) {
-                direction = PonyAction.RIGHT;
-                frameTime = 0;
+            if (dY < 0) {
+                setFacing(PonyAction.LEFT);
+            } else if (dY > 0) {
+                setFacing(PonyAction.RIGHT);
             }
             return;
         }
         float dX = targetPos.x - posX;
-        if (dX > 0 && direction != PonyAction.RIGHT) {
-            direction = PonyAction.RIGHT;
-            frameTime = 0;
+        if (dX > 0) {
+            setFacing(PonyAction.RIGHT);
+        } else if (dX < 0) {
+            setFacing(PonyAction.LEFT);
         }
-        if (dX < 0 && direction != PonyAction.LEFT) {
-            direction = PonyAction.LEFT;
+    }
+
+    /**
+     * Change facing. Restarts the clip unless both slots are the same sheet
+     * (shared left/right art should not hitch when travel reverses).
+     */
+    private void setFacing(int newDir) {
+        if (direction == newDir) {
+            return;
+        }
+        direction = newDir;
+        if (currentAction == null || !currentAction.sharesFacingSheets()) {
             frameTime = 0;
         }
     }

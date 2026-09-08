@@ -49,6 +49,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
+import uk.cpjsmith.ponypaper.PonyDefinition;
 import uk.cpjsmith.ponypaper.WanderTarget;
 import javax.swing.JToolBar;
 import javax.swing.KeyStroke;
@@ -224,6 +225,12 @@ public class PonyEditorGUI extends JPanel {
             }
         };
 
+        ActionListener copyLeftListener = new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                copyOrUnlinkFacing("left");
+            }
+        };
+
         ActionListener mirrorLeftListener = new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 mirrorFacing("left");
@@ -257,7 +264,11 @@ public class PonyEditorGUI extends JPanel {
         DocumentListener timingsLeftListener = new MyDocumentListener() {
             public void update(DocumentEvent e) {
                 if (currentIndex >= 0) {
+                    boolean keepLinked = facingSpritesLinked();
                     editor.setActionTimings(currentIndex, "left", timingsLeftField.getText());
+                    if (keepLinked) {
+                        editor.setActionTimings(currentIndex, "right", timingsLeftField.getText());
+                    }
                     // Editing timings on an alias detaches it into a full owner.
                     if (!editor.getActionSpritesFrom(currentIndex).equals(spritesFromField.getText())) {
                         spritesFromField.setText(editor.getActionSpritesFrom(currentIndex));
@@ -270,6 +281,12 @@ public class PonyEditorGUI extends JPanel {
         ActionListener previewRightListener = new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 previewImage("right");
+            }
+        };
+
+        ActionListener copyRightListener = new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                copyOrUnlinkFacing("right");
             }
         };
 
@@ -306,7 +323,11 @@ public class PonyEditorGUI extends JPanel {
         DocumentListener timingsRightListener = new MyDocumentListener() {
             public void update(DocumentEvent e) {
                 if (currentIndex >= 0) {
+                    boolean keepLinked = facingSpritesLinked();
                     editor.setActionTimings(currentIndex, "right", timingsRightField.getText());
+                    if (keepLinked) {
+                        editor.setActionTimings(currentIndex, "left", timingsRightField.getText());
+                    }
                     if (!editor.getActionSpritesFrom(currentIndex).equals(spritesFromField.getText())) {
                         spritesFromField.setText(editor.getActionSpritesFrom(currentIndex));
                     }
@@ -363,8 +384,11 @@ public class PonyEditorGUI extends JPanel {
         JButton cloneGaitButton;
         JPanel leftSprites;
         JPanel rightSprites;
+        JPanel spritesRow;
+        boolean keepSplitSpritePanels;
         JTextField imageLeftField;
         JButton imageLeftPreview;
+        JButton imageLeftCopy;
         JButton imageLeftMirror;
         JButton imageLeftImport;
         JButton imageLeftImportFrames;
@@ -375,6 +399,7 @@ public class PonyEditorGUI extends JPanel {
         JButton timingsLeftPlus;
         JTextField imageRightField;
         JButton imageRightPreview;
+        JButton imageRightCopy;
         JButton imageRightMirror;
         JButton imageRightImport;
         JButton imageRightImportFrames;
@@ -553,12 +578,18 @@ public class PonyEditorGUI extends JPanel {
 
             imageLeftPreview = new JButton("Preview");
             imageLeftPreview.addActionListener(previewLeftListener);
+            imageLeftCopy = new JButton("Copy to right");
+            imageLeftCopy.setToolTipText(
+                    "Use this sheet, timings, and anchors for both facings (no flop).");
+            imageLeftCopy.addActionListener(copyLeftListener);
+            styleSecondary(imageLeftCopy);
             imageLeftMirror = new JButton("Mirror to right");
             imageLeftMirror.setToolTipText(
                     "Build the right spritesheet by flopping each left frame (same order and timings).");
             imageLeftMirror.addActionListener(mirrorLeftListener);
             styleSecondary(imageLeftMirror);
-            addFormRow(leftSprites, 1, new JLabel(""), wrapTwoButtons(imageLeftPreview, imageLeftMirror), 0.0);
+            addFormRow(leftSprites, 1, new JLabel(""),
+                    wrapThreeButtons(imageLeftPreview, imageLeftCopy, imageLeftMirror), 0.0);
 
             imageLeftImport = new JButton("Import image");
             imageLeftImport.setToolTipText(
@@ -602,12 +633,18 @@ public class PonyEditorGUI extends JPanel {
 
             imageRightPreview = new JButton("Preview");
             imageRightPreview.addActionListener(previewRightListener);
+            imageRightCopy = new JButton("Copy to left");
+            imageRightCopy.setToolTipText(
+                    "Use this sheet, timings, and anchors for both facings (no flop).");
+            imageRightCopy.addActionListener(copyRightListener);
+            styleSecondary(imageRightCopy);
             imageRightMirror = new JButton("Mirror to left");
             imageRightMirror.setToolTipText(
                     "Build the left spritesheet by flopping each right frame (same order and timings).");
             imageRightMirror.addActionListener(mirrorRightListener);
             styleSecondary(imageRightMirror);
-            addFormRow(rightSprites, 1, new JLabel(""), wrapTwoButtons(imageRightPreview, imageRightMirror), 0.0);
+            addFormRow(rightSprites, 1, new JLabel(""),
+                    wrapThreeButtons(imageRightPreview, imageRightCopy, imageRightMirror), 0.0);
 
             imageRightImport = new JButton("Import image");
             imageRightImport.setToolTipText(
@@ -694,7 +731,7 @@ public class PonyEditorGUI extends JPanel {
             // Two-column shell: spend width so a maximized window rarely needs
             // a vertical scrollbar for the action inspector.
             JPanel motionRow = sideBySide(identity, anchors);
-            JPanel spritesRow = sideBySide(leftSprites, rightSprites);
+            spritesRow = sideBySide(leftSprites, rightSprites);
 
             VerticalScrollForm stack = new VerticalScrollForm();
             stack.setBorder(BorderFactory.createEmptyBorder(4, 4, 8, 4));
@@ -787,6 +824,7 @@ public class PonyEditorGUI extends JPanel {
 
         void setAction(int index) {
             currentIndex = -1;
+            keepSplitSpritePanels = false;
             
             if (index >= 0) {
                 specialTypeField.setText(editor.getActionSpecial(index));
@@ -858,7 +896,14 @@ public class PonyEditorGUI extends JPanel {
             String leftTitle = vertical ? "Back" : "Left";
             String rightTitle = vertical ? "Front" : "Right";
 
-            setSectionTitle(leftSprites, "Sprites — " + leftName);
+            boolean collapse = facingSpritesLinked();
+            if (collapse) {
+                setSectionTitle(leftSprites, vertical
+                        ? "Sprites — both (back/front)"
+                        : "Sprites — both facings");
+            } else {
+                setSectionTitle(leftSprites, "Sprites — " + leftName);
+            }
             setSectionTitle(rightSprites, "Sprites — " + rightName);
             anchorLeftLabel.setText(leftTitle + " (X,Y):");
             anchorRightLabel.setText(rightTitle + " (X,Y):");
@@ -876,6 +921,23 @@ public class PonyEditorGUI extends JPanel {
             imageRightMirror.setToolTipText(
                     "Build the " + leftName + " spritesheet by flopping each " + rightName
                             + " frame (same order and timings).");
+            if (imageLeftCopy != null) {
+                if (collapse) {
+                    imageLeftCopy.setText("Unlink facings");
+                    imageLeftCopy.setToolTipText(
+                            "Show both facings again so you can give them different sheets.");
+                } else {
+                    imageLeftCopy.setText("Copy to " + rightName);
+                    imageLeftCopy.setToolTipText(
+                            "Use this sheet, timings, and anchors for both facings (no flop).");
+                }
+            }
+            if (imageRightCopy != null) {
+                imageRightCopy.setText("Copy to " + leftName);
+                imageRightCopy.setToolTipText(
+                        "Use this sheet, timings, and anchors for both facings (no flop).");
+            }
+            refreshSpriteLayout(collapse);
             imageLeftExport.setToolTipText("Save the " + leftName + " spritesheet as a PNG file.");
             imageRightExport.setToolTipText("Save the " + rightName + " spritesheet as a PNG file.");
             imageLeftExportFrames.setToolTipText(
@@ -1016,6 +1078,95 @@ public class PonyEditorGUI extends JPanel {
             row.add(left);
             row.add(right);
             return row;
+        }
+
+        private static JPanel wrapThreeButtons(JButton a, JButton b, JButton c) {
+            JPanel row = new JPanel(new GridLayout(1, 3, 4, 0));
+            row.add(a);
+            row.add(b);
+            row.add(c);
+            return row;
+        }
+
+        private boolean facingSpritesLinked() {
+            return currentIndex >= 0 && !keepSplitSpritePanels
+                    && editor != null && editor.actionSharesFacingSprites(currentIndex);
+        }
+
+        private void refreshSpriteLayout(boolean collapse) {
+            if (spritesRow == null || leftSprites == null || rightSprites == null) {
+                return;
+            }
+            spritesRow.removeAll();
+            if (collapse) {
+                spritesRow.setLayout(new GridLayout(1, 1, 6, 0));
+                spritesRow.add(leftSprites);
+            } else {
+                spritesRow.setLayout(new GridLayout(1, 2, 6, 0));
+                spritesRow.add(leftSprites);
+                spritesRow.add(rightSprites);
+            }
+            rightSprites.setVisible(!collapse);
+            spritesRow.revalidate();
+            spritesRow.repaint();
+            capRowHeight(spritesRow);
+        }
+
+        /**
+         * When the panes are collapsed (shared sheet), copy becomes Unlink.
+         * Otherwise copies this facing onto the other with no flop.
+         */
+        void copyOrUnlinkFacing(String fromDirection) {
+            if (currentIndex < 0) {
+                return;
+            }
+            if (facingSpritesLinked()) {
+                keepSplitSpritePanels = true;
+                refreshFacingLabels();
+                return;
+            }
+            copyFacing(fromDirection);
+        }
+
+        void copyFacing(String fromDirection) {
+            if (currentIndex < 0) {
+                return;
+            }
+            String toDirection = PonyDefinition.oppositeFacing(fromDirection);
+            if (toDirection == null) {
+                return;
+            }
+            String source = editor.getActionImage(currentIndex, fromDirection);
+            if (source == null || source.isEmpty()) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "No " + fromDirection + " spritesheet to copy.",
+                        "Copy Facing",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            String dest = editor.getActionImage(currentIndex, toDirection);
+            if (dest != null && !dest.isEmpty() && !dest.equals(source)) {
+                int confirm = JOptionPane.showConfirmDialog(
+                        this,
+                        "Replace the " + toDirection + " spritesheet with a copy of the "
+                                + fromDirection + " sheet?\n"
+                                + "Frame order, timings, and anchors are copied (no flop).",
+                        "Copy to " + toDirection,
+                        JOptionPane.OK_CANCEL_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+                if (confirm != JOptionPane.OK_OPTION) {
+                    return;
+                }
+            }
+            try {
+                editor.copyActionSprite(currentIndex, fromDirection);
+                keepSplitSpritePanels = false;
+                setAction(currentIndex);
+                setDirty(true);
+            } catch (PonyEditor.GenericException e) {
+                JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
+            }
         }
 
         private static JPanel wrapImportExportButtons(
@@ -1365,7 +1516,11 @@ public class PonyEditorGUI extends JPanel {
          * uneven sheets, load then fix borders via {@link #exportFrames}.
          */
         void importPng(String direction, File file) throws IOException, PonyEditor.GenericException {
+            boolean keepLinked = facingSpritesLinked();
             editor.loadActionSprite(currentIndex, direction, file);
+            if (keepLinked) {
+                editor.copyActionSprite(currentIndex, direction);
+            }
             setAction(currentIndex);
             setDirty(true);
         }
@@ -1428,10 +1583,14 @@ public class PonyEditorGUI extends JPanel {
             if (sourceTimingsCs != null) {
                 options.timingsCs = ImageImport.permute(sourceTimingsCs, packed.order);
             }
+            boolean keepLinked = facingSpritesLinked();
             ImageImport imported = editor.loadActionSpriteFromFrames(
                     currentIndex, direction, frames, options);
             if (!ImageImport.isIdentityOrder(packed.order)) {
                 editor.setActionTimings(currentIndex, direction, imported.timings);
+            }
+            if (keepLinked) {
+                editor.copyActionSprite(currentIndex, direction);
             }
             setAction(currentIndex);
             setDirty(true);

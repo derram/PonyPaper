@@ -882,6 +882,55 @@ public class PonyEditor {
         }
     }
 
+    /**
+     * Copies {@code fromDirection}'s sheet, timings, and feet anchors onto the
+     * opposite facing with no flop. Use when both facings share the same art.
+     */
+    public void copyActionSprite(int index, String fromDirection) throws GenericException {
+        if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
+        if (!ponyDefinition.actions[index].images.containsKey(fromDirection)) {
+            throw new IndexOutOfBoundsException();
+        }
+        String toDirection = PonyDefinition.oppositeFacing(fromDirection);
+        if (toDirection == null) {
+            throw new IndexOutOfBoundsException();
+        }
+
+        if (ponyDefinition.actions[index].isAlias()) {
+            detachAliasCopyingSprites(index);
+        }
+
+        String b64 = ponyDefinition.actions[index].images.get(fromDirection);
+        if (b64 == null || b64.isEmpty()) {
+            throw new GenericException("Copy Failed", "No " + fromDirection + " spritesheet to copy.");
+        }
+        ponyDefinition.actions[index].images.put(toDirection, b64);
+        String timings = ponyDefinition.actions[index].timings.get(fromDirection);
+        ponyDefinition.actions[index].timings.put(toDirection, timings != null ? timings : "");
+        setActionAnchorX(index, toDirection, getActionAnchorX(index, fromDirection));
+        setActionAnchorY(index, toDirection, getActionAnchorY(index, fromDirection));
+    }
+
+    /**
+     * True when this action (or its sprite owner, for aliases) stores the same
+     * non-empty sheet and timings on both facings.
+     */
+    public boolean actionSharesFacingSprites(int index) {
+        if (index < 0 || index >= ponyDefinition.actions.length) {
+            return false;
+        }
+        int owner = index;
+        if (ponyDefinition.actions[index].isAlias()) {
+            int found = findAction(ponyDefinition.actions[index].spritesFrom);
+            if (found < 0) {
+                return false;
+            }
+            owner = found;
+        }
+        PonyDefinition.Action action = ponyDefinition.actions[owner];
+        return PonyDefinition.sharesFacingSprites(action.images, action.timings);
+    }
+
     private void applyPackedSprite(int index, String direction, ImageImport imported) {
         ponyDefinition.actions[index].images.put(
                 direction, Base64.getEncoder().encodeToString(imported.loadedImage));
@@ -954,7 +1003,11 @@ public class PonyEditor {
                     ImageImport.PackOptions dpOpts = new ImageImport.PackOptions();
                     dpOpts.scaleDivisor = ImageImport.SCALE_DIVISOR_HALF;
                     loadActionSprite(index, "left", action.leftImage, dpOpts);
-                    loadActionSprite(index, "right", action.rightImage, dpOpts);
+                    if (sameImageFile(action.leftImage, action.rightImage)) {
+                        copyActionSprite(index, "left");
+                    } else {
+                        loadActionSprite(index, "right", action.rightImage, dpOpts);
+                    }
                     setActionNext(index, "waiting", action.nextWaiting);
                     setActionNext(index, "moving", action.nextMoving);
                     setActionNext(index, "drag", action.nextDrag);
@@ -1004,7 +1057,11 @@ public class PonyEditor {
                     setEffectPlacement(index, "left", effect.placementLeft);
                     setEffectCentering(index, "left", effect.centeringLeft);
                     loadEffectSprite(index, "left", effect.leftImage, effectOpts);
-                    loadEffectSprite(index, "right", effect.rightImage, effectOpts);
+                    if (sameImageFile(effect.leftImage, effect.rightImage)) {
+                        copyEffectSprite(index, "left");
+                    } else {
+                        loadEffectSprite(index, "right", effect.rightImage, effectOpts);
+                    }
                     effectsLoaded++;
                 } catch (GenericException e) {
                     int idx = findEffect(effect.name);
@@ -1379,6 +1436,47 @@ public class PonyEditor {
             throw new GenericException("Mirror Failed", "The " + fromDirection + " image could not be decoded.");
         } catch (IOException e) {
             throw new GenericException("Mirror Failed", e.getMessage());
+        }
+    }
+
+    /**
+     * Copies {@code fromDirection}'s effect sheet and timings onto the opposite
+     * facing with no flop. Placement/centering stay per-facing.
+     */
+    public void copyEffectSprite(int index, String fromDirection) throws GenericException {
+        checkEffectIndex(index);
+        checkEffectDirection(fromDirection);
+        String toDirection = PonyDefinition.oppositeFacing(fromDirection);
+        if (toDirection == null) {
+            throw new IndexOutOfBoundsException();
+        }
+        String b64 = ponyDefinition.effects[index].images.get(fromDirection);
+        if (b64 == null || b64.isEmpty()) {
+            throw new GenericException("Copy Failed", "No " + fromDirection + " spritesheet to copy.");
+        }
+        ponyDefinition.effects[index].images.put(toDirection, b64);
+        String timings = ponyDefinition.effects[index].timings.get(fromDirection);
+        ponyDefinition.effects[index].timings.put(toDirection, timings != null ? timings : "");
+    }
+
+    /**
+     * True when this effect stores the same non-empty sheet and timings on both
+     * facings. Placement/centering may still differ.
+     */
+    public boolean effectSharesFacingSprites(int index) {
+        checkEffectIndex(index);
+        PonyDefinition.Effect effect = ponyDefinition.effects[index];
+        return PonyDefinition.sharesFacingSprites(effect.images, effect.timings);
+    }
+
+    private static boolean sameImageFile(File a, File b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        try {
+            return a.getCanonicalFile().equals(b.getCanonicalFile());
+        } catch (IOException e) {
+            return a.equals(b);
         }
     }
 

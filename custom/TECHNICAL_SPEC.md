@@ -42,6 +42,13 @@ java -jar custom/build/libs/customponies.jar \
   -sprite left walk_left.gif \
   -mirror-facing left \
   -save oc.xml
+
+# Same art both ways (no flop):
+java -jar custom/build/libs/customponies.jar \
+  -action sit \
+  -sprite left sit.gif \
+  -copy-facing left \
+  -save oc.xml
 ```
 
 `-scale` is dyadic nearest-neighbour for the next GIF/`-sprite-frames` import (`200`/`2x`/`double` pixel-doubles; bare `2` is ÷2 / 50%). Fit never selects 200%.
@@ -83,6 +90,22 @@ Hard-horizontal and `any` keep classic left/right by Δx. A **Both**-wander pony
   …
 </action>
 ```
+
+### Shared left/right (or back/front) sheets
+
+An action or effect that uses the **same pixels** on both facings does not need two copies of the strip in XML. Omit `direction` (or use `direction="both"`) on `<image>` and `<timings>`:
+
+```xml
+<action name="sit">
+  <image>…one strip…</image>
+  <timings>10,10,10</timings>
+  …
+</action>
+```
+
+Directed `left` / `right` tags still override one side (bare image + `<image direction="right">` is valid). A file with only one directed image is still an error — missing the other side is not treated as share. On save, identical non-empty sides are written as one bare element. Runtime pins that sheet once; reversing travel does not restart the animation. Effects can share image/timings the same way; placement and centering stay per-facing.
+
+This is not a flop: for opposite side views, keep `-mirror-facing` / **Mirror to right** (baked horizontal flip). `spritesfrom` remains an action-to-action alias, not a way to share one facing of the same action.
 
 ### Speed, aliases, and gaits
 

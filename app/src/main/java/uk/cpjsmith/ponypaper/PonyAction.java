@@ -308,6 +308,27 @@ public class PonyAction {
     }
 
     /**
+     * True when left and right (or back and front) resolve to the same decoded
+     * sheet. Facing still changes with travel; animation time is not reset.
+     */
+    boolean sharesFacingSheets() {
+        if (spriteSource != null) {
+            return spriteSource.sharesFacingSheets();
+        }
+        synchronized (this) {
+            if (sprites != null && sprites.length > RIGHT && sprites[LEFT] != null) {
+                return sprites[LEFT] == sprites[RIGHT];
+            }
+            if (custom != null) {
+                custom.ensureKeys();
+                return custom.leftKey.equals(custom.rightKey);
+            }
+            return leftDrawableId != 0 && leftDrawableId == rightDrawableId
+                    && leftTimingId == rightTimingId;
+        }
+    }
+
+    /**
      * Destination movement mode for this action ({@link WanderTarget#MOVE_INHERIT},
      * {@link WanderTarget#MOVE_SOFT_VERTICAL}, {@link WanderTarget#MOVE_HORIZONTAL},
      * {@link WanderTarget#MOVE_VERTICAL}, or {@link WanderTarget#MOVE_ANY}).
@@ -360,14 +381,27 @@ public class PonyAction {
         String rightKey;
 
         CustomSheets(PonyDefinition.Action definition) {
-            leftBytes = Base64.decode(definition.images.get("left"), 0);
-            rightBytes = Base64.decode(definition.images.get("right"), 0);
-            leftTimes = parseInts(definition.timings.get("left"));
-            rightTimes = parseInts(definition.timings.get("right"));
+            String leftB64 = definition.images.get("left");
+            String rightB64 = definition.images.get("right");
+            String leftTimingText = definition.timings.get("left");
+            String rightTimingText = definition.timings.get("right");
+            leftBytes = Base64.decode(leftB64, 0);
+            leftTimes = parseInts(leftTimingText);
             validateDefinitionSide(leftBytes, leftTimes, "left");
-            validateDefinitionSide(rightBytes, rightTimes, "right");
-            leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
-            rightFactory = SpriteCache.bytesFactory(rightBytes, rightTimes);
+            boolean shared = leftB64 != null && leftB64.equals(rightB64)
+                    && leftTimingText != null && leftTimingText.equals(rightTimingText);
+            if (shared) {
+                rightBytes = leftBytes;
+                rightTimes = leftTimes;
+                leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
+                rightFactory = leftFactory;
+            } else {
+                rightBytes = Base64.decode(rightB64, 0);
+                rightTimes = parseInts(rightTimingText);
+                validateDefinitionSide(rightBytes, rightTimes, "right");
+                leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
+                rightFactory = SpriteCache.bytesFactory(rightBytes, rightTimes);
+            }
         }
 
         void ensureKeys() {
@@ -375,7 +409,9 @@ public class PonyAction {
                 leftKey = SpriteCache.bytesKey(leftBytes, leftTimes);
             }
             if (rightKey == null) {
-                rightKey = SpriteCache.bytesKey(rightBytes, rightTimes);
+                rightKey = (rightBytes == leftBytes && rightTimes == leftTimes)
+                        ? leftKey
+                        : SpriteCache.bytesKey(rightBytes, rightTimes);
             }
         }
     }
@@ -554,22 +590,30 @@ public class PonyAction {
             }
             if (res != null) {
                 leftPin = SpriteCache.pinResource(res, leftDrawableId, leftTimingId);
-                try {
-                    rightPin = SpriteCache.pinResource(res, rightDrawableId, rightTimingId);
-                } catch (RuntimeException e) {
-                    leftPin.unpin();
-                    leftPin = null;
-                    throw e;
+                if (leftDrawableId == rightDrawableId && leftTimingId == rightTimingId) {
+                    rightPin = leftPin;
+                } else {
+                    try {
+                        rightPin = SpriteCache.pinResource(res, rightDrawableId, rightTimingId);
+                    } catch (RuntimeException e) {
+                        leftPin.unpin();
+                        leftPin = null;
+                        throw e;
+                    }
                 }
             } else if (custom != null) {
                 custom.ensureKeys();
                 leftPin = SpriteCache.pin(custom.leftKey, custom.leftFactory);
-                try {
-                    rightPin = SpriteCache.pin(custom.rightKey, custom.rightFactory);
-                } catch (RuntimeException e) {
-                    leftPin.unpin();
-                    leftPin = null;
-                    throw e;
+                if (custom.leftKey.equals(custom.rightKey)) {
+                    rightPin = leftPin;
+                } else {
+                    try {
+                        rightPin = SpriteCache.pin(custom.rightKey, custom.rightFactory);
+                    } catch (RuntimeException e) {
+                        leftPin.unpin();
+                        leftPin = null;
+                        throw e;
+                    }
                 }
             }
         }
@@ -632,15 +676,17 @@ public class PonyAction {
             return;
         }
         synchronized (this) {
-            if (leftPin != null) {
-                leftPin.unpin();
-                leftPin = null;
-            }
-            if (rightPin != null) {
-                rightPin.unpin();
-                rightPin = null;
-            }
+            SpriteCache.Pin left = leftPin;
+            SpriteCache.Pin right = rightPin;
+            leftPin = null;
+            rightPin = null;
             sprites = null;
+            if (left != null) {
+                left.unpin();
+            }
+            if (right != null && right != left) {
+                right.unpin();
+            }
         }
     }
     

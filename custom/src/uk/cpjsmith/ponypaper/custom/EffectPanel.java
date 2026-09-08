@@ -91,6 +91,10 @@ final class EffectPanel extends JPanel {
     private JPanel placementRightCol;
     private JPanel spriteLeftBlock;
     private JPanel spriteRightBlock;
+    private JPanel spritesRow;
+    private JButton copyLeftButton;
+    private JButton copyRightButton;
+    private boolean keepSplitSpritePanels;
 
     EffectPanel(Host host) {
         super(new BorderLayout());
@@ -247,11 +251,13 @@ final class EffectPanel extends JPanel {
         timingsRightMinus = rightAdjust[0];
         timingsRightPlus = rightAdjust[1];
 
+        copyLeftButton = button("Copy →", e -> copyOrUnlinkFacing("left"));
+        copyRightButton = button("Copy →", e -> copyOrUnlinkFacing("right"));
         spriteLeftBlock = spriteBlock("left", timingsLeftField, timingsLeftMinus, timingsLeftPlus,
-                imageLeftStatus);
+                imageLeftStatus, copyLeftButton);
         spriteRightBlock = spriteBlock("right", timingsRightField, timingsRightMinus, timingsRightPlus,
-                imageRightStatus);
-        JPanel spritesRow = new JPanel(new GridLayout(1, 2, 6, 0));
+                imageRightStatus, copyRightButton);
+        spritesRow = new JPanel(new GridLayout(1, 2, 6, 0));
         spritesRow.add(spriteLeftBlock);
         spritesRow.add(spriteRightBlock);
         form.add(spritesRow, fullWidth(row++));
@@ -308,6 +314,9 @@ final class EffectPanel extends JPanel {
      * update labels. XML direction tokens stay left/right.
      */
     void refreshFacingLabels() {
+        if (host == null || host.editor() == null) {
+            return;
+        }
         boolean vertical = WanderTarget.WANDER_VERTICAL.equals(
                 WanderTarget.normalizeWander(host.editor().getWander()));
         String leftName = vertical ? "back" : "left";
@@ -324,8 +333,30 @@ final class EffectPanel extends JPanel {
         placementRight.setToolTipText("Point on the pony image when facing " + rightName + ".");
         centeringRight.setToolTipText(
                 "Point on the effect image aligned to placement (facing " + rightName + ").");
-        setSpriteBlockTitle(spriteLeftBlock, leftName);
+        boolean collapse = facingSpritesLinked();
+        if (collapse) {
+            setSpriteBlockTitle(spriteLeftBlock, vertical ? "both (back/front)" : "both facings");
+        } else {
+            setSpriteBlockTitle(spriteLeftBlock, leftName);
+        }
         setSpriteBlockTitle(spriteRightBlock, rightName);
+        if (copyLeftButton != null) {
+            if (collapse) {
+                copyLeftButton.setText("Unlink");
+                copyLeftButton.setToolTipText(
+                        "Show both facings again so you can give them different sheets.");
+            } else {
+                copyLeftButton.setText("Copy →");
+                copyLeftButton.setToolTipText(
+                        "Use this sheet and timings for both facings (no flop).");
+            }
+        }
+        if (copyRightButton != null) {
+            copyRightButton.setText("Copy →");
+            copyRightButton.setToolTipText(
+                    "Use this sheet and timings for both facings (no flop).");
+        }
+        refreshSpriteLayout(collapse);
     }
 
     private static void setSpriteBlockTitle(JPanel block, String directionName) {
@@ -347,6 +378,7 @@ final class EffectPanel extends JPanel {
 
     void setEffect(int index) {
         currentIndex = index;
+        keepSplitSpritePanels = false;
         suppressListeners = true;
         try {
             boolean enabled = index >= 0;
@@ -366,6 +398,7 @@ final class EffectPanel extends JPanel {
                 timingsRightField.setText("");
                 imageLeftStatus.setText(" ");
                 imageRightStatus.setText(" ");
+                refreshFacingLabels();
                 return;
             }
             PonyEditor editor = host.editor();
@@ -384,6 +417,7 @@ final class EffectPanel extends JPanel {
             timingsRightField.setText(editor.getEffectTimings(index, "right"));
             refreshImageStatus("left");
             refreshImageStatus("right");
+            refreshFacingLabels();
         } finally {
             suppressListeners = false;
         }
@@ -455,7 +489,7 @@ final class EffectPanel extends JPanel {
     }
 
     private JPanel spriteBlock(String direction, JTextField timingsField, JButton timingsMinus,
-            JButton timingsPlus, JLabel status) {
+            JButton timingsPlus, JLabel status, JButton copyButton) {
         JPanel block = new JPanel();
         block.setLayout(new BoxLayout(block, BoxLayout.Y_AXIS));
         block.setBorder(BorderFactory.createCompoundBorder(
@@ -468,9 +502,10 @@ final class EffectPanel extends JPanel {
         buttons.setAlignmentX(Component.LEFT_ALIGNMENT);
         buttons.add(button("Import image", e -> importImage(direction)));
         buttons.add(button("Import frames", e -> importFrames(direction)));
-        buttons.add(button("Mirror →", e -> mirrorFacing(direction)));
+        buttons.add(copyButton);
         buttons.add(button("Preview", e -> previewImage(direction)));
         buttons.add(button("Export", e -> exportSpritesheet(direction)));
+        buttons.add(button("Mirror →", e -> mirrorFacing(direction)));
         block.add(buttons);
 
         status.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -487,7 +522,14 @@ final class EffectPanel extends JPanel {
                 if (suppressListeners || currentIndex < 0) {
                     return;
                 }
+                boolean keepLinked = facingSpritesLinked();
                 host.editor().setEffectTimings(currentIndex, direction, timingsField.getText());
+                if (keepLinked) {
+                    String other = PonyDefinition.oppositeFacing(direction);
+                    if (other != null) {
+                        host.editor().setEffectTimings(currentIndex, other, timingsField.getText());
+                    }
+                }
                 host.markDirty();
             }
         });
@@ -531,7 +573,11 @@ final class EffectPanel extends JPanel {
                 if (file.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".gif")) {
                     importGif(direction, file);
                 } else {
+                    boolean keepLinked = facingSpritesLinked();
                     host.editor().loadEffectSprite(currentIndex, direction, file);
+                    if (keepLinked) {
+                        host.editor().copyEffectSprite(currentIndex, direction);
+                    }
                     setEffect(currentIndex);
                     host.markDirty();
                 }
@@ -574,7 +620,11 @@ final class EffectPanel extends JPanel {
         if (gif.timingsCs != null) {
             options.timingsCs = ImageImport.permute(gif.timingsCs, packed.order);
         }
+        boolean keepLinked = facingSpritesLinked();
         host.editor().loadEffectSpriteFromFrames(currentIndex, direction, frames, options);
+        if (keepLinked) {
+            host.editor().copyEffectSprite(currentIndex, direction);
+        }
         setEffect(currentIndex);
         host.markDirty();
         previewImage(direction);
@@ -625,7 +675,11 @@ final class EffectPanel extends JPanel {
             ImageImport.PackOptions options = new ImageImport.PackOptions();
             options.lifts = packed.lifts;
             packed.copyScaleTo(options);
+            boolean keepLinked = facingSpritesLinked();
             host.editor().loadEffectSpriteFromFrames(currentIndex, direction, ordered, options);
+            if (keepLinked) {
+                host.editor().copyEffectSprite(currentIndex, direction);
+            }
             setEffect(currentIndex);
             host.markDirty();
             previewImage(direction);
@@ -643,6 +697,57 @@ final class EffectPanel extends JPanel {
         }
         try {
             host.editor().mirrorEffectSprite(currentIndex, fromDirection);
+            keepSplitSpritePanels = true;
+            setEffect(currentIndex);
+            host.markDirty();
+        } catch (PonyEditor.GenericException e) {
+            JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private boolean facingSpritesLinked() {
+        return currentIndex >= 0 && !keepSplitSpritePanels
+                && host != null && host.editor() != null
+                && host.editor().effectSharesFacingSprites(currentIndex);
+    }
+
+    private void refreshSpriteLayout(boolean collapse) {
+        if (spritesRow == null || spriteLeftBlock == null || spriteRightBlock == null) {
+            return;
+        }
+        spritesRow.removeAll();
+        if (collapse) {
+            spritesRow.setLayout(new GridLayout(1, 1, 6, 0));
+            spritesRow.add(spriteLeftBlock);
+        } else {
+            spritesRow.setLayout(new GridLayout(1, 2, 6, 0));
+            spritesRow.add(spriteLeftBlock);
+            spritesRow.add(spriteRightBlock);
+        }
+        spriteRightBlock.setVisible(!collapse);
+        spritesRow.revalidate();
+        spritesRow.repaint();
+    }
+
+    private void copyOrUnlinkFacing(String fromDirection) {
+        if (currentIndex < 0) {
+            return;
+        }
+        if (facingSpritesLinked()) {
+            keepSplitSpritePanels = true;
+            refreshFacingLabels();
+            return;
+        }
+        copyFacing(fromDirection);
+    }
+
+    private void copyFacing(String fromDirection) {
+        if (currentIndex < 0) {
+            return;
+        }
+        try {
+            host.editor().copyEffectSprite(currentIndex, fromDirection);
+            keepSplitSpritePanels = false;
             setEffect(currentIndex);
             host.markDirty();
         } catch (PonyEditor.GenericException e) {

@@ -375,6 +375,19 @@ public class PonyEditorCLI {
                         }
                         break;
                     }
+                    case "-copy-facing":
+                    {
+                        checkArgument(args, i);
+                        if (currentAction < 0) throw new PonyEditor.GenericException("", "No current action for " + args[i]);
+                        String fromDir = args[++i];
+                        try {
+                            editor.copyActionSprite(currentAction, fromDir);
+                            guiDirty = true;
+                        } catch (IndexOutOfBoundsException e) {
+                            throw new PonyEditor.GenericException("", "Can't copy from direction " + fromDir);
+                        }
+                        break;
+                    }
                     case "-start":
                         checkArgument(args, i);
                         editor.setStartActions(args[++i]);
@@ -518,6 +531,9 @@ public class PonyEditorCLI {
         System.out.println("-mirror-facing DIRECTION");
         System.out.println("    Build the opposite facing by flopping each cell of DIRECTION's sheet");
         System.out.println("    (same frame order). Copies timings and mirrors explicit anchorx.");
+        System.out.println("-copy-facing DIRECTION");
+        System.out.println("    Copy DIRECTION's sheet, timings, and anchors onto the opposite facing");
+        System.out.println("    with no flop. Use when both facings share the same art.");
     }
 
     /** True when {@code arg} is a known CLI flag (stops variable-length file lists). */
@@ -545,6 +561,7 @@ public class PonyEditorCLI {
             case "-scale":
             case "-lifts":
             case "-mirror-facing":
+            case "-copy-facing":
             case "-start":
             case "-crossing":
             case "-defaultdrag":

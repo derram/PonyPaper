@@ -41,6 +41,7 @@ public final class PonyEditorCLITest {
         failures += run("dashLoadStillWorks", PonyEditorCLITest::testDashLoadStillWorks);
         failures += run("unknownFlagStillErrors", PonyEditorCLITest::testUnknownFlagStillErrors);
         failures += run("bareThenSaveDoesNotOpenGui", PonyEditorCLITest::testBareThenSaveDoesNotOpenGui);
+        failures += run("copyFacingWritesSharedXml", PonyEditorCLITest::testCopyFacingWritesSharedXml);
         if (failures > 0) {
             System.err.println(failures + " editor CLI check(s) failed.");
             System.exit(1);
@@ -121,6 +122,57 @@ public final class PonyEditorCLITest {
         }
         if (!in.equals(cli.getLoadedFile())) {
             throw new AssertionError("loaded file was " + cli.getLoadedFile());
+        }
+    }
+
+    private static void testCopyFacingWritesSharedXml() throws Exception {
+        String splitXml =
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                + "<pony>\n"
+                + "  <action name=\"stand\">\n"
+                + "    <image direction=\"left\">AAA</image>\n"
+                + "    <timings direction=\"left\">10</timings>\n"
+                + "    <image direction=\"right\">BBB</image>\n"
+                + "    <timings direction=\"right\">20</timings>\n"
+                + "    <nextactions type=\"waiting\">stand</nextactions>\n"
+                + "    <nextactions type=\"moving\">trot</nextactions>\n"
+                + "  </action>\n"
+                + "  <action name=\"trot\">\n"
+                + "    <image>x</image>\n"
+                + "    <timings>10</timings>\n"
+                + "    <nextactions type=\"waiting\">stand</nextactions>\n"
+                + "    <nextactions type=\"moving\">trot</nextactions>\n"
+                + "  </action>\n"
+                + "  <startactions>trot</startactions>\n"
+                + "  <defaultdrag>trot</defaultdrag>\n"
+                + "</pony>\n";
+        File in = tempXml("split.xml", splitXml);
+        File out = tempXml("shared.xml", "");
+        PonyEditorCLI cli = new PonyEditorCLI();
+        cli.processArguments(new String[] {
+            in.getAbsolutePath(),
+            "-action", "stand",
+            "-copy-facing", "left",
+            "-save", out.getAbsolutePath()
+        });
+        if (cli.hadError()) {
+            throw new AssertionError("-copy-facing then -save must not error");
+        }
+        if (!cli.getEditor().actionSharesFacingSprites(0)) {
+            throw new AssertionError("stand should share facings after -copy-facing left");
+        }
+        String saved = new String(java.nio.file.Files.readAllBytes(out.toPath()), StandardCharsets.UTF_8);
+        int standAt = saved.indexOf("<action name=\"stand\">");
+        int trotAt = saved.indexOf("<action name=\"trot\">");
+        if (standAt < 0 || trotAt < 0) {
+            throw new AssertionError("missing actions in saved XML: " + saved);
+        }
+        String standXml = saved.substring(standAt, trotAt);
+        if (standXml.contains("<image direction=")) {
+            throw new AssertionError("copied stand should write a bare <image>: " + standXml);
+        }
+        if (!standXml.contains("<image>") || !standXml.contains("<timings>10</timings>")) {
+            throw new AssertionError("copied stand missing bare image/timings: " + standXml);
         }
     }
 

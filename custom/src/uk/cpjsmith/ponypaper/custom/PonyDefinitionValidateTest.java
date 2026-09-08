@@ -78,6 +78,18 @@ public final class PonyDefinitionValidateTest {
                 PonyDefinitionValidateTest::testStartOrCrossingRequired);
         failures += run("crossingCountsAsLeave",
                 PonyDefinitionValidateTest::testCrossingCountsAsLeave);
+        failures += run("sharedFacingRoundTripXml",
+                PonyDefinitionValidateTest::testSharedFacingRoundTripXml);
+        failures += run("differentFacingsStayDirected",
+                PonyDefinitionValidateTest::testDifferentFacingsStayDirected);
+        failures += run("bareImageRightOverride",
+                PonyDefinitionValidateTest::testBareImageRightOverride);
+        failures += run("directionBothFillsBothFacings",
+                PonyDefinitionValidateTest::testDirectionBothFillsBothFacings);
+        failures += run("onlyLeftImageInvalid",
+                PonyDefinitionValidateTest::testOnlyLeftImageInvalid);
+        failures += run("sharedEffectRoundTripXml",
+                PonyDefinitionValidateTest::testSharedEffectRoundTripXml);
         if (failures > 0) {
             System.err.println(failures + " definition check(s) failed.");
             System.exit(1);
@@ -539,6 +551,150 @@ public final class PonyDefinitionValidateTest {
         assertInvalid(def, "Start or crossing actions must list at least one real action");
     }
 
+    private static void testSharedFacingRoundTripXml() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        def.validate();
+        String xml = writeXml(def);
+        if (xml.contains("direction=\"left\"") || xml.contains("direction=\"right\"")) {
+            throw new AssertionError("identical sheets should write bare image/timings: " + xml);
+        }
+        if (!xml.contains("<image>") || !xml.contains("<timings>10</timings>")) {
+            throw new AssertionError("missing bare image/timings: " + xml);
+        }
+        PonyDefinition loaded = parseXml(xml);
+        loaded.validate();
+        if (!"x".equals(loaded.actions[0].images.get("left"))
+                || !"x".equals(loaded.actions[0].images.get("right"))) {
+            throw new AssertionError("bare image did not fill both facings");
+        }
+        if (!"10".equals(loaded.actions[0].timings.get("left"))
+                || !"10".equals(loaded.actions[0].timings.get("right"))) {
+            throw new AssertionError("bare timings did not fill both facings");
+        }
+        if (!PonyDefinition.sharesFacingSprites(loaded.actions[0].images, loaded.actions[0].timings)) {
+            throw new AssertionError("expected sharesFacingSprites after reload");
+        }
+    }
+
+    private static void testDifferentFacingsStayDirected() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        def.actions[0].images.put("right", "yyyy");
+        def.actions[0].timings.put("right", "20");
+        def.validate();
+        String xml = writeXml(def);
+        if (!xml.contains("direction=\"left\"") || !xml.contains("direction=\"right\"")) {
+            throw new AssertionError("different images should stay directed: " + xml);
+        }
+        if (xml.contains("<image>") && !xml.contains("<image direction=")) {
+            throw new AssertionError("should not write a bare image when facings differ: " + xml);
+        }
+        PonyDefinition loaded = parseXml(xml);
+        loaded.validate();
+        if (!"x".equals(loaded.actions[0].images.get("left"))
+                || !"yyyy".equals(loaded.actions[0].images.get("right"))) {
+            throw new AssertionError("directed images lost on reload");
+        }
+    }
+
+    private static void testBareImageRightOverride() throws Exception {
+        PonyDefinition loaded = parseXml(ponyXml(
+                "    <action name=\"stand\">\n"
+                + "      <image>AAA</image>\n"
+                + "      <image direction=\"right\">BBB</image>\n"
+                + "      <timings>10</timings>\n"
+                + "      <nextactions type=\"waiting\">stand</nextactions>\n"
+                + "      <nextactions type=\"moving\">trot</nextactions>\n"
+                + "    </action>\n"
+                + "    <action name=\"trot\">\n"
+                + "      <image>x</image>\n"
+                + "      <timings>10</timings>\n"
+                + "      <nextactions type=\"waiting\">stand</nextactions>\n"
+                + "      <nextactions type=\"moving\">trot</nextactions>\n"
+                + "    </action>\n"));
+        loaded.validate();
+        if (!"AAA".equals(loaded.actions[0].images.get("left"))
+                || !"BBB".equals(loaded.actions[0].images.get("right"))) {
+            throw new AssertionError("expected bare image with right override, got left="
+                    + loaded.actions[0].images.get("left") + " right="
+                    + loaded.actions[0].images.get("right"));
+        }
+        if (!"10".equals(loaded.actions[0].timings.get("left"))
+                || !"10".equals(loaded.actions[0].timings.get("right"))) {
+            throw new AssertionError("bare timings should fill both facings");
+        }
+    }
+
+    private static void testDirectionBothFillsBothFacings() throws Exception {
+        PonyDefinition loaded = parseXml(ponyXml(
+                "    <action name=\"stand\">\n"
+                + "      <image direction=\"both\">AAA</image>\n"
+                + "      <timings direction=\"both\">10</timings>\n"
+                + "      <nextactions type=\"waiting\">stand</nextactions>\n"
+                + "      <nextactions type=\"moving\">trot</nextactions>\n"
+                + "    </action>\n"
+                + "    <action name=\"trot\">\n"
+                + "      <image direction=\"both\">x</image>\n"
+                + "      <timings direction=\"both\">10</timings>\n"
+                + "      <nextactions type=\"waiting\">stand</nextactions>\n"
+                + "      <nextactions type=\"moving\">trot</nextactions>\n"
+                + "    </action>\n"));
+        loaded.validate();
+        if (!"AAA".equals(loaded.actions[0].images.get("left"))
+                || !"AAA".equals(loaded.actions[0].images.get("right"))) {
+            throw new AssertionError("direction=both should fill both image slots");
+        }
+    }
+
+    private static void testOnlyLeftImageInvalid() throws Exception {
+        PonyDefinition loaded = parseXml(ponyXml(
+                "    <action name=\"stand\">\n"
+                + "      <image direction=\"left\">x</image>\n"
+                + "      <timings direction=\"left\">10</timings>\n"
+                + "      <nextactions type=\"waiting\">stand</nextactions>\n"
+                + "      <nextactions type=\"moving\">trot</nextactions>\n"
+                + "    </action>\n"
+                + "    <action name=\"trot\">\n"
+                + "      <image>x</image>\n"
+                + "      <timings>10</timings>\n"
+                + "      <nextactions type=\"waiting\">stand</nextactions>\n"
+                + "      <nextactions type=\"moving\">trot</nextactions>\n"
+                + "    </action>\n"));
+        assertInvalid(loaded, "Missing right image");
+    }
+
+    private static void testSharedEffectRoundTripXml() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        PonyDefinition.Effect e = effect("Sparkle", "trot", true);
+        def.effects = new PonyDefinition.Effect[] { e };
+        def.validate();
+        String xml = writeXml(def);
+        int effectAt = xml.indexOf("<effect");
+        if (effectAt < 0) {
+            throw new AssertionError("missing effect: " + xml);
+        }
+        String effectXml = xml.substring(effectAt);
+        if (effectXml.contains("<image direction=")) {
+            throw new AssertionError("identical effect sheets should write bare image: " + effectXml);
+        }
+        if (!effectXml.contains("<image>") || !effectXml.contains("<timings>10</timings>")) {
+            throw new AssertionError("missing bare effect image/timings: " + effectXml);
+        }
+        PonyDefinition loaded = parseXml(xml);
+        loaded.validate();
+        if (!PonyDefinition.sharesFacingSprites(loaded.effects[0].images, loaded.effects[0].timings)) {
+            throw new AssertionError("effect should share facing sprites after reload");
+        }
+        if (!"Center".equals(loaded.effects[0].placement.get("left"))) {
+            throw new AssertionError("placement should still be per-facing");
+        }
+    }
+
     private static void testCrossingCountsAsLeave() throws Exception {
         // Idle-only graph from start, but crossing bag provides the leave path.
         PonyDefinition def = pony(
@@ -549,6 +705,28 @@ public final class PonyDefinitionValidateTest {
         def.crossingActions = "trotcycle";
         def.defaultDrag = "stand";
         def.validate();
+    }
+
+    private static String writeXml(PonyDefinition def) {
+        java.io.StringWriter sw = new java.io.StringWriter();
+        def.writeDefinition(new java.io.PrintWriter(sw));
+        return sw.toString();
+    }
+
+    private static PonyDefinition parseXml(String xml) throws Exception {
+        javax.xml.parsers.DocumentBuilder builder =
+                javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder();
+        return new PonyDefinition(builder.parse(
+                new org.xml.sax.InputSource(new java.io.StringReader(xml))));
+    }
+
+    private static String ponyXml(String actionsXml) {
+        return "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                + "<pony>\n"
+                + actionsXml
+                + "    <startactions>trot</startactions>\n"
+                + "    <defaultdrag>trot</defaultdrag>\n"
+                + "</pony>\n";
     }
 
     private static PonyDefinition.Effect effect(String name, String trigger, boolean follow) {

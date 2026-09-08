@@ -14,6 +14,10 @@ public final class PonyEditorEffectTest {
         failures += run("renameActionRewritesTrigger", PonyEditorEffectTest::testRenameActionRewritesTrigger);
         failures += run("deleteActionRemovesOrphanEffect", PonyEditorEffectTest::testDeleteActionRemovesOrphanEffect);
         failures += run("duplicateEffectNameRejected", PonyEditorEffectTest::testDuplicateEffectNameRejected);
+        failures += run("copyActionSpriteSharesFacings",
+                PonyEditorEffectTest::testCopyActionSpriteSharesFacings);
+        failures += run("copyEffectSpriteSharesFacings",
+                PonyEditorEffectTest::testCopyEffectSpriteSharesFacings);
         if (failures > 0) {
             System.err.println(failures + " editor effect check(s) failed.");
             System.exit(1);
@@ -107,5 +111,100 @@ public final class PonyEditorEffectTest {
         } catch (IllegalArgumentException expected) {
             // ok
         }
+    }
+
+    private static void testCopyActionSpriteSharesFacings() throws Exception {
+        java.io.File file = java.io.File.createTempFile("copy-action", ".xml");
+        file.deleteOnExit();
+        java.nio.file.Files.writeString(file.toPath(), ponyXml(
+                "  <action name=\"stand\">\n"
+                + "    <image direction=\"left\">AAA</image>\n"
+                + "    <timings direction=\"left\">10</timings>\n"
+                + "    <image direction=\"right\">BBB</image>\n"
+                + "    <timings direction=\"right\">20</timings>\n"
+                + "    <nextactions type=\"waiting\">stand</nextactions>\n"
+                + "    <nextactions type=\"moving\">trot</nextactions>\n"
+                + "  </action>\n"
+                + "  <action name=\"trot\">\n"
+                + "    <image>x</image>\n"
+                + "    <timings>10</timings>\n"
+                + "    <nextactions type=\"waiting\">stand</nextactions>\n"
+                + "    <nextactions type=\"moving\">trot</nextactions>\n"
+                + "  </action>\n"));
+        PonyEditor editor = new PonyEditor();
+        editor.load(file);
+        if (editor.actionSharesFacingSprites(0)) {
+            throw new AssertionError("should not share before copy");
+        }
+        editor.copyActionSprite(0, "left");
+        if (!editor.actionSharesFacingSprites(0)) {
+            throw new AssertionError("copy should share facings");
+        }
+        if (!"AAA".equals(editor.getActionImage(0, "right"))
+                || !"10".equals(editor.getActionTimings(0, "right"))) {
+            throw new AssertionError("right should match left after copy");
+        }
+        float leftAx = editor.getActionAnchorX(0, "left");
+        float rightAx = editor.getActionAnchorX(0, "right");
+        if (Float.isNaN(leftAx) != Float.isNaN(rightAx)
+                || (!Float.isNaN(leftAx) && leftAx != rightAx)) {
+            throw new AssertionError("copy should copy anchors as-is");
+        }
+    }
+
+    private static void testCopyEffectSpriteSharesFacings() throws Exception {
+        java.io.File file = java.io.File.createTempFile("copy-effect", ".xml");
+        file.deleteOnExit();
+        java.nio.file.Files.writeString(file.toPath(), ponyXml(
+                "  <action name=\"stand\">\n"
+                + "    <image>x</image>\n"
+                + "    <timings>10</timings>\n"
+                + "    <nextactions type=\"waiting\">stand</nextactions>\n"
+                + "    <nextactions type=\"moving\">trot</nextactions>\n"
+                + "  </action>\n"
+                + "  <action name=\"trot\">\n"
+                + "    <image>x</image>\n"
+                + "    <timings>10</timings>\n"
+                + "    <nextactions type=\"waiting\">stand</nextactions>\n"
+                + "    <nextactions type=\"moving\">trot</nextactions>\n"
+                + "  </action>\n"
+                + "  <effect name=\"Sparkle\">\n"
+                + "    <action>trot</action>\n"
+                + "    <duration>1</duration>\n"
+                + "    <placement direction=\"left\">Left</placement>\n"
+                + "    <placement direction=\"right\">Right</placement>\n"
+                + "    <centering direction=\"left\">Center</centering>\n"
+                + "    <centering direction=\"right\">Center</centering>\n"
+                + "    <image direction=\"left\">AAA</image>\n"
+                + "    <timings direction=\"left\">10</timings>\n"
+                + "    <image direction=\"right\">BBB</image>\n"
+                + "    <timings direction=\"right\">20</timings>\n"
+                + "  </effect>\n"));
+        PonyEditor editor = new PonyEditor();
+        editor.load(file);
+        if (editor.effectSharesFacingSprites(0)) {
+            throw new AssertionError("effect should not share before copy");
+        }
+        editor.copyEffectSprite(0, "left");
+        if (!editor.effectSharesFacingSprites(0)) {
+            throw new AssertionError("copy should share effect facings");
+        }
+        if (!"AAA".equals(editor.getEffectImage(0, "right"))
+                || !"10".equals(editor.getEffectTimings(0, "right"))) {
+            throw new AssertionError("right effect sheet should match left after copy");
+        }
+        if (!"Left".equals(editor.getEffectPlacement(0, "left"))
+                || !"Right".equals(editor.getEffectPlacement(0, "right"))) {
+            throw new AssertionError("copy must not change per-facing placement");
+        }
+    }
+
+    private static String ponyXml(String body) {
+        return "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                + "<pony>\n"
+                + body
+                + "  <startactions>trot</startactions>\n"
+                + "  <defaultdrag>trot</defaultdrag>\n"
+                + "</pony>\n";
     }
 }

@@ -70,14 +70,27 @@ final class PonyEffectDef {
         this.placementRight = cellIndex(def.placement.get("right"));
         this.centeringLeft = cellIndex(def.centering.get("left"));
         this.centeringRight = cellIndex(def.centering.get("right"));
-        this.leftBytes = Base64.decode(def.images.get("left"), 0);
-        this.rightBytes = Base64.decode(def.images.get("right"), 0);
-        this.leftTimes = parseTimes(def.timings.get("left"));
-        this.rightTimes = parseTimes(def.timings.get("right"));
+        String leftB64 = def.images.get("left");
+        String rightB64 = def.images.get("right");
+        String leftTimingText = def.timings.get("left");
+        String rightTimingText = def.timings.get("right");
+        this.leftBytes = Base64.decode(leftB64, 0);
+        this.leftTimes = parseTimes(leftTimingText);
         validateSide(leftBytes, leftTimes, "left");
-        validateSide(rightBytes, rightTimes, "right");
-        this.leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
-        this.rightFactory = SpriteCache.bytesFactory(rightBytes, rightTimes);
+        boolean shared = leftB64 != null && leftB64.equals(rightB64)
+                && leftTimingText != null && leftTimingText.equals(rightTimingText);
+        if (shared) {
+            this.rightBytes = leftBytes;
+            this.rightTimes = leftTimes;
+            this.leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
+            this.rightFactory = leftFactory;
+        } else {
+            this.rightBytes = Base64.decode(rightB64, 0);
+            this.rightTimes = parseTimes(rightTimingText);
+            validateSide(rightBytes, rightTimes, "right");
+            this.leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
+            this.rightFactory = SpriteCache.bytesFactory(rightBytes, rightTimes);
+        }
     }
 
     boolean triggersOn(PonyAction action) {
@@ -101,15 +114,21 @@ final class PonyEffectDef {
                 leftKey = SpriteCache.bytesKey(leftBytes, leftTimes);
             }
             if (rightKey == null) {
-                rightKey = SpriteCache.bytesKey(rightBytes, rightTimes);
+                rightKey = (rightBytes == leftBytes && rightTimes == leftTimes)
+                        ? leftKey
+                        : SpriteCache.bytesKey(rightBytes, rightTimes);
             }
             leftPin = SpriteCache.pin(leftKey, leftFactory);
-            try {
-                rightPin = SpriteCache.pin(rightKey, rightFactory);
-            } catch (RuntimeException e) {
-                leftPin.unpin();
-                leftPin = null;
-                throw e;
+            if (leftKey.equals(rightKey)) {
+                rightPin = leftPin;
+            } else {
+                try {
+                    rightPin = SpriteCache.pin(rightKey, rightFactory);
+                } catch (RuntimeException e) {
+                    leftPin.unpin();
+                    leftPin = null;
+                    throw e;
+                }
             }
         }
     }
@@ -141,15 +160,17 @@ final class PonyEffectDef {
 
     void unload() {
         synchronized (this) {
-            if (leftPin != null) {
-                leftPin.unpin();
-                leftPin = null;
-            }
-            if (rightPin != null) {
-                rightPin.unpin();
-                rightPin = null;
-            }
+            SpriteCache.Pin left = leftPin;
+            SpriteCache.Pin right = rightPin;
+            leftPin = null;
+            rightPin = null;
             sprites = null;
+            if (left != null) {
+                left.unpin();
+            }
+            if (right != null && right != left) {
+                right.unpin();
+            }
         }
     }
 
