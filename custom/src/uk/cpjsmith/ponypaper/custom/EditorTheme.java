@@ -133,5 +133,14 @@ public final class EditorTheme {
         UIManager.put("ScrollBar.showButtons", false);
         UIManager.put("TitlePane.unifiedBackground", Boolean.TRUE);
         UIManager.put("MenuItem.selectionType", "underline");
+        // FlatLaf inactive titles are nearly the same grey as active; push more
+        // contrast so a blocked owner is readable even before the dim overlay.
+        if (dark) {
+            UIManager.put("TitlePane.inactiveBackground", new Color(0x16, 0x16, 0x1A));
+            UIManager.put("TitlePane.inactiveForeground", new Color(0x7A, 0x7A, 0x84));
+        } else {
+            UIManager.put("TitlePane.inactiveBackground", new Color(0xC4, 0xC4, 0xCC));
+            UIManager.put("TitlePane.inactiveForeground", new Color(0x5A, 0x5A, 0x64));
+        }
     }
 }

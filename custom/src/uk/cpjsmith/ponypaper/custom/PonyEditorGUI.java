@@ -3180,6 +3180,7 @@ public class PonyEditorGUI extends JPanel {
             frame.setExtendedState(frame.getExtendedState() | JFrame.MAXIMIZED_BOTH);
         }
         EditorWindowPrefs.installPersistence(frame);
+        EditorWindowFocus.install(frame);
         frame.setVisible(true);
     }
     

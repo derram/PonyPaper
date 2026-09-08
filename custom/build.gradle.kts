@@ -210,6 +210,13 @@ tasks.register<JavaExec>("testEditorCli") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.PonyEditorCLITest")
 }
 
+tasks.register<JavaExec>("testEditorWindowFocus") {
+    group = "verification"
+    description = "Run editor owner-window dimming checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.EditorWindowFocusTest")
+}
+
 tasks.register<JavaExec>("testSpawnYBand") {
     group = "verification"
     description = "Run feet-anchored spawn Y inset checks"
@@ -238,4 +245,5 @@ tasks.named("check") {
     dependsOn("testDefinitionCache")
     dependsOn("testInactivePick")
     dependsOn("testEditorCli")
+    dependsOn("testEditorWindowFocus")
 }
