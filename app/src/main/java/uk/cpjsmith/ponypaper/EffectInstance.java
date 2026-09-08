@@ -106,14 +106,49 @@ final class EffectInstance {
         if (time >= total) {
             time = total - 1;
         }
+        if (!fillDrawRect(dstScratch)) {
+            return;
+        }
+        sheet.getRect(time, srcScratch);
+        c.drawBitmap(draw, srcScratch, dstScratch, null);
+    }
+
+    /**
+     * Destination of the current scaled frame (same rounding as {@link #drawOn}).
+     *
+     * @return false when there is no sheet, leaving {@code out} empty
+     */
+    boolean fillDrawRect(Rect out) {
+        SpriteSheet sheet = def.sheet(facing);
+        if (sheet == null || out == null) {
+            if (out != null) {
+                out.setEmpty();
+            }
+            return false;
+        }
         float scale = parent != null ? parent.getScale() : 1f;
         int w = Math.round(sheet.frameWidth * scale);
         int h = Math.round(sheet.frameHeight * scale);
-        sheet.getRect(time, srcScratch);
         int left = Math.round(originX);
         int top = Math.round(originY);
-        dstScratch.set(left, top, left + w, top + h);
-        c.drawBitmap(draw, srcScratch, dstScratch, null);
+        out.set(left, top, left + w, top + h);
+        return w > 0 && h > 0;
+    }
+
+    /**
+     * True when this effect's draw rect overlaps the parent's current sprite.
+     * Used to keep character VFX in the parent's draw group.
+     */
+    boolean overlapsParent(RectF ponyScratch, Rect destScratch) {
+        if (parent == null || ponyScratch == null || destScratch == null) {
+            return false;
+        }
+        parent.fillCurrentDrawBounds(ponyScratch);
+        if (ponyScratch.isEmpty() || !fillDrawRect(destScratch)) {
+            return false;
+        }
+        return ponyScratch.left < destScratch.right && ponyScratch.right > destScratch.left
+                && ponyScratch.top < destScratch.bottom && ponyScratch.bottom > destScratch.top;
     }
 
     /** Rough sort key: bottom of the effect sprite (Y-depth). */

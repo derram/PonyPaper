@@ -36,6 +36,16 @@ public class Ponies implements Pony.EffectHost {
             return yL < yR ? -1 : yL > yR ? 1 : 0;
         }
     };
+
+    private static final Comparator<EffectInstance> comparePlantedY =
+            new Comparator<EffectInstance>() {
+        @Override
+        public int compare(EffectInstance a, EffectInstance b) {
+            int yA = a.sortY();
+            int yB = b.sortY();
+            return yA < yB ? -1 : yA > yB ? 1 : 0;
+        }
+    };
     
     private int activeCount;
     
@@ -60,6 +70,10 @@ public class Ponies implements Pony.EffectHost {
     private final int[] effectPlaceScratch = new int[1];
     /** Live effect sprites (not pony herd slots). */
     private final ArrayList<EffectInstance> effectInstances = new ArrayList<EffectInstance>();
+    /** Reused each {@link #draw}: planted (non-follow) instances, Y-sorted. */
+    private final ArrayList<EffectInstance> plantedDrawList = new ArrayList<EffectInstance>();
+    /** Parallel to {@link #plantedDrawList}: overlap-parent grouping for this frame. */
+    private boolean[] plantedGroupedScratch = new boolean[8];
     /** Pending repeats while a trigger action remains current. */
     private final ArrayList<EffectRepeat> effectRepeats = new ArrayList<EffectRepeat>();
     /** 5 ints per active pony (+5 per effect); compared to skip blits. */
@@ -436,40 +450,41 @@ public class Ponies implements Pony.EffectHost {
     }
 
     void draw(Canvas c) {
-        // Draw planted effects behind/among ponies by Y, then ponies, then
-        // follow effects immediately after their parent so they stick visually.
-        ArrayList<EffectInstance> planted = null;
+        // Herd stays Y-sorted. Each pony is a group: sprite, then follow
+        // effects, then planted effects that still overlap the parent so
+        // character VFX sit on top of the body. Planted effects that no
+        // longer overlap Y-sort with the herd as world props; ponies in
+        // front still cover the whole group.
+        plantedDrawList.clear();
         for (int i = 0; i < effectInstances.size(); i++) {
             EffectInstance effect = effectInstances.get(i);
-            if (effect.def.follow) {
-                continue;
+            if (!effect.def.follow) {
+                plantedDrawList.add(effect);
             }
-            if (planted == null) {
-                planted = new ArrayList<EffectInstance>();
-            }
-            planted.add(effect);
         }
+        int nPlant = plantedDrawList.size();
+        if (nPlant > 1) {
+            java.util.Collections.sort(plantedDrawList, comparePlantedY);
+        }
+        if (plantedGroupedScratch.length < nPlant) {
+            plantedGroupedScratch = new boolean[Math.max(nPlant, plantedGroupedScratch.length * 2)];
+        }
+        for (int i = 0; i < nPlant; i++) {
+            EffectInstance effect = plantedDrawList.get(i);
+            plantedGroupedScratch[i] = parentIsActive(effect.parent)
+                    && effect.overlapsParent(effectPonyBounds, spriteDst);
+        }
+
         int ponyIndex = 0;
-        int plantIndex = 0;
-        if (planted != null) {
-            // Insertion order is fine for a small list; sort by bottom Y.
-            java.util.Collections.sort(planted, new Comparator<EffectInstance>() {
-                @Override
-                public int compare(EffectInstance a, EffectInstance b) {
-                    int yA = a.sortY();
-                    int yB = b.sortY();
-                    return yA < yB ? -1 : yA > yB ? 1 : 0;
-                }
-            });
-        }
-        while (ponyIndex < activePonies.length
-                || (planted != null && plantIndex < planted.size())) {
-            boolean drawPlant = planted != null && plantIndex < planted.size()
+        int plantIndex = nextLoosePlanted(0, nPlant);
+        while (ponyIndex < activePonies.length || plantIndex < nPlant) {
+            boolean drawPlant = plantIndex < nPlant
                     && (ponyIndex >= activePonies.length
-                    || planted.get(plantIndex).sortY() <= activePonies[ponyIndex].getY());
+                    || plantedDrawList.get(plantIndex).sortY()
+                        <= activePonies[ponyIndex].getY());
             if (drawPlant) {
-                planted.get(plantIndex).drawOn(c, spriteSrc, spriteDst);
-                plantIndex++;
+                plantedDrawList.get(plantIndex).drawOn(c, spriteSrc, spriteDst);
+                plantIndex = nextLoosePlanted(plantIndex + 1, nPlant);
             } else {
                 Pony pony = activePonies[ponyIndex];
                 pony.drawOn(c, spriteSrc, spriteDst);
@@ -479,9 +494,35 @@ public class Ponies implements Pony.EffectHost {
                         effect.drawOn(c, spriteSrc, spriteDst);
                     }
                 }
+                for (int i = 0; i < nPlant; i++) {
+                    if (plantedGroupedScratch[i]
+                            && plantedDrawList.get(i).parent == pony) {
+                        plantedDrawList.get(i).drawOn(c, spriteSrc, spriteDst);
+                    }
+                }
                 ponyIndex++;
             }
         }
+    }
+
+    /** Next planted effect that is not grouped onto its overlapping parent. */
+    private int nextLoosePlanted(int from, int nPlant) {
+        while (from < nPlant && plantedGroupedScratch[from]) {
+            from++;
+        }
+        return from;
+    }
+
+    private boolean parentIsActive(Pony parent) {
+        if (parent == null) {
+            return false;
+        }
+        for (int i = 0; i < activePonies.length; i++) {
+            if (activePonies[i] == parent) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** True when every on-screen pony is waiting or still spawning. */
