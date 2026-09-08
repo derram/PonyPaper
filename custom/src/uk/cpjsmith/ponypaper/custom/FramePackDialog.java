@@ -11,6 +11,7 @@ import java.awt.Image;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
@@ -55,12 +56,13 @@ import javax.swing.event.ListSelectionListener;
 /**
  * Modal dialog: review imported frames (PNG stills or coalesced GIF frames),
  * choose a dyadic pack scale (200%…6.25%, or fit-to-built-in), rearrange
- * playback order, set per-frame lift (or apply one value to all frames), and
- * pack. Frames taller than built-in open on Fit. Sheets over
- * {@link ImageImport#SHEET_PIXEL_BUDGET} defer the strip preview and require
- * a Pack confirmation. Lift {@code 0} is the usual bottom-centre alignment;
- * positive lift bakes a hop into a taller cell. Play loop opens a feet-locked
- * loop of the current draft before Pack. Returns {@code null} on cancel.
+ * playback order (move, reverse, clone, or delete), set per-frame lift (or
+ * apply one value to all frames), and pack. Frames taller than built-in open
+ * on Fit. Sheets over {@link ImageImport#SHEET_PIXEL_BUDGET} defer the strip
+ * preview and require a Pack confirmation. Lift {@code 0} is the usual
+ * bottom-centre alignment; positive lift bakes a hop into a taller cell. Play
+ * loop opens a feet-locked loop of the current draft before Pack. Returns
+ * {@code null} on cancel.
  */
 public final class FramePackDialog extends JDialog {
 
@@ -69,10 +71,11 @@ public final class FramePackDialog extends JDialog {
 
     /**
      * User choices after Pack. Lift values are in <em>output</em> pixels
-     * (after scale) and follow playback order. {@link #order} is a
-     * permutation of source indices ({@code 0..n-1}).
-     * {@link #scaleNumerator}/{@link #scaleDivisor} is the resolved dyadic
-     * ratio actually applied (never a "fit" sentinel).
+     * (after scale) and follow playback order. {@link #order} is a playback
+     * sequence of source indices ({@code 0..sourceCount-1}); duplicates
+     * (clone) and omissions (delete) are allowed, so its length is the packed
+     * frame count. {@link #scaleNumerator}/{@link #scaleDivisor} is the
+     * resolved dyadic ratio actually applied (never a "fit" sentinel).
      */
     public static final class Result {
         public final int[] lifts;
@@ -129,12 +132,17 @@ public final class FramePackDialog extends JDialog {
     private final List<BufferedImage> frames;
     private final List<String> names;
     /** Lift of the frame at each playback slot (travels with the frame). */
-    private final int[] lifts;
-    /** Source index at each playback slot. */
-    private final int[] order;
+    private int[] lifts;
+    /** Source index at each playback slot (duplicates and omissions allowed). */
+    private int[] order;
+    /**
+     * Last lift written for each source frame. Reset order restores the
+     * import sequence using these values.
+     */
+    private final int[] sourceLifts;
     /**
      * Optional per-source-frame timings (centiseconds), e.g. GIF delays. When
-     * length matches {@link #frames}, Play loop permutes them with
+     * length matches {@link #frames}, Play loop gathers them with
      * {@link #order}; otherwise default timing is used.
      */
     private final int[] sourceTimingsCs;
@@ -152,7 +160,11 @@ public final class FramePackDialog extends JDialog {
     private final int fitScaleDivisor;
     private final JButton moveUpButton;
     private final JButton moveDownButton;
+    private final JButton reverseButton;
     private final JButton resetOrderButton;
+    private final JButton cloneButton;
+    private final JButton deleteButton;
+    private final JButton hopButton;
     private int scaleNumerator;
     private int scaleDivisor;
     private List<BufferedImage> scaledFrames;
@@ -173,6 +185,7 @@ public final class FramePackDialog extends JDialog {
                 : null;
         this.names = new ArrayList<String>(frames.size());
         this.lifts = new int[frames.size()];
+        this.sourceLifts = new int[frames.size()];
         this.order = new int[frames.size()];
         for (int i = 0; i < frames.size(); i++) {
             this.order[i] = i;
@@ -347,15 +360,16 @@ public final class FramePackDialog extends JDialog {
             }
         });
 
-        JButton hopButton = new JButton("Apply hop");
+        hopButton = new JButton("Apply hop");
         hopButton.setToolTipText("Parabola: 0 at both ends, peak in the middle. Baked into the sheet.");
         hopButton.setEnabled(frames.size() >= 3);
         hopButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 int peak = ((Number) hopPeakSpinner.getValue()).intValue();
-                int[] curve = ImageImport.hopCurve(lifts.length, peak);
+                int[] curve = ImageImport.hopCurve(order.length, peak);
                 System.arraycopy(curve, 0, lifts, 0, lifts.length);
+                writeLiftsToSources();
                 refreshAll();
             }
         });
@@ -394,7 +408,6 @@ public final class FramePackDialog extends JDialog {
             }
         });
 
-        boolean canReorder = frames.size() >= 2;
         moveUpButton = new JButton("Move up");
         moveUpButton.setToolTipText("Play this frame earlier (Alt+Up).");
         moveUpButton.setEnabled(false);
@@ -413,9 +426,9 @@ public final class FramePackDialog extends JDialog {
                 moveSelected(1);
             }
         });
-        JButton reverseButton = new JButton("Reverse");
+        reverseButton = new JButton("Reverse");
         reverseButton.setToolTipText("Play the clip backwards. Lifts stay on their frames.");
-        reverseButton.setEnabled(canReorder);
+        reverseButton.setEnabled(frames.size() >= 2);
         reverseButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -423,12 +436,31 @@ public final class FramePackDialog extends JDialog {
             }
         });
         resetOrderButton = new JButton("Reset order");
-        resetOrderButton.setToolTipText("Restore the imported / natural-sorted order. Lifts stay on their frames.");
+        resetOrderButton.setToolTipText(
+                "Restore the imported / natural-sorted order (clones removed, deleted frames restored). "
+                        + "Lifts stay on their source frames.");
         resetOrderButton.setEnabled(false);
         resetOrderButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 resetOrder();
+            }
+        });
+        cloneButton = new JButton("Clone");
+        cloneButton.setToolTipText("Insert a copy of this frame after it (Ctrl+D).");
+        cloneButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                cloneSelected();
+            }
+        });
+        deleteButton = new JButton("Delete");
+        deleteButton.setToolTipText("Remove this frame from playback (Delete). The last frame cannot be removed.");
+        deleteButton.setEnabled(frames.size() > 1);
+        deleteButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                deleteSelected();
             }
         });
 
@@ -446,15 +478,39 @@ public final class FramePackDialog extends JDialog {
             }
         }, KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, KeyEvent.ALT_DOWN_MASK),
                 JComponent.WHEN_FOCUSED);
+        int menuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        getRootPane().registerKeyboardAction(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                cloneSelected();
+            }
+        }, KeyStroke.getKeyStroke(KeyEvent.VK_D, menuMask),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
+        frameList.registerKeyboardAction(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                deleteSelected();
+            }
+        }, KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0),
+                JComponent.WHEN_FOCUSED);
+        frameList.registerKeyboardAction(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                deleteSelected();
+            }
+        }, KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0),
+                JComponent.WHEN_FOCUSED);
 
         JPanel orderButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
         orderButtons.add(moveUpButton);
         orderButtons.add(moveDownButton);
+        orderButtons.add(cloneButton);
+        orderButtons.add(deleteButton);
         orderButtons.add(reverseButton);
         orderButtons.add(resetOrderButton);
 
         JPanel listPane = new JPanel(new BorderLayout());
-        JLabel listLabel = new JLabel("Animation order (Alt+↑/↓ to move)");
+        JLabel listLabel = new JLabel("Animation order (Alt+↑/↓, Ctrl+D clone, Delete)");
         listLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
         listPane.add(listLabel, BorderLayout.NORTH);
         listPane.add(new JScrollPane(frameList), BorderLayout.CENTER);
@@ -670,7 +726,7 @@ public final class FramePackDialog extends JDialog {
     }
 
     private List<BufferedImage> playbackFrames() throws IOException {
-        return ImageImport.permute(packFrames(), order);
+        return ImageImport.gather(packFrames(), order);
     }
 
     private void swapPlayback(int a, int b) {
@@ -711,21 +767,56 @@ public final class FramePackDialog extends JDialog {
     }
 
     private void resetOrder() {
-        int n = order.length;
-        int[] sourceLifts = new int[n];
-        for (int p = 0; p < n; p++) {
-            sourceLifts[order[p]] = lifts[p];
-        }
+        int n = frames.size();
         int selectedSrc = sourceIndex(selectedIndex());
+        order = new int[n];
+        lifts = new int[n];
         for (int i = 0; i < n; i++) {
             order[i] = i;
             lifts[i] = sourceLifts[i];
         }
-        if (selectedSrc >= 0) {
-            frameList.setSelectedIndex(selectedSrc);
-            frameList.ensureIndexIsVisible(selectedSrc);
-        }
+        int select = selectedSrc >= 0 ? selectedSrc : 0;
+        rebuildPlaybackList(select);
         refreshAll();
+    }
+
+    private void cloneSelected() {
+        int from = selectedIndex();
+        if (from < 0) {
+            return;
+        }
+        order = ImageImport.insertAfter(order, from, order[from]);
+        lifts = ImageImport.insertAfter(lifts, from, lifts[from]);
+        rebuildPlaybackList(from + 1);
+        refreshAll();
+    }
+
+    private void deleteSelected() {
+        int from = selectedIndex();
+        if (from < 0 || order.length <= 1) {
+            return;
+        }
+        order = ImageImport.removeAt(order, from);
+        lifts = ImageImport.removeAt(lifts, from);
+        int select = from < order.length ? from : order.length - 1;
+        rebuildPlaybackList(select);
+        refreshAll();
+    }
+
+    private void rebuildPlaybackList(int select) {
+        DefaultListModel<Integer> model = (DefaultListModel<Integer>) frameList.getModel();
+        model.clear();
+        for (int i = 0; i < order.length; i++) {
+            model.addElement(Integer.valueOf(i));
+        }
+        if (select < 0) {
+            select = 0;
+        }
+        if (select >= order.length) {
+            select = order.length - 1;
+        }
+        frameList.setSelectedIndex(select);
+        frameList.ensureIndexIsVisible(select);
     }
 
     private void updateOrderButtons() {
@@ -733,7 +824,11 @@ public final class FramePackDialog extends JDialog {
         int n = order.length;
         moveUpButton.setEnabled(index > 0);
         moveDownButton.setEnabled(index >= 0 && index < n - 1);
-        resetOrderButton.setEnabled(!ImageImport.isIdentityOrder(order));
+        reverseButton.setEnabled(n >= 2);
+        resetOrderButton.setEnabled(!ImageImport.isIdentityOrder(order, frames.size()));
+        cloneButton.setEnabled(index >= 0);
+        deleteButton.setEnabled(index >= 0 && n > 1);
+        hopButton.setEnabled(n >= 3);
     }
 
     private void setLift(int index, int value) {
@@ -742,6 +837,10 @@ public final class FramePackDialog extends JDialog {
             return;
         }
         lifts[index] = clamped;
+        int src = sourceIndex(index);
+        if (src >= 0) {
+            sourceLifts[src] = clamped;
+        }
         refreshAll();
     }
 
@@ -749,7 +848,18 @@ public final class FramePackDialog extends JDialog {
     private void setAllLifts(int value) {
         int clamped = Math.max(0, Math.min(MAX_LIFT, value));
         Arrays.fill(lifts, clamped);
+        writeLiftsToSources();
         refreshAll();
+    }
+
+    /** Copies playback lifts onto their source frames (last slot wins). */
+    private void writeLiftsToSources() {
+        for (int p = 0; p < order.length; p++) {
+            int src = order[p];
+            if (src >= 0 && src < sourceLifts.length) {
+                sourceLifts[src] = lifts[p];
+            }
+        }
     }
 
     private void syncSelection() {
@@ -790,13 +900,13 @@ public final class FramePackDialog extends JDialog {
     }
 
     /**
-     * Timings in playback order for the draft sheet. Uses permuted
+     * Timings in playback order for the draft sheet. Uses gathered
      * {@link #sourceTimingsCs} when available; otherwise default frame timing.
      */
     private int[] playbackTimings(int frameCount) {
         if (sourceTimingsCs != null && sourceTimingsCs.length == frames.size()) {
             try {
-                return ImageImport.permute(sourceTimingsCs, order);
+                return ImageImport.gather(sourceTimingsCs, order);
             } catch (IOException ignored) {
                 // Fall through to defaults.
             }
@@ -932,7 +1042,7 @@ public final class FramePackDialog extends JDialog {
                 JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             int playback = index;
-            if (playback < 0 || playback >= frames.size()) {
+            if (playback < 0 || playback >= order.length) {
                 return this;
             }
             BufferedImage frame = frameAtPlayback(playback);
@@ -1046,6 +1156,18 @@ public final class FramePackDialog extends JDialog {
                     nudge(-5);
                 }
             }, KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, KeyEvent.SHIFT_DOWN_MASK), WHEN_FOCUSED);
+            registerKeyboardAction(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    deleteSelected();
+                }
+            }, KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), WHEN_FOCUSED);
+            registerKeyboardAction(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    deleteSelected();
+                }
+            }, KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0), WHEN_FOCUSED);
         }
 
         void setCell(int cellW, int cellH) {

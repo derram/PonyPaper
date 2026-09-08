@@ -833,6 +833,16 @@ public class ImageImport {
     }
 
     /**
+     * Short note for packer dialogs: list order is the packed playback
+     * sequence (move, reverse, clone, or delete).
+     */
+    public static String packerOrderNotes() {
+        return "List order is playback order — Move up/down, Reverse, Clone, or Delete. "
+                + "Alt+↑/↓ moves, Ctrl+D clones, Delete removes. "
+                + "Reset order restores the import.";
+    }
+
+    /**
      * Nearest-neighbour dyadic scale. Native 100% returns {@code frames} itself.
      * Shrinks point-sample {@code src[x·divisor, y·divisor]} (even lattice /
      * top-left of each block), which matches successive integer halvings.
@@ -1318,6 +1328,104 @@ public class ImageImport {
         int[] out = new int[perm.length];
         for (int i = 0; i < perm.length; i++) {
             out[i] = values[perm[i]];
+        }
+        return out;
+    }
+
+    /**
+     * Copies {@code order} and checks each index is in
+     * {@code 0..sourceCount-1}. Duplicates and omissions are allowed (clone /
+     * delete). {@code null} is identity of length {@code sourceCount}. At
+     * least one playback slot is required.
+     */
+    public static int[] normalizeSequence(int[] order, int sourceCount) throws IOException {
+        if (sourceCount < 1) {
+            throw new IOException("No frames to order.");
+        }
+        if (order == null) {
+            return identityOrder(sourceCount);
+        }
+        if (order.length < 1) {
+            throw new IOException("Playback order is empty.");
+        }
+        int[] out = new int[order.length];
+        for (int i = 0; i < order.length; i++) {
+            int src = order[i];
+            if (src < 0 || src >= sourceCount) {
+                throw new IOException("Order index out of range: " + src + ".");
+            }
+            out[i] = src;
+        }
+        return out;
+    }
+
+    /**
+     * Items in playback order. {@code order} is a sequence of source indices
+     * (duplicates and omissions allowed); {@code null} is identity. Does not
+     * mutate {@code items}.
+     */
+    public static <T> List<T> gather(List<T> items, int[] order) throws IOException {
+        if (items == null || items.isEmpty()) {
+            throw new IOException("No frames to order.");
+        }
+        int[] seq = normalizeSequence(order, items.size());
+        List<T> out = new ArrayList<T>(seq.length);
+        for (int i = 0; i < seq.length; i++) {
+            out.add(items.get(seq[i]));
+        }
+        return out;
+    }
+
+    /**
+     * Values in playback order. {@code order} is a sequence of source indices
+     * (duplicates and omissions allowed); {@code null} is identity. Does not
+     * mutate {@code values}.
+     */
+    public static int[] gather(int[] values, int[] order) throws IOException {
+        if (values == null || values.length == 0) {
+            throw new IOException("No values to order.");
+        }
+        int[] seq = normalizeSequence(order, values.length);
+        int[] out = new int[seq.length];
+        for (int i = 0; i < seq.length; i++) {
+            out[i] = values[seq[i]];
+        }
+        return out;
+    }
+
+    /**
+     * Inserts {@code value} immediately after {@code index}. Used to clone a
+     * playback slot.
+     */
+    public static int[] insertAfter(int[] values, int index, int value) {
+        if (values == null || index < 0 || index >= values.length) {
+            throw new IllegalArgumentException("index");
+        }
+        int[] out = new int[values.length + 1];
+        System.arraycopy(values, 0, out, 0, index + 1);
+        out[index + 1] = value;
+        int tail = values.length - index - 1;
+        if (tail > 0) {
+            System.arraycopy(values, index + 1, out, index + 2, tail);
+        }
+        return out;
+    }
+
+    /**
+     * Removes the slot at {@code index}. The array must keep at least one
+     * element.
+     */
+    public static int[] removeAt(int[] values, int index) {
+        if (values == null || values.length < 2 || index < 0 || index >= values.length) {
+            throw new IllegalArgumentException("index");
+        }
+        int[] out = new int[values.length - 1];
+        if (index > 0) {
+            System.arraycopy(values, 0, out, 0, index);
+        }
+        int tail = values.length - index - 1;
+        if (tail > 0) {
+            System.arraycopy(values, index + 1, out, index, tail);
         }
         return out;
     }

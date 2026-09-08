@@ -597,6 +597,7 @@ final class EffectPanel extends JPanel {
         notes.append(file.getName()).append(" — ").append(gif.frames.size()).append(" coalesced frame")
                 .append(gif.frames.size() == 1 ? "" : "s")
                 .append(" at ").append(gif.logicalWidth).append("×").append(gif.logicalHeight).append(".");
+        notes.append("\n\n").append(ImageImport.packerOrderNotes());
         notes.append("\n\n").append(ImageImport.packerScaleNotes());
         String[] names = new String[gif.frames.size()];
         for (int i = 0; i < gif.frames.size(); i++) {
@@ -613,21 +614,7 @@ final class EffectPanel extends JPanel {
         if (packed == null) {
             return;
         }
-        List<BufferedImage> frames = ImageImport.permute(gif.frames, packed.order);
-        ImageImport.PackOptions options = new ImageImport.PackOptions();
-        options.lifts = packed.lifts;
-        packed.copyScaleTo(options);
-        if (gif.timingsCs != null) {
-            options.timingsCs = ImageImport.permute(gif.timingsCs, packed.order);
-        }
-        boolean keepLinked = facingSpritesLinked();
-        host.editor().loadEffectSpriteFromFrames(currentIndex, direction, frames, options);
-        if (keepLinked) {
-            host.editor().copyEffectSprite(currentIndex, direction);
-        }
-        setEffect(currentIndex);
-        host.markDirty();
-        previewImage(direction);
+        applyPackedFrames(direction, gif.frames, gif.timingsCs, packed);
     }
 
     private void importFrames(String direction) {
@@ -665,24 +652,13 @@ final class EffectPanel extends JPanel {
                     "Import frames (" + direction + ")",
                     names,
                     frames,
-                    ImageImport.packerScaleNotes(),
+                    ImageImport.packerOrderNotes() + "\n\n" + ImageImport.packerScaleNotes(),
                     ImageImport.SCALE_DIVISOR_NATIVE,
                     keepTimings);
             if (packed == null) {
                 return;
             }
-            List<BufferedImage> ordered = ImageImport.permute(frames, packed.order);
-            ImageImport.PackOptions options = new ImageImport.PackOptions();
-            options.lifts = packed.lifts;
-            packed.copyScaleTo(options);
-            boolean keepLinked = facingSpritesLinked();
-            host.editor().loadEffectSpriteFromFrames(currentIndex, direction, ordered, options);
-            if (keepLinked) {
-                host.editor().copyEffectSprite(currentIndex, direction);
-            }
-            setEffect(currentIndex);
-            host.markDirty();
-            previewImage(direction);
+            applyPackedFrames(direction, frames, keepTimings, packed);
         } catch (PonyEditor.GenericException e) {
             JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
         } catch (IOException e) {
@@ -817,7 +793,7 @@ final class EffectPanel extends JPanel {
 
     /**
      * Splits the previewed strip into cells and opens the pack dialog so the
-     * sheet can be reordered, lifted, or scaled (same path as Actions Preview).
+     * sheet can be reordered, cloned, deleted, lifted, or scaled (same path as Actions Preview).
      */
     private void openSheetInPacker(String direction, Image image, int frameCount, String timings) {
         try {
@@ -837,7 +813,7 @@ final class EffectPanel extends JPanel {
                         .append(" × ").append(ImageImport.DEFAULT_FRAME_TIMING_CS)
                         .append(" (hundredths of a second).");
             }
-            notes.append("\n\nList order is playback order — Move up/down, Reverse, or Alt+↑/↓.");
+            notes.append("\n\n").append(ImageImport.packerOrderNotes());
             notes.append("\n\n").append(ImageImport.packerScaleNotes());
             notes.append("\n\nLift is pixels of air under a cell (0 = keep the sprite grounded). ");
 
@@ -878,17 +854,21 @@ final class EffectPanel extends JPanel {
     private void applyPackedFrames(String direction, List<BufferedImage> sourceFrames,
             int[] sourceTimingsCs, FramePackDialog.Result packed)
             throws IOException, PonyEditor.GenericException {
-        List<BufferedImage> frames = ImageImport.permute(sourceFrames, packed.order);
+        List<BufferedImage> frames = ImageImport.gather(sourceFrames, packed.order);
         ImageImport.PackOptions options = new ImageImport.PackOptions();
         options.lifts = packed.lifts;
         packed.copyScaleTo(options);
         if (sourceTimingsCs != null) {
-            options.timingsCs = ImageImport.permute(sourceTimingsCs, packed.order);
+            options.timingsCs = ImageImport.gather(sourceTimingsCs, packed.order);
         }
+        boolean keepLinked = facingSpritesLinked();
         ImageImport imported = host.editor().loadEffectSpriteFromFrames(
                 currentIndex, direction, frames, options);
-        if (!ImageImport.isIdentityOrder(packed.order)) {
+        if (!ImageImport.isIdentityOrder(packed.order, sourceFrames.size())) {
             host.editor().setEffectTimings(currentIndex, direction, imported.timings);
+        }
+        if (keepLinked) {
+            host.editor().copyEffectSprite(currentIndex, direction);
         }
         setEffect(currentIndex);
         host.markDirty();

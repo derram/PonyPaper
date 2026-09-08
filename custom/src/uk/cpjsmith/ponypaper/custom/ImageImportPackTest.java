@@ -60,6 +60,10 @@ public final class ImageImportPackTest {
         failures += run("permuteOrder", ImageImportPackTest::testPermuteOrder);
         failures += run("permutePacksInGivenOrder", ImageImportPackTest::testPermutePacksInGivenOrder);
         failures += run("permuteTimingsTravel", ImageImportPackTest::testPermuteTimingsTravel);
+        failures += run("gatherSequence", ImageImportPackTest::testGatherSequence);
+        failures += run("gatherPacksClonesAndDeletes", ImageImportPackTest::testGatherPacksClonesAndDeletes);
+        failures += run("gatherTimingsTravel", ImageImportPackTest::testGatherTimingsTravel);
+        failures += run("insertAfterAndRemoveAt", ImageImportPackTest::testInsertAfterAndRemoveAt);
         failures += run("splitSheetRoundTrip", ImageImportPackTest::testSplitSheetRoundTrip);
         failures += run("extractFramesUnevenAndTrim", ImageImportPackTest::testExtractFramesUnevenAndTrim);
         failures += run("extractFramesKeepsPropInCell", ImageImportPackTest::testExtractFramesKeepsPropInCell);
@@ -664,6 +668,10 @@ public final class ImageImportPackTest {
                 ImageImport.packerScaleNotes().contains("Fit to built-in"));
         assertEq("notes mention 200", true,
                 ImageImport.packerScaleNotes().contains("200%"));
+        assertEq("order notes mention clone", true,
+                ImageImport.packerOrderNotes().contains("Clone"));
+        assertEq("order notes mention delete", true,
+                ImageImport.packerOrderNotes().contains("Delete"));
         assertEq("width under", false, ImageImport.exceedsSheetWidthBudget(4096));
         assertEq("width over", true, ImageImport.exceedsSheetWidthBudget(4097));
     }
@@ -737,6 +745,121 @@ public final class ImageImportPackTest {
             if (!e.getMessage().contains("Expected 2")) {
                 throw new AssertionError("unexpected message: " + e.getMessage());
             }
+        }
+    }
+
+    private static void testGatherSequence() throws IOException {
+        List<String> items = Arrays.asList("a", "b", "c");
+        List<String> cloned = ImageImport.gather(items, new int[] {0, 1, 1, 2});
+        assertEq("clone length", 4, cloned.size());
+        assertEq("clone[0]", "a", cloned.get(0));
+        assertEq("clone[1]", "b", cloned.get(1));
+        assertEq("clone[2]", "b", cloned.get(2));
+        assertEq("clone[3]", "c", cloned.get(3));
+        assertEq("source unchanged", "b", items.get(1));
+
+        List<String> deleted = ImageImport.gather(items, new int[] {0, 2});
+        assertEq("delete length", 2, deleted.size());
+        assertEq("delete[0]", "a", deleted.get(0));
+        assertEq("delete[1]", "c", deleted.get(1));
+
+        List<String> identity = ImageImport.gather(items, null);
+        assertEq("null identity length", 3, identity.size());
+        assertEq("null identity[2]", "c", identity.get(2));
+
+        int[] vals = ImageImport.gather(new int[] {3, 7, 11}, new int[] {2, 2, 0});
+        assertEq("int clone[0]", 11, vals[0]);
+        assertEq("int clone[1]", 11, vals[1]);
+        assertEq("int clone[2]", 3, vals[2]);
+
+        assertEq("prefix is identity of its length", true,
+                ImageImport.isIdentityOrder(new int[] {0, 1}));
+        assertEq("prefix is not identity of source n", false,
+                ImageImport.isIdentityOrder(new int[] {0, 1}, 3));
+        assertEq("clone is not identity", false,
+                ImageImport.isIdentityOrder(new int[] {0, 1, 1, 2}, 3));
+
+        try {
+            ImageImport.normalizeSequence(new int[0], 3);
+            throw new AssertionError("expected empty sequence to fail");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("empty")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+        try {
+            ImageImport.normalizeSequence(new int[] {0, 3}, 3);
+            throw new AssertionError("expected out-of-range sequence to fail");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("out of range")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+        int[] dupOk = ImageImport.normalizeSequence(new int[] {0, 0, 1}, 3);
+        assertEq("dup allowed", 0, dupOk[1]);
+        assertEq("dup length", 3, dupOk.length);
+    }
+
+    private static void testGatherPacksClonesAndDeletes() throws IOException {
+        BufferedImage red = solid(8, 8, 0xffff0000);
+        BufferedImage blue = solid(8, 8, 0xff0000ff);
+        List<BufferedImage> cloned = ImageImport.gather(
+                Arrays.asList(red, blue), new int[] {0, 0, 1});
+        ImageImport packed = ImageImport.fromFrames(cloned, new ImageImport.PackOptions());
+        BufferedImage sheet = decode(packed.loadedImage);
+        assertEq("clone sheetW", 24, sheet.getWidth());
+        assertEq("cell 0 red", 0xffff0000, sheet.getRGB(4, 4));
+        assertEq("cell 1 red clone", 0xffff0000, sheet.getRGB(12, 4));
+        assertEq("cell 2 blue", 0xff0000ff, sheet.getRGB(20, 4));
+
+        List<BufferedImage> dropped = ImageImport.gather(
+                Arrays.asList(red, blue), new int[] {1});
+        ImageImport one = ImageImport.fromFrames(dropped, new ImageImport.PackOptions());
+        BufferedImage oneSheet = decode(one.loadedImage);
+        assertEq("delete sheetW", 8, oneSheet.getWidth());
+        assertEq("only blue", 0xff0000ff, oneSheet.getRGB(4, 4));
+    }
+
+    private static void testGatherTimingsTravel() throws IOException {
+        BufferedImage a = solid(4, 4, 0xff00ff00);
+        int[] order = {1, 1, 0};
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        opts.timingsCs = ImageImport.gather(new int[] {3, 7}, order);
+        ImageImport packed = ImageImport.fromFrames(
+                ImageImport.gather(Arrays.asList(a, a), order), opts);
+        assertEq("cloned timings", "7,7,3", packed.timings);
+    }
+
+    private static void testInsertAfterAndRemoveAt() {
+        int[] cloned = ImageImport.insertAfter(new int[] {0, 1, 2}, 1, 1);
+        assertEq("insert length", 4, cloned.length);
+        assertEq("insert[0]", 0, cloned[0]);
+        assertEq("insert[1]", 1, cloned[1]);
+        assertEq("insert[2]", 1, cloned[2]);
+        assertEq("insert[3]", 2, cloned[3]);
+
+        int[] atEnd = ImageImport.insertAfter(new int[] {0, 1}, 1, 1);
+        assertEq("end length", 3, atEnd.length);
+        assertEq("end last", 1, atEnd[2]);
+
+        int[] removed = ImageImport.removeAt(new int[] {0, 1, 2}, 1);
+        assertEq("remove length", 2, removed.length);
+        assertEq("remove[0]", 0, removed[0]);
+        assertEq("remove[1]", 2, removed[1]);
+
+        int[] dropLast = ImageImport.removeAt(new int[] {0, 1, 2}, 2);
+        assertEq("drop last length", 2, dropLast.length);
+        assertEq("drop last[1]", 1, dropLast[1]);
+
+        try {
+            ImageImport.removeAt(new int[] {0}, 0);
+            throw new AssertionError("expected last-frame remove to fail");
+        } catch (IllegalArgumentException ignored) {
+        }
+        try {
+            ImageImport.insertAfter(new int[] {0, 1}, 2, 0);
+            throw new AssertionError("expected out-of-range insert to fail");
+        } catch (IllegalArgumentException ignored) {
         }
     }
 

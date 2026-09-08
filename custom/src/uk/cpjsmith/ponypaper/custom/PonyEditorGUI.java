@@ -1234,7 +1234,7 @@ public class PonyEditorGUI extends JPanel {
         /**
          * Splits the previewed strip into cells (same integer division as the
          * wallpaper) and opens the pack dialog so the sheet can be reordered,
-         * lifted, or scaled.
+         * cloned, deleted, lifted, or scaled.
          */
         void openSheetInPacker(String direction, Image image, int frameCount, String timings) {
             try {
@@ -1254,7 +1254,7 @@ public class PonyEditorGUI extends JPanel {
                             .append(" × ").append(ImageImport.DEFAULT_FRAME_TIMING_CS)
                             .append(" (hundredths of a second).");
                 }
-                notes.append("\n\nList order is playback order — Move up/down, Reverse, or Alt+↑/↓.");
+                notes.append("\n\n").append(ImageImport.packerOrderNotes());
                 notes.append("\n\n").append(ImageImport.packerScaleNotes());
                 notes.append("\n\nLift is pixels of air under a cell (0 = keep the sprite grounded). ");
 
@@ -1533,10 +1533,10 @@ public class PonyEditorGUI extends JPanel {
             notes.append("\n\nGIF delays will be used as timings");
             if (existingCount == gif.frames.size()) {
                 notes.append(" unless you keep the existing ").append(existingCount)
-                        .append(" entries (reordering frames replaces them)");
+                        .append(" entries (changing playback order replaces them)");
             }
             notes.append(".");
-            notes.append("\n\nList order is playback order — Move up/down, Reverse, or Alt+↑/↓.");
+            notes.append("\n\n").append(ImageImport.packerOrderNotes());
             notes.append("\n\n").append(ImageImport.packerScaleNotes());
             notes.append("\n\nLift is pixels of air under a frame (0 = on the ground). ");
 
@@ -1562,25 +1562,25 @@ public class PonyEditorGUI extends JPanel {
 
         /**
          * Packs {@code sourceFrames} in {@code packed.order}. Per-frame timings
-         * (GIF delays) are permuted with the frames. Reordering replaces any
-         * existing action timings of the same length — those numbers are
-         * playback slots, not images.
+         * (GIF delays) are gathered with the frames. Reordering, cloning, or
+         * deleting replaces any existing action timings of the same length —
+         * those numbers are playback slots, not images.
          */
         void applyPackedFrames(String direction, List<java.awt.image.BufferedImage> sourceFrames,
                 int[] sourceTimingsCs, FramePackDialog.Result packed)
                 throws IOException, PonyEditor.GenericException {
             List<java.awt.image.BufferedImage> frames =
-                    ImageImport.permute(sourceFrames, packed.order);
+                    ImageImport.gather(sourceFrames, packed.order);
             ImageImport.PackOptions options = new ImageImport.PackOptions();
             options.lifts = packed.lifts;
             packed.copyScaleTo(options);
             if (sourceTimingsCs != null) {
-                options.timingsCs = ImageImport.permute(sourceTimingsCs, packed.order);
+                options.timingsCs = ImageImport.gather(sourceTimingsCs, packed.order);
             }
             boolean keepLinked = facingSpritesLinked();
             ImageImport imported = editor.loadActionSpriteFromFrames(
                     currentIndex, direction, frames, options);
-            if (!ImageImport.isIdentityOrder(packed.order)) {
+            if (!ImageImport.isIdentityOrder(packed.order, sourceFrames.size())) {
                 editor.setActionTimings(currentIndex, direction, imported.timings);
             }
             if (keepLinked) {
@@ -1649,7 +1649,7 @@ public class PonyEditorGUI extends JPanel {
                             .append(" × ").append(ImageImport.DEFAULT_FRAME_TIMING_CS)
                             .append(" (hundredths of a second).");
                 }
-                notes.append("\n\nList order is playback order — Move up/down, Reverse, or Alt+↑/↓.");
+                notes.append("\n\n").append(ImageImport.packerOrderNotes());
                 notes.append("\n\n").append(ImageImport.packerScaleNotes());
                 notes.append("\n\nLift is pixels of air under a frame (0 = on the ground). ")
                         .append("It is baked into the sheet — leave <anchory> empty so feet stay on the ground line.");
@@ -1669,7 +1669,7 @@ public class PonyEditorGUI extends JPanel {
                     return;
                 }
 
-                applyPackedFrames(direction, frames, null, packed);
+                applyPackedFrames(direction, frames, keepTimings, packed);
             } catch (PonyEditor.GenericException e) {
                 JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
             } catch (IOException e) {
@@ -1853,7 +1853,7 @@ public class PonyEditorGUI extends JPanel {
                             .append(" × ").append(ImageImport.DEFAULT_FRAME_TIMING_CS)
                             .append(" (hundredths of a second).");
                 }
-                packNotes.append("\n\nList order is playback order — Move up/down, Reverse, or Alt+↑/↓.");
+                packNotes.append("\n\n").append(ImageImport.packerOrderNotes());
                 packNotes.append("\n\n").append(ImageImport.packerScaleNotes());
                 packNotes.append("\n\nLift is pixels of air under a frame (0 = on the ground).");
 
@@ -1871,7 +1871,7 @@ public class PonyEditorGUI extends JPanel {
                 if (packed == null) {
                     return;
                 }
-                applyPackedFrames(direction, frames, null, packed);
+                applyPackedFrames(direction, frames, keepTimings, packed);
             } catch (PonyEditor.GenericException e) {
                 JOptionPane.showMessageDialog(this, e.detail, e.getMessage(), JOptionPane.ERROR_MESSAGE);
             } catch (IOException e) {
