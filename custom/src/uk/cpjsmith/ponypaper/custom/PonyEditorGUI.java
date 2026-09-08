@@ -574,10 +574,11 @@ public class PonyEditorGUI extends JPanel {
             // --- Left sprites ---
             imageLeftField = new JTextField();
             imageLeftField.setEditable(false);
-            addFormRow(leftSprites, 0, new JLabel("Sheet:"), imageLeftField, 0.5);
-
             imageLeftPreview = new JButton("Preview");
             imageLeftPreview.addActionListener(previewLeftListener);
+            addFormRow(leftSprites, 0, new JLabel("Sheet:"),
+                    wrapFieldWithButton(imageLeftField, imageLeftPreview), 0.5);
+
             imageLeftCopy = new JButton("Copy to right");
             imageLeftCopy.setToolTipText(
                     "Use this sheet, timings, and anchors for both facings (no flop).");
@@ -589,7 +590,7 @@ public class PonyEditorGUI extends JPanel {
             imageLeftMirror.addActionListener(mirrorLeftListener);
             styleSecondary(imageLeftMirror);
             addFormRow(leftSprites, 1, new JLabel(""),
-                    wrapThreeButtons(imageLeftPreview, imageLeftCopy, imageLeftMirror), 0.0);
+                    wrapTwoButtons(imageLeftCopy, imageLeftMirror), 0.0);
 
             imageLeftImport = new JButton("Import image");
             imageLeftImport.setToolTipText(
@@ -629,10 +630,11 @@ public class PonyEditorGUI extends JPanel {
             // --- Right sprites ---
             imageRightField = new JTextField();
             imageRightField.setEditable(false);
-            addFormRow(rightSprites, 0, new JLabel("Sheet:"), imageRightField, 0.5);
-
             imageRightPreview = new JButton("Preview");
             imageRightPreview.addActionListener(previewRightListener);
+            addFormRow(rightSprites, 0, new JLabel("Sheet:"),
+                    wrapFieldWithButton(imageRightField, imageRightPreview), 0.5);
+
             imageRightCopy = new JButton("Copy to left");
             imageRightCopy.setToolTipText(
                     "Use this sheet, timings, and anchors for both facings (no flop).");
@@ -644,7 +646,7 @@ public class PonyEditorGUI extends JPanel {
             imageRightMirror.addActionListener(mirrorRightListener);
             styleSecondary(imageRightMirror);
             addFormRow(rightSprites, 1, new JLabel(""),
-                    wrapThreeButtons(imageRightPreview, imageRightCopy, imageRightMirror), 0.0);
+                    wrapTwoButtons(imageRightCopy, imageRightMirror), 0.0);
 
             imageRightImport = new JButton("Import image");
             imageRightImport.setToolTipText(
@@ -1077,14 +1079,6 @@ public class PonyEditorGUI extends JPanel {
             JPanel row = new JPanel(new GridLayout(1, 2, 4, 0));
             row.add(left);
             row.add(right);
-            return row;
-        }
-
-        private static JPanel wrapThreeButtons(JButton a, JButton b, JButton c) {
-            JPanel row = new JPanel(new GridLayout(1, 3, 4, 0));
-            row.add(a);
-            row.add(b);
-            row.add(c);
             return row;
         }
 
