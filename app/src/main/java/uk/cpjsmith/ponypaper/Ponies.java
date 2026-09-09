@@ -105,6 +105,11 @@ public class Ponies implements Pony.EffectHost {
     private final ArrayList<Pony> prefetched = new ArrayList<Pony>();
     /** When true, each enter from the inactive pool rolls a ladder size. */
     private final boolean randomSizeMode;
+    /**
+     * Roster reload: force exits and do not {@link #takeFromInactive}. Tableau
+     * herds never drain ({@link #tableauJsonToLive} non-null).
+     */
+    private boolean draining;
     
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final int touchSlop;
@@ -431,6 +436,11 @@ public class Ponies implements Pony.EffectHost {
         for (int i = 0; i < activePonies.length; i++) {
             activePonies[i].doUpdate(clipBounds, deltaMs);
             if (activePonies[i].goneOffScreen()) {
+                if (!HerdDrain.shouldRefill(draining)) {
+                    retireActiveAt(i);
+                    i--;
+                    continue;
+                }
                 Pony temp = activePonies[i];
                 temp.reset();
                 if (inactivePonies.size() != 0) {
@@ -523,6 +533,88 @@ public class Ponies implements Pony.EffectHost {
             }
         }
         return false;
+    }
+
+    /**
+     * Start a wander-herd drain: cancel replacement prefetch, unload inactive
+     * sheets, stagger {@link Pony#forceSceneExit()}. Idempotent. Tableau and
+     * empty herds return false.
+     */
+    boolean beginDrain() {
+        if (!canDrain()) {
+            return false;
+        }
+        if (draining) {
+            return true;
+        }
+        draining = true;
+        clearPrefetchUnloading();
+        for (int i = 0; i < inactivePonies.size(); i++) {
+            inactivePonies.get(i).unloadActions();
+        }
+        for (int i = 0; i < activePonies.length; i++) {
+            Pony pony = activePonies[i];
+            boolean leaving = pony.isLeavingScene() || pony.goneOffScreen();
+            int delay = HerdDrain.staggerDelayMs(leaving, pony.isTravelingOrSpawning(),
+                    pony.remainingWaitMs(), i);
+            pony.scheduleForceSceneExit(delay);
+        }
+        invalidateVisualStamp();
+        return true;
+    }
+
+    boolean canDrain() {
+        return tableauJsonToLive == null && activePonies != null && activePonies.length > 0;
+    }
+
+    boolean isDraining() {
+        return draining;
+    }
+
+    boolean isDrainComplete() {
+        return HerdDrain.isComplete(draining, activeCount);
+    }
+
+    /** Timeout / resize abort: mark every live slot gone and compact them out. */
+    void completeDrainNow() {
+        if (!draining || activePonies == null) {
+            return;
+        }
+        while (activePonies.length > 0) {
+            activePonies[0].completeExitNow();
+            retireActiveAt(0);
+        }
+    }
+
+    /**
+     * Remove live slot {@code i} without taking a replacement. The leaver is
+     * reset into the inactive pool (sheets unpinned).
+     */
+    private void retireActiveAt(int i) {
+        if (activePonies == null || i < 0 || i >= activePonies.length) {
+            return;
+        }
+        Pony temp = activePonies[i];
+        temp.reset();
+        inactivePonies.add(temp);
+        int n = activePonies.length;
+        Pony[] next = new Pony[n - 1];
+        if (i > 0) {
+            System.arraycopy(activePonies, 0, next, 0, i);
+        }
+        if (i < n - 1) {
+            System.arraycopy(activePonies, i + 1, next, i, n - 1 - i);
+        }
+        activePonies = next;
+        activeCount = next.length;
+        invalidateVisualStamp();
+    }
+
+    private void clearPrefetchUnloading() {
+        while (!prefetched.isEmpty()) {
+            Pony extra = prefetched.remove(prefetched.size() - 1);
+            extra.unloadActions();
+        }
     }
 
     /** True when every on-screen pony is waiting or still spawning. */
@@ -797,6 +889,9 @@ public class Ponies implements Pony.EffectHost {
      * the rest while any crossing is still in flight.
      */
     private void updateReplacementPrefetch() {
+        if (draining) {
+            return;
+        }
         int leaving = 0;
         for (int i = 0; i < activePonies.length; i++) {
             if (activePonies[i].isLeavingScene()) {

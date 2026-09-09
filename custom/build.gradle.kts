@@ -42,6 +42,7 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/SpawnYBand.java",
                 "uk/cpjsmith/ponypaper/UnpinnedLru.java",
                 "uk/cpjsmith/ponypaper/InactivePick.java",
+                "uk/cpjsmith/ponypaper/HerdDrain.java",
                 "uk/cpjsmith/ponypaper/CustomDefinitionCache.java",
                 "uk/cpjsmith/ponypaper/SecureXml.java",
             )
@@ -203,6 +204,13 @@ tasks.register<JavaExec>("testInactivePick") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.InactivePickTest")
 }
 
+tasks.register<JavaExec>("testHerdDrain") {
+    group = "verification"
+    description = "Run wander herd-drain stagger, timeout, and exit-decision checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.HerdDrainTest")
+}
+
 tasks.register<JavaExec>("testEditorCli") {
     group = "verification"
     description = "Run custom editor CLI implied -load checks"
@@ -244,6 +252,7 @@ tasks.named("check") {
     dependsOn("testUnpinnedLru")
     dependsOn("testDefinitionCache")
     dependsOn("testInactivePick")
+    dependsOn("testHerdDrain")
     dependsOn("testEditorCli")
     dependsOn("testEditorWindowFocus")
 }

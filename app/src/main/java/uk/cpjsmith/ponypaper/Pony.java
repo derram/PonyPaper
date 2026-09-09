@@ -98,6 +98,10 @@ public class Pony {
     private Point targetPos;
     /** Remaining idle time in milliseconds. */
     private float waitTimerMs;
+    /** Countdown before {@link #forceSceneExit()} during a herd drain. */
+    private int drainExitDelayMs;
+    /** Drag started during drain: leave on {@link #stopDrag()} even off-edge. */
+    private boolean drainExitPending;
     
     private int motion;
     private int leavingMode;
@@ -516,6 +520,8 @@ public class Pony {
      */
     public void reset() {
         waitTimerMs = 0;
+        drainExitDelayMs = 0;
+        drainExitPending = false;
         motion = pinned ? MOTION_INIT_PINNED : MOTION_INIT;
         leavingMode = LM_NORMAL;
         currentAction = null;
@@ -673,6 +679,10 @@ public class Pony {
             screenBounds = new Rect();
         }
         screenBounds.set(clipBounds);
+
+        if (leavingMode == LM_GONE) {
+            return;
+        }
         
         float scale = getScale();
         
@@ -736,6 +746,16 @@ public class Pony {
                 }
             }
         } else if (deltaMs > 0) {
+            if (drainExitDelayMs > 0) {
+                drainExitDelayMs -= (int) deltaMs;
+                if (drainExitDelayMs <= 0) {
+                    drainExitDelayMs = 0;
+                    forceSceneExit();
+                }
+            }
+            if (leavingMode == LM_GONE) {
+                return;
+            }
             // Animation rate comes from the current action (travel and idle).
             // Drag / teleport keep full-rate playback so one-shot sheets finish
             // on their authored timings.
@@ -978,6 +998,11 @@ public class Pony {
             commitDraggedPin();
             return;
         }
+        if (drainExitPending) {
+            drainExitPending = false;
+            forceSceneExit(true);
+            return;
+        }
         int s = (int)(30 * getScale());
         int x = Math.round(posX);
         int y = Math.round(posY);
@@ -1110,7 +1135,12 @@ public class Pony {
         if (!currentAction.hasNextMoving()) {
             return false;
         }
-        PonyAction next = currentAction.getNextMoving(random);
+        PonyAction next = forceLeave
+                ? currentAction.pickFastestLeaveMoving(random)
+                : currentAction.getNextMoving(random);
+        if (next == null) {
+            return false;
+        }
         if (next.type == PonyAction.SCREEN_OUT) {
             if (!forceLeave && !SceneExit.shouldLeaveScene(random)) {
                 return false;
@@ -1124,6 +1154,10 @@ public class Pony {
             return true;
         }
         if (next.type == PonyAction.SCREEN_IN) {
+            if (forceLeave) {
+                leavingMode = LM_GONE;
+                return true;
+            }
             // Appear-in-place is not travel; play here then idle.
             travelX = 0;
             travelY = 0;
@@ -1135,7 +1169,10 @@ public class Pony {
         // Band uses the *incoming* action's movement (not the previous clip).
         motion = next.type == PonyAction.NORMAL ? MOTION_MOVING : MOTION_SPECIAL;
         if (alwaysNewTarget || targetPos == null) {
-            setRandomTarget(next);
+            setRandomTarget(next, forceLeave);
+        }
+        if (forceLeave) {
+            leavingMode = LM_GOING;
         }
         if (motion == MOTION_MOVING && targetPos != null) {
             travelX = targetPos.x - posX;
@@ -1150,6 +1187,149 @@ public class Pony {
     }
 
     /**
+     * Herd drain: leave via the same movers as drag-to-edge / SceneExit.
+     * Pinned ponies are skipped. Mid-walk keeps the current clip and retargets
+     * off-screen. Drag defers until {@link #stopDrag()}.
+     */
+    void forceSceneExit() {
+        forceSceneExit(false);
+    }
+
+    /**
+     * @param ignoreDrag when true, treat a still-tagged drag as released
+     */
+    void forceSceneExit(boolean ignoreDrag) {
+        boolean playingLeave = currentAction != null
+                && (currentAction.type == PonyAction.SCREEN_OUT
+                        || currentAction.type == PonyAction.PORT_O);
+        if (playingLeave && leavingMode != LM_GONE) {
+            leavingMode = LM_GOING;
+        }
+        int act = HerdDrain.decideExit(pinned, worldFlow,
+                leavingMode == LM_GOING || playingLeave,
+                leavingMode == LM_GONE,
+                !ignoreDrag && motion == MOTION_DRAGGED,
+                isSpawning() || currentAction == null,
+                isInterpolatingWalk(),
+                screenBounds != null);
+        switch (act) {
+            case HerdDrain.EXIT_SKIP:
+                return;
+            case HerdDrain.EXIT_NOOP:
+                if (isInterpolatingWalk()) {
+                    upgradeDrainGaitIfSlower();
+                }
+                return;
+            case HerdDrain.EXIT_MARK_GONE:
+                leavingMode = LM_GONE;
+                drainExitDelayMs = 0;
+                drainExitPending = false;
+                return;
+            case HerdDrain.EXIT_DEFER_DRAG:
+                drainExitPending = true;
+                return;
+            case HerdDrain.EXIT_RETARGET:
+                upgradeDrainGaitIfSlower();
+                retargetOffScreenLeave();
+                return;
+            case HerdDrain.EXIT_WORLD_FLOW:
+                resumeWorldFlowExit(true);
+                return;
+            case HerdDrain.EXIT_BEGIN_LEAVE:
+            default:
+                if (!tryBeginMoving(true, true)) {
+                    leavingMode = LM_GONE;
+                }
+                break;
+        }
+    }
+
+    /**
+     * Schedule {@link #forceSceneExit()} after {@code delayMs}. Zero runs now.
+     */
+    void scheduleForceSceneExit(int delayMs) {
+        if (pinned || leavingMode == LM_GONE) {
+            return;
+        }
+        if (delayMs <= 0) {
+            drainExitDelayMs = 0;
+            forceSceneExit();
+            return;
+        }
+        drainExitDelayMs = delayMs;
+    }
+
+    /** Drain timeout / surface abort: slot is done even if the clip is mid-play. */
+    void completeExitNow() {
+        drainExitDelayMs = 0;
+        drainExitPending = false;
+        leavingMode = LM_GONE;
+    }
+
+    boolean isSpawning() {
+        return motion == MOTION_INIT || motion == MOTION_INIT_PINNED;
+    }
+
+    boolean isInterpolatingWalk() {
+        return motion == MOTION_MOVING && currentAction != null
+                && currentAction.type == PonyAction.NORMAL;
+    }
+
+    /** True while spawning, walking, or playing a special clip (not idle/drag). */
+    boolean isTravelingOrSpawning() {
+        return isSpawning() || motion == MOTION_MOVING || motion == MOTION_SPECIAL;
+    }
+
+    float remainingWaitMs() {
+        return waitTimerMs;
+    }
+
+    /**
+     * If next-moving has a faster NORMAL gait than the current walk, switch
+     * to it in place so a drain/retarget does not stroll off-screen.
+     */
+    private void upgradeDrainGaitIfSlower() {
+        if (currentAction == null || currentAction.type != PonyAction.NORMAL) {
+            return;
+        }
+        PonyAction fast = currentAction.pickFastestLeaveMoving(random);
+        if (worldFlow) {
+            PonyAction bagFast = PonyAction.pickFastestLeave(worldFlowSpawnBag(), random);
+            if (bagFast != null && WorldFlow.isNormalTransit(bagFast.type)
+                    && (fast == null || bagFast.speed > fast.speed)) {
+                fast = bagFast;
+            }
+        }
+        if (fast == null || fast.type != PonyAction.NORMAL) {
+            return;
+        }
+        if (fast.speed > currentAction.speed) {
+            changeAction(fast);
+        }
+    }
+
+    /**
+     * Keep the current walk clip; send the current movement band off-screen.
+     */
+    private void retargetOffScreenLeave() {
+        if (screenBounds == null) {
+            leavingMode = LM_GONE;
+            return;
+        }
+        String movement = currentAction != null
+                ? currentAction.getMovement()
+                : WanderTarget.MOVE_INHERIT;
+        int band = WanderTarget.resolveBand(wander, movement, random);
+        targetPos = randomOffScreenForBand(band);
+        leavingMode = LM_GOING;
+        if (targetPos != null) {
+            travelX = targetPos.x - posX;
+            travelY = targetPos.y - posY;
+            setDirection(targetPos);
+        }
+    }
+
+    /**
      * Drag-to-edge: leave now. A {@code screen-out} clip plays in place;
      * interpolating movers walk/fly/teleport to {@code offScreenTarget}.
      * Pinned ponies snap back instead of leaving.
@@ -1160,6 +1340,9 @@ public class Pony {
             return;
         }
         if (tryBeginMoving(false, true)) {
+            if (leavingMode == LM_GONE) {
+                return;
+            }
             leavingMode = LM_GOING;
             if (currentAction.type != PonyAction.SCREEN_OUT) {
                 targetPos = offScreenTarget;
@@ -1458,6 +1641,14 @@ public class Pony {
      * type-only check would keep the drag sheet while the pony walks away.
      */
     private void resumeWorldFlowExit() {
+        resumeWorldFlowExit(false);
+    }
+
+    /**
+     * @param preferFastest drain path: pick the fastest NORMAL in the World
+     *                      Flow bag (and upgrade an in-flight stroll)
+     */
+    private void resumeWorldFlowExit(boolean preferFastest) {
         if (screenBounds == null) {
             leavingMode = LM_GONE;
             return;
@@ -1469,10 +1660,19 @@ public class Pony {
                 && currentAction != null
                 && WorldFlow.isNormalTransit(currentAction.type)) {
             next = currentAction;
+            if (preferFastest) {
+                PonyAction fast = PonyAction.pickFastestLeave(worldFlowSpawnBag(), random);
+                if (fast != null && WorldFlow.isNormalTransit(fast.type)
+                        && fast.speed > currentAction.speed) {
+                    next = fast;
+                }
+            }
         } else {
             PonyAction[] bag = worldFlowSpawnBag();
             if (bag.length > 0) {
-                next = bag[random.nextInt(bag.length)];
+                next = preferFastest
+                        ? PonyAction.pickFastestLeave(bag, random)
+                        : bag[random.nextInt(bag.length)];
             }
         }
         if (next == null) {
@@ -1565,6 +1765,14 @@ public class Pony {
      * (or free targeting when {@link #motion} is not {@link #MOTION_MOVING}).
      */
     private void setRandomTarget(PonyAction forAction) {
+        setRandomTarget(forAction, false);
+    }
+
+    /**
+     * @param forceLeave skip the 1-in-8 stay roll and always pick an off-screen
+     *                   destination (herd drain / drag-to-edge)
+     */
+    private void setRandomTarget(PonyAction forAction, boolean forceLeave) {
         // Specials (teleport destination, etc.) keep free targeting.
         String movement = forAction != null
                 ? forAction.getMovement()
@@ -1572,7 +1780,7 @@ public class Pony {
         int band = motion == MOTION_MOVING
                 ? WanderTarget.resolveBand(wander, movement, random)
                 : WanderTarget.BAND_ANY;
-        if (SceneExit.shouldLeaveScene(random)) {
+        if (forceLeave || SceneExit.shouldLeaveScene(random)) {
             targetPos = randomOffScreenForBand(band);
             leavingMode = LM_GOING;
         } else {

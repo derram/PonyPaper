@@ -828,6 +828,40 @@ public class PonyAction {
     public PonyAction getNextMoving(Random random) {
         return nextMoving[random.nextInt(nextMoving.length)];
     }
+
+    /**
+     * Herd-drain / force-leave pick: uniformly among the fastest
+     * {@link #NORMAL} / {@link #PORT_O} / {@link #SCREEN_OUT} next-moving
+     * slots so stroll/walk gaits do not win the exit.
+     *
+     * @return a leave mover, or {@code null} if none qualify
+     */
+    PonyAction pickFastestLeaveMoving(Random random) {
+        return pickFastestLeave(nextMoving, random);
+    }
+
+    /**
+     * @see #pickFastestLeaveMoving(Random)
+     */
+    static PonyAction pickFastestLeave(PonyAction[] actions, Random random) {
+        if (actions == null || actions.length == 0) {
+            return null;
+        }
+        float[] speeds = new float[actions.length];
+        for (int i = 0; i < actions.length; i++) {
+            PonyAction a = actions[i];
+            speeds[i] = isDrainLeaveMover(a) ? a.speed : 0f;
+        }
+        int idx = HerdDrain.pickFastestIndex(speeds, random);
+        return idx >= 0 ? actions[idx] : null;
+    }
+
+    static boolean isDrainLeaveMover(PonyAction a) {
+        if (a == null) {
+            return false;
+        }
+        return a.type == NORMAL || a.type == PORT_O || a.type == SCREEN_OUT;
+    }
     
     public PonyAction getNextDrag(Random random) {
         return nextDrag[random.nextInt(nextDrag.length)];

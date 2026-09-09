@@ -317,6 +317,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private static final long HERD_RELOAD_COOLDOWN_MS = 3_000L;
     /** {@link SystemClock#uptimeMillis()} of the last accepted herd reload; 0 if none. */
     private long lastHerdReloadUptimeMs = 0;
+    /**
+     * When a wander drain started; 0 if not draining. Used with
+     * {@link HerdDrain#TIMEOUT_MS}.
+     */
+    private long herdDrainStartMs = 0;
     /** True while herd construction / background decode is running off the frame thread. */
     private boolean sceneLoadInFlight = false;
     /** Bumped by {@link #dropHerd} so a stale worker result is discarded. */
@@ -325,15 +330,26 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private boolean sceneLoadFailed = false;
     /**
      * Collapses a burst of preference notifications (one per checkbox when a
-     * mix is applied) into a single unload. Runs on {@link #handler}.
+     * mix is applied) into a single drain or unload. Runs on {@link #handler}.
      */
     private final Runnable coalescedDropHerd = new Runnable() {
         @Override
         public void run() {
             if (!started || frozen) return;
+            boolean instant = coalescedDropIsInstant;
+            coalescedDropIsInstant = false;
+            if (!instant && canDrainCurrentHerd()) {
+                startHerdDrain();
+                return;
+            }
             dropHerdNow();
         }
     };
+    /**
+     * When true, the next {@link #coalescedDropHerd} pass skips drain (cap,
+     * background, scene-mode, Tableau). Mix/checkbox bursts leave this false.
+     */
+    private boolean coalescedDropIsInstant = false;
     /** Token from {@link ThermalStatusSupport#register}; typed as Object for pre-Q safety. */
     private Object thermalListenerToken = null;
     /** Peak-refresh listener; null when unregistered. */
@@ -504,6 +520,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         thermalThrottle = false;
         pendingHerdReload = false;
         lastHerdReloadUptimeMs = 0;
+        herdDrainStartMs = 0;
     }
 
     /**
@@ -514,6 +531,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      */
     private void dropHerd() {
         handler.removeCallbacks(coalescedDropHerd);
+        coalescedDropIsInstant = false;
         dropHerdNow();
     }
 
@@ -523,14 +541,69 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      */
     private void scheduleDropHerd() {
         if (!started || frozen) return;
+        coalescedDropIsInstant = true;
         handler.removeCallbacks(coalescedDropHerd);
         handler.post(coalescedDropHerd);
+    }
+
+    /**
+     * Mix / checkbox / library-generation roster change. Coalesced onto
+     * {@link #coalescedDropHerd} so a mix apply (one notify per checkbox) is
+     * a single drain. Instant drops posted in the same burst still win.
+     */
+    private void requestRosterReload() {
+        if (!started || frozen) return;
+        handler.removeCallbacks(coalescedDropHerd);
+        handler.post(coalescedDropHerd);
+    }
+
+    private boolean canDrainCurrentHerd() {
+        if (ponies == null || tableauHerd) return false;
+        if (SceneMode.isTableau(getPreferences(), isDreamHost())) return false;
+        return ponies.canDrain();
+    }
+
+    private void startHerdDrain() {
+        if (ponies == null) {
+            dropHerdNow();
+            return;
+        }
+        if (ponies.isDraining()) {
+            return;
+        }
+        if (!ponies.beginDrain()) {
+            scheduleDropHerd();
+            return;
+        }
+        herdDrainStartMs = SystemClock.uptimeMillis();
+        forceSceneRedraw = true;
+    }
+
+    /**
+     * Compact any remaining leavers, unload the empty herd, then either let
+     * {@link #ensureScenePrepared} rebuild or (reload button) sync/bump first.
+     */
+    private void finishHerdDrain(boolean timedOut) {
+        if (ponies != null && timedOut) {
+            ponies.completeDrainNow();
+        }
+        boolean reload = pendingHerdReload;
+        pendingHerdReload = false;
+        dropHerdNow();
+        if (reload) {
+            if (CustomStorage.hasLibraryFolder(appContext)) {
+                startLibrarySync(true);
+            } else {
+                CustomStorage.bumpGeneration(appContext);
+            }
+        }
     }
 
     private void dropHerdNow() {
         sceneLoadGeneration++;
         sceneLoadInFlight = false;
         sceneLoadFailed = false;
+        herdDrainStartMs = 0;
         clearTableauReveal();
         // Keep outgoing only for in-session reloads (stop() clears started first).
         boolean nextTableau = started
@@ -1034,6 +1107,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     public boolean requestHerdReload() {
         if (!started) return false;
         long now = SystemClock.uptimeMillis();
+        if (isHerdDraining()) {
+            pendingHerdReload = true;
+            return true;
+        }
         if (sceneLoadInFlight || isHerdReloadCoolingDown(now)) {
             // Keep coalescing onto an in-flight sync so a click during cooldown
             // still forces a rebuild when that sync finishes.
@@ -1043,6 +1120,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         lastHerdReloadUptimeMs = now;
         if (librarySyncInFlight) {
             pendingHerdReload = true;
+            return true;
+        }
+        if (canDrainCurrentHerd()) {
+            pendingHerdReload = true;
+            startHerdDrain();
             return true;
         }
         if (!CustomStorage.hasLibraryFolder(appContext)) {
@@ -1055,12 +1137,18 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     /**
      * True while the chrome should treat Reload herd as unavailable: cooldown
-     * after the last accepted request, library sync running, or scene decode
-     * still in flight.
+     * after the last accepted request, library sync running, scene decode
+     * still in flight, or a wander drain still exiting.
      */
     public boolean isHerdReloadBusy() {
         long now = SystemClock.uptimeMillis();
-        return librarySyncInFlight || sceneLoadInFlight || isHerdReloadCoolingDown(now);
+        return librarySyncInFlight || sceneLoadInFlight || isHerdDraining()
+                || isHerdReloadCoolingDown(now);
+    }
+
+    /** True while the live wander herd is forcing scene exits before a reload. */
+    public boolean isHerdDraining() {
+        return ponies != null && ponies.isDraining();
     }
 
     private boolean isHerdReloadCoolingDown(long nowUptimeMs) {
@@ -1158,7 +1246,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (!active || frozen) {
             return;
         }
-        if (ponies != null) ponies.reset();
+        if (ponies != null && ponies.isDraining()) {
+            finishHerdDrain(true);
+        } else if (ponies != null) {
+            ponies.reset();
+        }
         if (tableauHerd && ponies != null) {
             // Pinned reset re-enters INIT_PINNED; reuse the reveal gate/fade.
             armTableauReveal();
@@ -1802,8 +1894,12 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             }
             return;
         }
+        if (PREF_NUM_PONIES.equals(key) || PREF_BACKGROUND.equals(key)) {
+            scheduleDropHerd();
+            return;
+        }
         if (isHerdMetadataKey(key)) return;
-        scheduleDropHerd();
+        requestRosterReload();
     }
 
     /**
@@ -1988,6 +2084,18 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             }
         }
 
+        if (ponies != null && ponies.isDraining()) {
+            contentDirty = true;
+            boolean timedOut = HerdDrain.timedOut(herdDrainStartMs, now);
+            if (ponies.isDrainComplete() || timedOut) {
+                boolean holdLoad = pendingHerdReload;
+                finishHerdDrain(timedOut);
+                if (!holdLoad && ponies == null && frameW > 0 && frameH > 0) {
+                    ensureScenePrepared(frameW, frameH);
+                }
+            }
+        }
+
         if (tableauRevealPending && ponies != null) {
             // Keep the frame loop live through spawn gate + fade.
             contentDirty = true;
@@ -2158,7 +2266,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         int period = framePeriodMs;
         // Keep full rate while a Tableau reload/reveal is in flight so spawn
         // checks and the fade stay smooth (incoming ponies look "idle").
-        if (tableauRevealPending || outgoingPonies != null) {
+        if (tableauRevealPending || outgoingPonies != null
+                || (ponies != null && ponies.isDraining())) {
             return period;
         }
         if (ponies != null && ponies.allIdle()) {
