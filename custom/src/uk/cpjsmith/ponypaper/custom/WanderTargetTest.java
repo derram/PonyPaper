@@ -22,6 +22,7 @@ public final class WanderTargetTest {
         failures += run("resolveBothInheritIsSoftH", WanderTargetTest::testResolveBothInheritIsSoftH);
         failures += run("softAccept", WanderTargetTest::testSoftAccept);
         failures += run("verticalFacing", WanderTargetTest::testVerticalFacing);
+        failures += run("sameFacingAxis", WanderTargetTest::testSameFacingAxis);
         failures += run("verticalGutters", WanderTargetTest::testVerticalGutters);
         failures += run("defaultMovementForWander", WanderTargetTest::testDefaultMovementForWander);
         if (failures > 0) {
@@ -235,6 +236,30 @@ public final class WanderTargetTest {
         if (WanderTarget.usesVerticalFacing(WanderTarget.WANDER_BOTH,
                 WanderTarget.MOVE_INHERIT)) {
             throw new AssertionError("both + inherit should not remap");
+        }
+    }
+
+    private static void testSameFacingAxis() {
+        String w = WanderTarget.WANDER_BOTH;
+        if (!WanderTarget.sameFacingAxis(w, WanderTarget.MOVE_SOFT_VERTICAL,
+                WanderTarget.MOVE_VERTICAL)) {
+            throw new AssertionError("soft V and hard V share back/front");
+        }
+        if (WanderTarget.sameFacingAxis(w, WanderTarget.MOVE_SOFT_VERTICAL,
+                WanderTarget.MOVE_INHERIT)) {
+            throw new AssertionError("vertical wander must not match horizontal trot");
+        }
+        if (WanderTarget.sameFacingAxis(w, WanderTarget.MOVE_SOFT_VERTICAL,
+                WanderTarget.MOVE_HORIZONTAL)) {
+            throw new AssertionError("soft V vs hard H");
+        }
+        if (!WanderTarget.sameFacingAxis(w, WanderTarget.MOVE_INHERIT,
+                WanderTarget.MOVE_HORIZONTAL)) {
+            throw new AssertionError("inherit and hard H share left/right");
+        }
+        if (!WanderTarget.sameFacingAxis(WanderTarget.WANDER_VERTICAL,
+                WanderTarget.MOVE_INHERIT, WanderTarget.MOVE_SOFT_VERTICAL)) {
+            throw new AssertionError("vertical pony inherit is back/front");
         }
     }
 

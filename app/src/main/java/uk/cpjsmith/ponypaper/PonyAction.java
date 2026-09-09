@@ -837,20 +837,48 @@ public class PonyAction {
      * @return a leave mover, or {@code null} if none qualify
      */
     PonyAction pickFastestLeaveMoving(Random random) {
-        return pickFastestLeave(nextMoving, random);
+        return pickFastestLeave(nextMoving, random, null, null);
+    }
+
+    /**
+     * Fastest leave mover whose facing axis matches {@code matchMovement}
+     * (back/front vs left/right). Used when upgrading an in-flight walk.
+     */
+    PonyAction pickFastestLeaveMoving(Random random, String wander,
+            String matchMovement) {
+        return pickFastestLeave(nextMoving, random, wander, matchMovement);
     }
 
     /**
      * @see #pickFastestLeaveMoving(Random)
      */
     static PonyAction pickFastestLeave(PonyAction[] actions, Random random) {
+        return pickFastestLeave(actions, random, null, null);
+    }
+
+    /**
+     * @param matchMovement when non-null, skip candidates whose
+     *                      {@link WanderTarget#sameFacingAxis} does not match
+     */
+    static PonyAction pickFastestLeave(PonyAction[] actions, Random random,
+            String wander, String matchMovement) {
         if (actions == null || actions.length == 0) {
             return null;
         }
+        boolean filterFacing = matchMovement != null;
         float[] speeds = new float[actions.length];
         for (int i = 0; i < actions.length; i++) {
             PonyAction a = actions[i];
-            speeds[i] = isDrainLeaveMover(a) ? a.speed : 0f;
+            if (!isDrainLeaveMover(a)) {
+                speeds[i] = 0f;
+                continue;
+            }
+            if (filterFacing && !WanderTarget.sameFacingAxis(wander,
+                    matchMovement, a.getMovement())) {
+                speeds[i] = 0f;
+                continue;
+            }
+            speeds[i] = a.speed;
         }
         int idx = HerdDrain.pickFastestIndex(speeds, random);
         return idx >= 0 ? actions[idx] : null;

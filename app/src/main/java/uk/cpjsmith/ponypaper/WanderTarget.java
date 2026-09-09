@@ -211,6 +211,17 @@ public final class WanderTarget {
     }
 
     /**
+     * True when two actions should share left/right vs back/front sheets.
+     * Drain gait upgrades use this so a vertical clip is not replaced by a
+     * faster horizontal trot while travel stays on the Y axis.
+     */
+    public static boolean sameFacingAxis(String wander, String movementA,
+            String movementB) {
+        return usesVerticalFacing(wander, movementA)
+                == usesVerticalFacing(wander, movementB);
+    }
+
+    /**
      * True when start/crossing spawn and World Flow exits should use the
      * top/bottom gutters instead of left/right. Soft and hard vertical bands
      * only; {@link #BAND_ANY} stays on horizontal gutters.

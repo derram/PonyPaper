@@ -1292,9 +1292,11 @@ public class Pony {
         if (currentAction == null || currentAction.type != PonyAction.NORMAL) {
             return;
         }
-        PonyAction fast = currentAction.pickFastestLeaveMoving(random);
+        String match = currentAction.getMovement();
+        PonyAction fast = currentAction.pickFastestLeaveMoving(random, wander, match);
         if (worldFlow) {
-            PonyAction bagFast = PonyAction.pickFastestLeave(worldFlowSpawnBag(), random);
+            PonyAction bagFast = PonyAction.pickFastestLeave(worldFlowSpawnBag(),
+                    random, wander, match);
             if (bagFast != null && WorldFlow.isNormalTransit(bagFast.type)
                     && (fast == null || bagFast.speed > fast.speed)) {
                 fast = bagFast;
@@ -1661,7 +1663,8 @@ public class Pony {
                 && WorldFlow.isNormalTransit(currentAction.type)) {
             next = currentAction;
             if (preferFastest) {
-                PonyAction fast = PonyAction.pickFastestLeave(worldFlowSpawnBag(), random);
+                PonyAction fast = PonyAction.pickFastestLeave(worldFlowSpawnBag(),
+                        random, wander, currentAction.getMovement());
                 if (fast != null && WorldFlow.isNormalTransit(fast.type)
                         && fast.speed > currentAction.speed) {
                     next = fast;

@@ -111,7 +111,7 @@ This is not a flop: for opposite side views, keep `-mirror-facing` / **Mirror to
 
 Wander (and World Flow) roster changes — mix shuffle, Load mix, checkbox edits, Reload herd — do not wipe the live herd. On-screen ponies are forced to leave with existing exit movers (`screen-out`, teleport-out, walk/fly to a gutter). The inactive pool does not refill. When the stage is empty (or after **15 s**), the old herd unloads and the new mix spawns on an empty screen.
 
-Drain leave picks the **fastest** leave-capable next-moving slot (uniform among ties) so the default gait bag cannot roll stroll/walk for the exit. A pony already mid-walk is retargeted off-screen and upgraded to a faster NORMAL gait when one exists. Tableau reloads still hold the posed scene until the incoming herd is ready.
+Drain leave picks the **fastest** leave-capable next-moving slot (uniform among ties) so the default gait bag cannot roll stroll/walk for the exit. A pony already mid-walk is retargeted off-screen and upgraded to a faster NORMAL gait **on the same facing axis** (back/front vertical clips stay vertical; they are not swapped for a faster left/right trot). Tableau reloads still hold the posed scene until the incoming herd is ready.
 
 ### Speed, aliases, and gaits
 
