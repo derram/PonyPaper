@@ -825,9 +825,9 @@ public class Pony {
                         // One-shots own the stage until the sheet finishes
                         // (advanceOneshot above). Defer idle→travel / re-roll so
                         // the timer does not cut a mid-play transition clip.
-                        // Timer stays at 0; the next frame after a looping
-                        // waiter is selected (or fall-through starts travel)
-                        // runs the stay-or-go expiry path.
+                        // Timer may sit at 0 until then; setWaiting starts a
+                        // fresh wait so stay-or-go cannot immediately replace
+                        // the successor with another next-waiting pick.
                         if (!currentAction.loops) {
                             break;
                         }
@@ -1052,6 +1052,11 @@ public class Pony {
         if (pinned && applyFacingPolicy) {
             applyFacingAfterWait();
         }
+        // A oneshot can defer wait expiry with the timer at 0. Refresh so the
+        // successor is not immediately stay-or-go re-rolled (another waiter
+        // from its next-waiting list) on this frame or the next.
+        waitTimerMs = WaitExpiry.timerAfterWaitingPick(
+                waitTimerMs, WAIT_MIN_MS, WAIT_EXTRA_MS, random);
         return true;
     }
     

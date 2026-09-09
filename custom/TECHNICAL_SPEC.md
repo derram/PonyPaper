@@ -116,7 +116,7 @@ Custom ponies can handle discrete speeds in two ways:
 
 ### One-shot / transition actions
 
-By default every action **loops**. Set `<loop>false</loop>` for clips that play once and then hand off to a successor from the next-action lists. The idle timer expiry is deferred until a one-shot finishes.
+By default every action **loops**. Set `<loop>false</loop>` for clips that play once and then hand off to a successor from the next-action lists. The idle timer expiry is deferred until a one-shot finishes; the successor then gets a fresh wait so stay-or-go cannot immediately replace it with another next-waiting pick.
 
 ### The `none` / `-` token
 

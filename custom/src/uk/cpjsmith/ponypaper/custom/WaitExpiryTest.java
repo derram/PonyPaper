@@ -18,6 +18,8 @@ public final class WaitExpiryTest {
         failures += run("noMoversAlwaysStays", WaitExpiryTest::testNoMoversAlwaysStays);
         failures += run("equalListsAboutHalf", WaitExpiryTest::testEqualListsAboutHalf);
         failures += run("waitHeavyStaysMore", WaitExpiryTest::testWaitHeavyStaysMore);
+        failures += run("elapsedTimerGetsFreshWait", WaitExpiryTest::testElapsedTimerGetsFreshWait);
+        failures += run("remainingTimerKept", WaitExpiryTest::testRemainingTimerKept);
         if (failures > 0) {
             System.err.println(failures + " wait-expiry check(s) failed.");
             System.exit(1);
@@ -81,6 +83,28 @@ public final class WaitExpiryTest {
         // p = 7/9 ≈ 0.778, expected 3500; 3σ ≈ 83.
         if (stays < 3200 || stays > 3800) {
             throw new AssertionError("7 vs 2 expected ~3500 stays, got " + stays);
+        }
+    }
+
+    private static void testElapsedTimerGetsFreshWait() {
+        Random r = new Random(6);
+        for (int i = 0; i < 40; i++) {
+            float next = WaitExpiry.timerAfterWaitingPick(0f, 2000, 10000, r);
+            if (next < 2000f || next >= 12000f) {
+                throw new AssertionError("fresh wait out of range: " + next);
+            }
+            float also = WaitExpiry.timerAfterWaitingPick(-3f, 2000, 10000, r);
+            if (also < 2000f || also >= 12000f) {
+                throw new AssertionError("elapsed wait out of range: " + also);
+            }
+        }
+    }
+
+    private static void testRemainingTimerKept() {
+        Random r = new Random(7);
+        float kept = WaitExpiry.timerAfterWaitingPick(1500f, 2000, 10000, r);
+        if (kept != 1500f) {
+            throw new AssertionError("remaining wait should be kept, got " + kept);
         }
     }
 
