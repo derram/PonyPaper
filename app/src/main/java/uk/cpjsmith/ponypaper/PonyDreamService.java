@@ -57,7 +57,8 @@ import java.util.Random;
  * the idle sleep; disable-auto-dim skips the 30s re-dim after wake.
  * Brightness stays with the host device. Thermal hard-stop still ends the dream.
  * Loading a mix (or a shuffle hop) writes the live herd the same way Settings
- * does, so the home-screen wallpaper follows.
+ * does, so the home-screen wallpaper follows. Shuffle hops among named mixes
+ * and Previous herd when that snapshot is distinct from the named list.
  *
  * <p>Enter and exit use a black content overlay (fade-in / fade-out) so the herd
  * does not hard-cut against the lock screen, and so any OEM window wipe only
@@ -98,7 +99,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     /** Hide everything when the session sheet IS open. */
     private static final long SHEET_AUTO_HIDE_MS = 15_000;
     private static final long CHROME_FADE_MS = 180;
-    /** Session shuffle hops among saved user mixes. */
+    /** Session shuffle hops among named mixes and Previous herd. */
     private static final long SHUFFLE_INTERVAL_MS = 5 * 60 * 1000L;
     /** Retry a hop that hit an in-flight herd load or thermal throttle. */
     private static final long SHUFFLE_RETRY_MS = 2_000L;
@@ -218,9 +219,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private boolean chromeVisible = false;
     private boolean sheetExpanded = false;
     private boolean mixListVisible = false;
-    /** Session opt-in: hop among saved user mixes on a timer. */
+    /** Session opt-in: hop among named mixes and Previous herd on a timer. */
     private boolean shuffleMixes = false;
-    /** Last applied user mix id, used to skip immediate repeats while shuffling. */
+    /** Last applied mix id (or {@link PonyMixes#PREVIOUS_HERD_ID}), used to skip repeats. */
     private String lastUserMixId = "";
     private long mixApplyBusyUntilMs = 0;
     /** Do not run switch listeners while syncing widgets from session state. */
@@ -241,7 +242,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                             scheduleMaxIdle();
                         }
                     }
-                    if (PonyMixes.PREF_MIXES_JSON.equals(key)) {
+                    if (PonyMixes.PREF_MIXES_JSON.equals(key)
+                            || PonyMixes.PREF_PREVIOUS_HERD_JSON.equals(key)) {
                         if (!canShuffleUserMixes()) {
                             stopShuffle();
                         }
@@ -1278,6 +1280,10 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 return getString(R.string.pref_load_mix_stock_item, getString(group.titleRes));
             }
         }
+        if (PonyMixes.matchingPreviousHerd(prefs, herdKeys) != null) {
+            lastUserMixId = PonyMixes.PREVIOUS_HERD_ID;
+            return getString(R.string.pref_load_mix_previous_name);
+        }
         return getString(R.string.dream_mix_current_herd);
     }
 
@@ -1288,7 +1294,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         ArrayList<String> herdKeys = AllPonies.allHerdKeys(this);
         final List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(prefs);
 
-        if (mixes.size() >= 2) {
+        if (canShuffleUserMixes()) {
             addMixRow(getString(R.string.dream_mix_shuffle_now),
                     getString(R.string.dream_mix_shuffle_now_summary),
                     new View.OnClickListener() {
@@ -1405,7 +1411,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         }
         stopShuffle();
         if (PonyMixes.applyPreviousHerd(this) == null) return;
-        lastUserMixId = "";
+        lastUserMixId = PonyMixes.PREVIOUS_HERD_ID;
         markMixApplied();
     }
 
@@ -1421,7 +1427,11 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     private boolean canShuffleUserMixes() {
-        return PonyMixes.loadUserMixes(getDreamPreferences()).size() >= 2;
+        return shuffleCandidates().size() >= 2;
+    }
+
+    private List<PonyMixes.Mix> shuffleCandidates() {
+        return PonyMixes.shuffleCandidates(getDreamPreferences(), AllPonies.allHerdKeys(this));
     }
 
     /** Mix / shuffle rewrite herd checkboxes — no-op while Tableau owns the scene. */
@@ -1440,7 +1450,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             return;
         }
         shuffleMixes = true;
-        refillShuffleBag(PonyMixes.loadUserMixes(getDreamPreferences()));
+        rememberCurrentUserMix();
+        refillShuffleBag(shuffleCandidates());
         scheduleShuffle(SHUFFLE_INTERVAL_MS);
     }
 
@@ -1461,9 +1472,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     }
 
     /**
-     * Apply the next saved mix in the shuffle bag. Returns false when the hop
-     * should be retried (herd still loading or thermal throttle). Returns true
-     * when a mix was applied, or when shuffle was turned off for lack of mixes.
+     * Apply the next shuffle candidate. Returns false when the hop should be
+     * retried (herd still loading, thermal throttle, or Previous herd vanished).
+     * Returns true when a mix was applied, or when shuffle was turned off.
      */
     private boolean applyShuffleHop() {
         if (mixesBlockedByTableau()) {
@@ -1471,7 +1482,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             if (sheetExpanded) syncChromeWidgets();
             return true;
         }
-        List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(getDreamPreferences());
+        List<PonyMixes.Mix> mixes = shuffleCandidates();
         if (mixes.size() < 2) {
             stopShuffle();
             if (sheetExpanded) syncChromeWidgets();
@@ -1484,8 +1495,13 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         rememberCurrentUserMix();
         PonyMixes.Mix next = takeNextShuffleMix(mixes);
         if (next == null) return false;
-        PonyMixes.applyUserMix(this, next);
-        lastUserMixId = next.id;
+        if (PonyMixes.isPreviousHerdId(next.id)) {
+            if (PonyMixes.applyPreviousHerd(this) == null) return false;
+            lastUserMixId = PonyMixes.PREVIOUS_HERD_ID;
+        } else {
+            PonyMixes.applyUserMix(this, next);
+            lastUserMixId = next.id;
+        }
         mixApplyBusyUntilMs = SystemClock.uptimeMillis() + MIX_APPLY_DEBOUNCE_MS;
         if (sheetExpanded) {
             syncChromeWidgets();
@@ -1496,9 +1512,16 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private void rememberCurrentUserMix() {
         if (lastUserMixId.length() > 0) return;
-        PonyMixes.Mix match = PonyMixes.matchingUserMix(
-                getDreamPreferences(), AllPonies.allHerdKeys(this));
-        if (match != null) lastUserMixId = match.id;
+        SharedPreferences prefs = getDreamPreferences();
+        ArrayList<String> herdKeys = AllPonies.allHerdKeys(this);
+        PonyMixes.Mix match = PonyMixes.matchingUserMix(prefs, herdKeys);
+        if (match != null) {
+            lastUserMixId = match.id;
+            return;
+        }
+        if (PonyMixes.matchingPreviousHerd(prefs, herdKeys) != null) {
+            lastUserMixId = PonyMixes.PREVIOUS_HERD_ID;
+        }
     }
 
     private void refillShuffleBag(List<PonyMixes.Mix> mixes) {

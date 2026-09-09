@@ -21,7 +21,9 @@ import org.json.JSONObject;
  * <p>Load (and home Disable-all) keep one unnamed previous-herd snapshot so
  * the usual checkboxes can be restored. That snapshot is written only when
  * leaving a non-loaded (home) state; hopping from mix to mix leaves it alone.
- * A checkbox or favorite change marks the herd as home again.
+ * A checkbox or favorite change marks the herd as home again. Dream shuffle
+ * may hop to that snapshot as a virtual mix ({@link #PREVIOUS_HERD_ID}); it
+ * is not stored in the named list.
  *
  * <p>Custom ponies are stored by preference key ({@code pref_custom_} +
  * filename). Missing files are skipped on load; they are not copied into
@@ -38,6 +40,11 @@ final class PonyMixes {
     static final String PREF_VIEWING_LOADED_MIX = "pref_viewing_loaded_mix";
     static final String PREF_WAIFU = "pref_waifu";
     static final String CUSTOM_PREFIX = "pref_custom_";
+    /**
+     * Sentinel id for the unnamed previous-herd snapshot in shuffle bags.
+     * Not a UUID, so {@link #newId()} cannot collide with it.
+     */
+    static final String PREVIOUS_HERD_ID = "__previous_herd__";
     static final int MAX_USER_MIXES = 20;
     static final int MAX_NAME_LENGTH = 40;
 
@@ -347,6 +354,10 @@ final class PonyMixes {
         return parsePrevious(prefs.getString(PREF_PREVIOUS_HERD_JSON, ""));
     }
 
+    static boolean isPreviousHerdId(String id) {
+        return PREVIOUS_HERD_ID.equals(id);
+    }
+
     /**
      * True when a previous herd exists, still has at least one live pony,
      * and differs from the current checkboxes or favorite.
@@ -355,6 +366,41 @@ final class PonyMixes {
         Mix prev = loadPreviousHerd(prefs);
         if (prev == null || retainedCount(prev.keys, herdKeys) == 0) return false;
         return !sameLiveHerd(prefs, prev, herdKeys);
+    }
+
+    /**
+     * Previous herd when the live checkboxes and favorite match it.
+     */
+    static Mix matchingPreviousHerd(SharedPreferences prefs, List<String> herdKeys) {
+        Mix prev = loadPreviousHerd(prefs);
+        if (prev == null || retainedCount(prev.keys, herdKeys) == 0) return null;
+        if (!sameLiveHerd(prefs, prev, herdKeys)) return null;
+        return prev;
+    }
+
+    /**
+     * Previous herd as a virtual shuffle mix, or {@code null} when missing,
+     * empty after missing-file skip, or identical to a named mix.
+     */
+    private static Mix shufflePreviousHerd(SharedPreferences prefs, List<String> herdKeys) {
+        Mix prev = loadPreviousHerd(prefs);
+        if (prev == null || retainedCount(prev.keys, herdKeys) == 0) return null;
+        List<Mix> mixes = loadUserMixes(prefs);
+        for (int i = 0; i < mixes.size(); i++) {
+            if (sameHerd(prev, mixes.get(i), herdKeys)) return null;
+        }
+        return new Mix(PREVIOUS_HERD_ID, "", prev.keys, prev.waifu);
+    }
+
+    /**
+     * Named user mixes plus Previous herd when it is a distinct shuffle target.
+     */
+    static List<Mix> shuffleCandidates(SharedPreferences prefs, List<String> herdKeys) {
+        if (prefs == null) return Collections.emptyList();
+        ArrayList<Mix> out = new ArrayList<Mix>(loadUserMixes(prefs));
+        Mix prev = shufflePreviousHerd(prefs, herdKeys);
+        if (prev != null) out.add(prev);
+        return out;
     }
 
     /**
@@ -552,6 +598,14 @@ final class PonyMixes {
         if (!live.equals(mixLive)) return false;
         String mixWaifu = resolvedWaifu(mix != null ? mix.waifu : "", herdKeys);
         return mixWaifu.equals(resolvedWaifu(currentWaifu(prefs), herdKeys));
+    }
+
+    private static boolean sameHerd(Mix a, Mix b, List<String> herdKeys) {
+        HashSet<String> aKeys = retainedKeys(a != null ? a.keys : null, herdKeys);
+        HashSet<String> bKeys = retainedKeys(b != null ? b.keys : null, herdKeys);
+        if (!aKeys.equals(bKeys)) return false;
+        return resolvedWaifu(a != null ? a.waifu : "", herdKeys)
+                .equals(resolvedWaifu(b != null ? b.waifu : "", herdKeys));
     }
 
     private static HashSet<String> retainedKeys(Set<String> keys, List<String> herdKeys) {
