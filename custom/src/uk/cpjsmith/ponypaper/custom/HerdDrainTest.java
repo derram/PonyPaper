@@ -155,8 +155,8 @@ public final class HerdDrainTest {
             throw new AssertionError("leaving walk → RETARGET nearer gutter, got " + a);
         }
         int wf = HerdDrain.decideExit(false, true, true, false, false, false, true, true);
-        if (wf != HerdDrain.EXIT_WORLD_FLOW) {
-            throw new AssertionError("leaving World Flow walk → crossing resume, got " + wf);
+        if (wf != HerdDrain.EXIT_NOOP) {
+            throw new AssertionError("leaving World Flow walk keeps crossing, got " + wf);
         }
     }
 

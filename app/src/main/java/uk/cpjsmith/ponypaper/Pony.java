@@ -1188,8 +1188,9 @@ public class Pony {
 
     /**
      * Herd drain: leave via the same movers as drag-to-edge / SceneExit.
-     * Pinned ponies are skipped. Mid-walk keeps the current clip and retargets
-     * to the nearest allowed gutter. Drag defers until {@link #stopDrag()}.
+     * Pinned ponies are skipped. Wander mid-walk keeps the current clip and
+     * retargets to the nearest allowed gutter. World Flow mid-crossing keeps
+     * its gutter (no U-turn). Drag defers until {@link #stopDrag()}.
      */
     void forceSceneExit() {
         forceSceneExit(false);

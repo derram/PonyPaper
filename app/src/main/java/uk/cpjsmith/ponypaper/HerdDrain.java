@@ -25,9 +25,10 @@ public final class HerdDrain {
     public static final int STAGGER_INDEX_MS = 50;
 
     /**
-     * Already {@code LM_GONE}, or already playing a vanish clip
-     * ({@code screen-out} / teleport-out). Mid-walk {@code LM_GOING} is
-     * {@link #EXIT_RETARGET} so a far-side target can flip to the nearer gutter.
+     * Already {@code LM_GONE}, a vanish clip, or a World Flow crossing already
+     * aimed at a gutter. Wander mid-walk {@code LM_GOING} is
+     * {@link #EXIT_RETARGET} so a far-side coin-flip can flip to the nearer
+     * gutter; reversing a Flow crossing would send them back on-screen.
      */
     public static final int EXIT_NOOP = 0;
     /** Spawn / no bounds / no usable mover: drop the slot immediately. */
@@ -105,9 +106,10 @@ public final class HerdDrain {
         if (alreadyGone) {
             return EXIT_NOOP;
         }
-        // Vanish clips stay put; an in-flight walk still retargets to the
-        // nearer gutter even if it was already marked leaving.
-        if (alreadyLeaving && !interpolatingWalk) {
+        // Vanish clips stay put. World Flow is already crossing to a gutter —
+        // do not retarget to the nearer edge (that U-turns an enter into a
+        // second leave). Wander mid-walk still falls through to RETARGET.
+        if (alreadyLeaving && (!interpolatingWalk || worldFlow)) {
             return EXIT_NOOP;
         }
         if (!hasScreenBounds || spawning) {
