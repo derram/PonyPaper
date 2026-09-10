@@ -27,6 +27,7 @@
     <string name="pref_save_mix_summary">Name the current herd, including any custom ponies that are on</string>
     <string name="pref_save_mix_message">This stores which built-in and custom ponies are on, plus your favorite. Custom pony files are not copied — they stay in the library, and this mix turns them back on if they are still installed.\n\nCurrently on: %1$d built-in, %2$d custom.</string>
     <string name="pref_save_mix_name_hint">Mix name</string>
+    <string name="pref_save_mix_existing_heading">Or tap a saved mix to replace it</string>
     <string name="pref_save_mix_empty_name">Enter a name for this mix.</string>
     <string name="pref_save_mix_full_title">Too many mixes</string>
     <string name="pref_save_mix_full_message">You can save up to %1$d mixes. Delete one before saving another.</string>

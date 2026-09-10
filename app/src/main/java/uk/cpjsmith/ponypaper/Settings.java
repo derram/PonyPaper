@@ -885,6 +885,7 @@ public class Settings extends AppCompatActivity
         Set<String> on = PonyMixes.captureKeys(prefs, allHerdKeys());
         int builtIn = PonyMixes.countBuiltIn(on);
         int custom = PonyMixes.countCustom(on);
+        final List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(prefs);
 
         int pad = (int) TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_DIP, 16f, getResources().getDisplayMetrics());
@@ -908,9 +909,15 @@ public class Settings extends AppCompatActivity
                 LinearLayout.LayoutParams.WRAP_CONTENT));
         layout.addView(nameField);
 
+        final AlertDialog[] hostHolder = new AlertDialog[1];
+        addExistingMixPicker(layout, nameField, mixes, pad, hostHolder);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(layout);
+
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle(R.string.pref_save_mix_title);
-        builder.setView(layout);
+        builder.setView(scroll);
         builder.setNegativeButton(R.string.dialog_cancel, null);
         builder.setPositiveButton(R.string.dialog_save, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface dialog, int which) {
@@ -918,6 +925,7 @@ public class Settings extends AppCompatActivity
             }
         });
         final AlertDialog dialog = builder.create();
+        hostHolder[0] = dialog;
         dialog.show();
         android.view.View.OnClickListener saveClick = new android.view.View.OnClickListener() {
             public void onClick(android.view.View v) {
@@ -934,6 +942,59 @@ public class Settings extends AppCompatActivity
                 return false;
             }
         });
+    }
+
+    /**
+     * Lists named mixes under the save field so a tap can overwrite one
+     * without retyping the name.
+     */
+    private void addExistingMixPicker(LinearLayout layout, final EditText nameField,
+            List<PonyMixes.Mix> mixes, int pad, final AlertDialog[] hostHolder) {
+        if (layout == null || nameField == null || mixes == null || mixes.isEmpty()) return;
+
+        TextView heading = new TextView(this);
+        heading.setText(R.string.pref_save_mix_existing_heading);
+        heading.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
+        LinearLayout.LayoutParams headingLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        headingLp.topMargin = pad;
+        headingLp.bottomMargin = pad / 4;
+        layout.addView(heading, headingLp);
+
+        TypedValue selectable = new TypedValue();
+        boolean hasSelectable = getTheme().resolveAttribute(
+                android.R.attr.selectableItemBackground, selectable, true);
+        int rowMin = (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, 48f, getResources().getDisplayMetrics());
+
+        for (int i = 0; i < mixes.size(); i++) {
+            final PonyMixes.Mix mix = mixes.get(i);
+            TextView row = new TextView(this);
+            row.setText(getString(R.string.pref_load_mix_user_item, mix.name,
+                    PonyMixes.countBuiltIn(mix.keys), PonyMixes.countCustom(mix.keys)));
+            row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
+            row.setMinHeight(rowMin);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(0, pad / 4, 0, pad / 4);
+            row.setClickable(true);
+            row.setFocusable(true);
+            if (hasSelectable) {
+                row.setBackgroundResource(selectable.resourceId);
+            }
+            row.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    String name = mix.name;
+                    nameField.setText(name);
+                    nameField.setSelection(name.length());
+                    AlertDialog host = hostHolder != null ? hostHolder[0] : null;
+                    if (host != null) {
+                        onSaveMixNameEntered(host, name);
+                    }
+                }
+            });
+            layout.addView(row);
+        }
     }
 
     private void onSaveMixNameEntered(AlertDialog host, String rawName) {
