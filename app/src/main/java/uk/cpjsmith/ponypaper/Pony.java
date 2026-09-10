@@ -1189,7 +1189,7 @@ public class Pony {
     /**
      * Herd drain: leave via the same movers as drag-to-edge / SceneExit.
      * Pinned ponies are skipped. Mid-walk keeps the current clip and retargets
-     * off-screen. Drag defers until {@link #stopDrag()}.
+     * to the nearest allowed gutter. Drag defers until {@link #stopDrag()}.
      */
     void forceSceneExit() {
         forceSceneExit(false);
@@ -1311,7 +1311,8 @@ public class Pony {
     }
 
     /**
-     * Keep the current walk clip; send the current movement band off-screen.
+     * Keep the current walk clip; send the current movement band to the
+     * nearest allowed gutter.
      */
     private void retargetOffScreenLeave() {
         if (screenBounds == null) {
@@ -1322,7 +1323,7 @@ public class Pony {
                 ? currentAction.getMovement()
                 : WanderTarget.MOVE_INHERIT;
         int band = WanderTarget.resolveBand(wander, movement, random);
-        targetPos = randomOffScreenForBand(band);
+        targetPos = closestOffScreenForBand(band);
         leavingMode = LM_GOING;
         if (targetPos != null) {
             travelX = targetPos.x - posX;
@@ -1683,7 +1684,7 @@ public class Pony {
             leavingMode = LM_GONE;
             return;
         }
-        Point exit = worldFlowExitPoint(next);
+        Point exit = worldFlowExitPoint(next, preferFastest);
         motion = MOTION_MOVING;
         leavingMode = LM_GOING;
         targetPos = exit;
@@ -1695,16 +1696,20 @@ public class Pony {
 
     /**
      * Off-screen leave target for a World Flow resume, matching {@code next}'s
-     * gutter axis. Prefers continuing current travel when that axis is active.
+     * gutter axis. Prefers continuing current travel when that axis is active
+     * unless {@code nearestGutter} (herd drain) is set.
      */
-    private Point worldFlowExitPoint(PonyAction next) {
+    private Point worldFlowExitPoint(PonyAction next, boolean nearestGutter) {
         int s = (int)(30 * getScale());
         boolean vertical = WanderTarget.usesVerticalGutters(wander,
                 next.getMovement(), random);
         if (vertical) {
             int x = Math.round(posX);
             boolean leaveTop;
-            if (Math.abs(travelY) > 0.01f) {
+            if (nearestGutter) {
+                leaveTop = HerdDrain.nearerFirst(posY, offScreenExitY(true),
+                        offScreenExitY(false));
+            } else if (Math.abs(travelY) > 0.01f) {
                 leaveTop = travelY < 0f;
             } else {
                 leaveTop = posY < screenBounds.centerY();
@@ -1713,7 +1718,10 @@ public class Pony {
         }
         int y = Math.round(posY);
         boolean leaveLeft;
-        if (Math.abs(travelX) > 0.01f) {
+        if (nearestGutter) {
+            leaveLeft = HerdDrain.nearerFirst(posX, screenBounds.left - s,
+                    screenBounds.right + s);
+        } else if (Math.abs(travelX) > 0.01f) {
             leaveLeft = travelX < 0f;
         } else {
             leaveLeft = posX < screenBounds.centerX();
@@ -1772,8 +1780,8 @@ public class Pony {
     }
 
     /**
-     * @param forceLeave skip the 1-in-8 stay roll and always pick an off-screen
-     *                   destination (herd drain / drag-to-edge)
+     * @param forceLeave skip the 1-in-8 stay roll and always pick the nearest
+     *                   allowed gutter (herd drain / drag-to-edge)
      */
     private void setRandomTarget(PonyAction forAction, boolean forceLeave) {
         // Specials (teleport destination, etc.) keep free targeting.
@@ -1783,7 +1791,10 @@ public class Pony {
         int band = motion == MOTION_MOVING
                 ? WanderTarget.resolveBand(wander, movement, random)
                 : WanderTarget.BAND_ANY;
-        if (forceLeave || SceneExit.shouldLeaveScene(random)) {
+        if (forceLeave) {
+            targetPos = closestOffScreenForBand(band);
+            leavingMode = LM_GOING;
+        } else if (SceneExit.shouldLeaveScene(random)) {
             targetPos = randomOffScreenForBand(band);
             leavingMode = LM_GOING;
         } else {
@@ -1899,6 +1910,27 @@ public class Pony {
             default:
                 return randomOnScreenSoftHorizontal();
         }
+    }
+
+    /**
+     * Nearest allowed gutter for a drain leave: left/right at current Y for
+     * horizontal/{@link WanderTarget#BAND_ANY}, top/bottom at current X for
+     * vertical bands. Straight-line so the path is the short hop, not a
+     * random far-side Y/X.
+     */
+    private Point closestOffScreenForBand(int band) {
+        int s = (int)(30 * getScale());
+        if (WanderTarget.usesVerticalGutters(band)) {
+            int x = Math.round(posX);
+            boolean leaveTop = HerdDrain.nearerFirst(posY, offScreenExitY(true),
+                    offScreenExitY(false));
+            return new Point(x, offScreenExitY(leaveTop));
+        }
+        int y = Math.round(posY);
+        boolean leaveLeft = HerdDrain.nearerFirst(posX, screenBounds.left - s,
+                screenBounds.right + s);
+        return new Point(
+                leaveLeft ? screenBounds.left - s : screenBounds.right + s, y);
     }
 
     /**

@@ -23,6 +23,8 @@ public final class HerdDrainTest {
         failures += run("complete", HerdDrainTest::testComplete);
         failures += run("decidePinned", HerdDrainTest::testDecidePinned);
         failures += run("decideAlreadyLeaving", HerdDrainTest::testDecideAlreadyLeaving);
+        failures += run("decideAlreadyLeavingWalkRetargets",
+                HerdDrainTest::testDecideAlreadyLeavingWalkRetargets);
         failures += run("decideNoBoundsAndSpawn", HerdDrainTest::testDecideNoBoundsAndSpawn);
         failures += run("decideDrag", HerdDrainTest::testDecideDrag);
         failures += run("decideWorldFlow", HerdDrainTest::testDecideWorldFlow);
@@ -33,6 +35,7 @@ public final class HerdDrainTest {
         failures += run("pickFastestPrefersTrot", HerdDrainTest::testPickFastestPrefersTrot);
         failures += run("pickFastestFluttershyCap", HerdDrainTest::testPickFastestFluttershyCap);
         failures += run("pickFastestTiesUniform", HerdDrainTest::testPickFastestTiesUniform);
+        failures += run("nearerGutter", HerdDrainTest::testNearerGutter);
         if (failures > 0) {
             System.err.println(failures + " herd-drain check(s) failed.");
             System.exit(1);
@@ -136,13 +139,24 @@ public final class HerdDrainTest {
     }
 
     private static void testDecideAlreadyLeaving() {
-        int going = HerdDrain.decideExit(false, false, true, false, false, false, true, true);
-        if (going != HerdDrain.EXIT_NOOP) {
-            throw new AssertionError("already leaving → NOOP, got " + going);
+        int vanish = HerdDrain.decideExit(false, false, true, false, false, false, false, true);
+        if (vanish != HerdDrain.EXIT_NOOP) {
+            throw new AssertionError("vanish clip → NOOP, got " + vanish);
         }
         int gone = HerdDrain.decideExit(false, false, false, true, false, false, false, true);
         if (gone != HerdDrain.EXIT_NOOP) {
             throw new AssertionError("already gone → NOOP, got " + gone);
+        }
+    }
+
+    private static void testDecideAlreadyLeavingWalkRetargets() {
+        int a = HerdDrain.decideExit(false, false, true, false, false, false, true, true);
+        if (a != HerdDrain.EXIT_RETARGET) {
+            throw new AssertionError("leaving walk → RETARGET nearer gutter, got " + a);
+        }
+        int wf = HerdDrain.decideExit(false, true, true, false, false, false, true, true);
+        if (wf != HerdDrain.EXIT_WORLD_FLOW) {
+            throw new AssertionError("leaving World Flow walk → crossing resume, got " + wf);
         }
     }
 
@@ -246,6 +260,26 @@ public final class HerdDrainTest {
         }
         if (a < 40 || c < 40) {
             throw new AssertionError("expected both full-speed slots; a=" + a + " c=" + c);
+        }
+    }
+
+    private static void testNearerGutter() {
+        if (!HerdDrain.nearerFirst(10f, 0f, 100f)) {
+            throw new AssertionError("near left should take left");
+        }
+        if (HerdDrain.nearerFirst(90f, 0f, 100f)) {
+            throw new AssertionError("near right should take right");
+        }
+        if (!HerdDrain.nearerFirst(50f, 0f, 100f)) {
+            throw new AssertionError("centerline tie prefers first (left/top)");
+        }
+        // Asymmetric vertical pads: dest top = -8, dest bottom = 120 on a
+        // 100-tall screen — a pony at 50 is still closer to the top dest.
+        if (!HerdDrain.nearerFirst(50f, -8f, 120f)) {
+            throw new AssertionError("asymmetric vertical pads: closer to top dest");
+        }
+        if (HerdDrain.nearerFirst(90f, -8f, 120f)) {
+            throw new AssertionError("near bottom dest should take bottom");
         }
     }
 }

@@ -12,8 +12,8 @@ public final class HerdDrain {
 
     /**
      * Wall-clock cap so a stuck clip cannot block mix shuffle forever.
-     * Long enough for a full-speed crossing of a large screen; drain exits
-     * also pick the fastest leave gait so this is a backstop, not the
+     * Drain walks target the nearest allowed gutter at the fastest leave
+     * gait, so this is a backstop (tiny scale on a large screen), not the
      * typical wait.
      */
     public static final int TIMEOUT_MS = 15_000;
@@ -24,13 +24,17 @@ public final class HerdDrain {
     /** Extra delay per active index so identical waits do not chorus-line. */
     public static final int STAGGER_INDEX_MS = 50;
 
-    /** Already {@code LM_GOING}/{@code LM_GONE}, or already playing a leave clip. */
+    /**
+     * Already {@code LM_GONE}, or already playing a vanish clip
+     * ({@code screen-out} / teleport-out). Mid-walk {@code LM_GOING} is
+     * {@link #EXIT_RETARGET} so a far-side target can flip to the nearer gutter.
+     */
     public static final int EXIT_NOOP = 0;
     /** Spawn / no bounds / no usable mover: drop the slot immediately. */
     public static final int EXIT_MARK_GONE = 1;
     /** Finish the drag, then leave (do not yank a grabbed pony). */
     public static final int EXIT_DEFER_DRAG = 2;
-    /** Mid-walk: keep the current clip, retarget the current band off-screen. */
+    /** Mid-walk: keep the current clip, retarget the current band to the nearer gutter. */
     public static final int EXIT_RETARGET = 3;
     /** Idle / special: {@code tryBeginMoving} with force-leave. */
     public static final int EXIT_BEGIN_LEAVE = 4;
@@ -98,7 +102,12 @@ public final class HerdDrain {
         if (pinned) {
             return EXIT_SKIP;
         }
-        if (alreadyGone || alreadyLeaving) {
+        if (alreadyGone) {
+            return EXIT_NOOP;
+        }
+        // Vanish clips stay put; an in-flight walk still retargets to the
+        // nearer gutter even if it was already marked leaving.
+        if (alreadyLeaving && !interpolatingWalk) {
             return EXIT_NOOP;
         }
         if (!hasScreenBounds || spawning) {
@@ -114,6 +123,16 @@ public final class HerdDrain {
             return EXIT_RETARGET;
         }
         return EXIT_BEGIN_LEAVE;
+    }
+
+    /**
+     * True when {@code pos} is at least as close to {@code first} as to
+     * {@code second}. Drain leave uses this so a pony near one gutter does
+     * not coin-flip a walk across the screen. Ties take {@code first}
+     * (left / top).
+     */
+    public static boolean nearerFirst(float pos, float first, float second) {
+        return Math.abs(pos - first) <= Math.abs(pos - second);
     }
 
     /**
