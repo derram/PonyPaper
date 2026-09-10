@@ -190,6 +190,8 @@
     <string name="pref_dream_show_clock_summary">Large digital clock over the herd (12/24-hour follows system setting)</string>
     <string name="pref_dream_show_date_title">Show date</string>
     <string name="pref_dream_show_date_summary">Weekday and full date under the time</string>
+    <string name="pref_dream_oled_shift_title">Shift background</string>
+    <string name="pref_dream_oled_shift_summary">Slowly pan the image so a still background does not sit on the same pixels during long screen saver sessions</string>
     <string name="pref_dream_idle_timeout_title">Turn off after inactivity</string>
     <string name="pref_dream_idle_timeout_dialog">Turn off after inactivity</string>
     <string name="pref_dream_idle_timeout_5">5 minutes</string>

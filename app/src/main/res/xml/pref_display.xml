@@ -164,6 +164,11 @@
             android:summary="@string/pref_dream_show_date_summary"
             android:dependency="pref_dream_show_clock"
             android:defaultValue="true" />
+        <CheckBoxPreference
+            android:key="pref_dream_oled_shift"
+            android:title="@string/pref_dream_oled_shift_title"
+            android:summary="@string/pref_dream_oled_shift_summary"
+            android:defaultValue="true" />
         <ListPreference
             android:key="pref_dream_idle_timeout"
             android:title="@string/pref_dream_idle_timeout_title"

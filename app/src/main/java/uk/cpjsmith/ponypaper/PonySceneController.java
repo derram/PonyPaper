@@ -69,6 +69,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /** When true (and the clock is shown), draw the date under the time. */
     static final String PREF_DREAM_SHOW_DATE = "pref_dream_show_date";
     /**
+     * When true (default), the dream slowly pans a cover-fit background so a
+     * still image does not sit on the same pixels for hours.
+     */
+    static final String PREF_DREAM_OLED_SHIFT = "pref_dream_oled_shift";
+    /**
      * Dream idle timeout in minutes as a string ({@code "0"} = never).
      * Missing keys use {@link #defaultIdleTimeoutMinutes()}; invalid values
      * fall back the same way.
@@ -1058,13 +1063,20 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         return src;
     }
 
-    /** Cover-fit destination inside the canvas, panned by home-screen offsets. */
+    /**
+     * Cover-fit destination inside the canvas, panned by home-screen offsets
+     * and optional dream OLED shift. {@code extraScale} {@code > 1} oversizes
+     * the dest so a pixel pan cannot reveal the fill colour.
+     */
     private static void coverDestRect(int srcW, int srcH, int canvasW, int canvasH,
-            float xOffset, float yOffset, Rect out) {
+            float xOffset, float yOffset, float extraScale, Rect out) {
         int dstW;
         int dstH;
         if (srcW > 0 && srcH > 0 && canvasW > 0 && canvasH > 0) {
             float scale = Math.max((float) canvasW / (float) srcW, (float) canvasH / (float) srcH);
+            if (extraScale > 1f) {
+                scale *= extraScale;
+            }
             dstW = Math.max(1, Math.round(srcW * scale));
             dstH = Math.max(1, Math.round(srcH * scale));
         } else {
@@ -1074,6 +1086,19 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         int left = Math.round((canvasW - dstW) * xOffset);
         int top = Math.round((canvasH - dstH) * yOffset);
         out.set(left, top, left + dstW, top + dstH);
+    }
+
+    /**
+     * Cover-fit dest, then dream-only integer pan when {@code oledShift} is set.
+     * Wallpaper parallax is {@code xOffset}/{@code yOffset} only.
+     */
+    private static void layoutBackgroundDest(int srcW, int srcH, int canvasW, int canvasH,
+            float xOffset, float yOffset, boolean oledShift, long uptimeMs, Rect out) {
+        float extra = oledShift ? DreamOledShift.coverScale() : 1f;
+        coverDestRect(srcW, srcH, canvasW, canvasH, xOffset, yOffset, extra, out);
+        if (oledShift) {
+            DreamOledShift.apply(canvasW, canvasH, out, uptimeMs);
+        }
     }
 
     /**
@@ -2023,6 +2048,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             scheduleDropHerd();
             return;
         }
+        if (PREF_DREAM_OLED_SHIFT.equals(key)) {
+            forceSceneRedraw = true;
+            redrawIfActive();
+            return;
+        }
         if (isHerdMetadataKey(key)) return;
         scheduleDropHerd();
     }
@@ -2190,11 +2220,14 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             }
         }
 
+        SharedPreferences prefs = getPreferences();
         float xOffset = surface.getBackgroundXOffset();
         float yOffset = surface.getBackgroundYOffset();
+        boolean oledShift = surface.isDream()
+                && prefs.getBoolean(PREF_DREAM_OLED_SHIFT, true);
         if (background != null && !background.isRecycled() && frameW > 0 && frameH > 0) {
-            coverDestRect(background.getWidth(), background.getHeight(),
-                    frameW, frameH, xOffset, yOffset, tmpDst);
+            layoutBackgroundDest(background.getWidth(), background.getHeight(),
+                    frameW, frameH, xOffset, yOffset, oledShift, now, tmpDst);
             if (tmpDst.left != lastBgDestLeft || tmpDst.top != lastBgDestTop) {
                 contentDirty = true;
             }
@@ -2204,7 +2237,6 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             contentDirty = true;
         }
 
-        SharedPreferences prefs = getPreferences();
         boolean hudOn = DebugOverlay.hudEnabled(prefs);
         // HUD must post to refresh numbers; content-clean frames still count as skips.
         boolean needDraw = contentDirty || hudOn;
@@ -2240,8 +2272,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                     if (paint.getAlpha() != 0xff) {
                         c.drawColor(backgroundColour);
                     }
-                    coverDestRect(drawBg.getWidth(), drawBg.getHeight(),
-                            canvasW, canvasH, xOffset, yOffset, tmpDst);
+                    layoutBackgroundDest(drawBg.getWidth(), drawBg.getHeight(),
+                            canvasW, canvasH, xOffset, yOffset, oledShift, now, tmpDst);
                     backgroundNode.update(drawBg, tmpDst.width(), tmpDst.height(), paint);
                     backgroundNode.setTranslation(tmpDst.left, tmpDst.top);
                     backgroundNode.draw(c);
@@ -2253,8 +2285,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                     }
                     if (drawBg != null) {
                         tmpSrc.set(0, 0, drawBg.getWidth(), drawBg.getHeight());
-                        coverDestRect(drawBg.getWidth(), drawBg.getHeight(),
-                                canvasW, canvasH, xOffset, yOffset, tmpDst);
+                        layoutBackgroundDest(drawBg.getWidth(), drawBg.getHeight(),
+                                canvasW, canvasH, xOffset, yOffset, oledShift, now, tmpDst);
                         c.drawBitmap(drawBg, tmpSrc, tmpDst, paint);
                         lastBgDestLeft = tmpDst.left;
                         lastBgDestTop = tmpDst.top;
