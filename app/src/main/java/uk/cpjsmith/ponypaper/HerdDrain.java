@@ -88,6 +88,28 @@ public final class HerdDrain {
     }
 
     /**
+     * Roster changes that arrive while a drain is already emptying the
+     * stage fold into that drain: {@code finishHerdDrain} rebuilds from
+     * current prefs. Starting a second drain (or an instant drop of an
+     * empty stage) is the wander “walk back then swap” / flow double-clear.
+     */
+    public static boolean shouldStartRosterReload(boolean draining) {
+        return !draining;
+    }
+
+    /**
+     * A host that already handled {@code handledGeneration} must ignore a
+     * {@link CustomStorage#PREF_LIBRARY_GENERATION} echo. Reload herd drains
+     * then bumps so other hosts follow; handling the echo would drain the
+     * incoming herd too. The 3 s reload cooldown does not apply to that
+     * preference path, so the second drain used to look like a timeout swap.
+     */
+    public static boolean shouldReloadForGeneration(long handledGeneration,
+            long incomingGeneration) {
+        return incomingGeneration != handledGeneration;
+    }
+
+    /**
      * @param pinned            Tableau pin (never drain)
      * @param worldFlow         {@link SceneMode#WORLD_FLOW}
      * @param alreadyLeaving    {@code LM_GOING} or leave clip already current

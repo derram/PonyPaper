@@ -318,6 +318,12 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /** {@link SystemClock#uptimeMillis()} of the last accepted herd reload; 0 if none. */
     private long lastHerdReloadUptimeMs = 0;
     /**
+     * Last {@link CustomStorage#PREF_LIBRARY_GENERATION} this host already
+     * drained or rebuilt for. Echoes of a bump we wrote after a local drain
+     * must not start a second drain.
+     */
+    private long lastHandledLibraryGeneration = Long.MIN_VALUE;
+    /**
      * When a wander drain started; 0 if not draining. Used with
      * {@link HerdDrain#TIMEOUT_MS}.
      */
@@ -520,6 +526,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         thermalThrottle = false;
         pendingHerdReload = false;
         lastHerdReloadUptimeMs = 0;
+        lastHandledLibraryGeneration = Long.MIN_VALUE;
         herdDrainStartMs = 0;
     }
 
@@ -553,6 +560,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      */
     private void requestRosterReload() {
         if (!started || frozen) return;
+        if (!HerdDrain.shouldStartRosterReload(isHerdDraining())) {
+            return;
+        }
         handler.removeCallbacks(coalescedDropHerd);
         handler.post(coalescedDropHerd);
     }
@@ -594,9 +604,19 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             if (CustomStorage.hasLibraryFolder(appContext)) {
                 startLibrarySync(true);
             } else {
-                CustomStorage.bumpGeneration(appContext);
+                markHandledLibraryGenerationBump();
             }
         }
+    }
+
+    /**
+     * Bump {@link CustomStorage#PREF_LIBRARY_GENERATION} so other hosts drain,
+     * and record the value so this host ignores the echo.
+     */
+    private void markHandledLibraryGenerationBump() {
+        CustomStorage.bumpGeneration(appContext);
+        lastHandledLibraryGeneration = getPreferences()
+                .getLong(CustomStorage.PREF_LIBRARY_GENERATION, 0L);
     }
 
     private void dropHerdNow() {
@@ -713,6 +733,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      */
     private void ensureScenePrepared(final int canvasW, final int canvasH) {
         if (ponies != null || sceneLoadInFlight || sceneLoadFailed || !started) {
+            return;
+        }
+        // Reload-herd library sync: wait for the generation bump so we do not
+        // spawn a herd from stale files and then drain it when the bump lands.
+        if (librarySyncInFlight && pendingHerdReload) {
             return;
         }
         final SharedPreferences prefs = getPreferences();
@@ -1101,8 +1126,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * when the sync finds no file changes (local edits, or no folder linked).
      *
      * @return true if the request was accepted (started or coalesced into an
-     *         in-flight sync); false when ignored for cooldown, an in-flight
-     *         scene load, or because the controller is stopped
+     *         in-flight sync or drain); false when ignored for cooldown, an
+     *         in-flight scene load, or because the controller is stopped
      */
     public boolean requestHerdReload() {
         if (!started) return false;
@@ -1122,11 +1147,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             pendingHerdReload = true;
             return true;
         }
-        if (canDrainCurrentHerd()) {
-            pendingHerdReload = true;
-            startHerdDrain();
-            return true;
-        }
+        // Do not drain here. Bump/sync notifies every host (including this
+        // one) via {@link CustomStorage#PREF_LIBRARY_GENERATION}, and that
+        // listener starts the single drain. Draining first then bumping
+        // rebuilt the incoming herd a second time.
         if (!CustomStorage.hasLibraryFolder(appContext)) {
             CustomStorage.bumpGeneration(appContext);
             return true;
@@ -1177,9 +1201,18 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                         pendingHerdReload = false;
                         if (!started) return;
                         if (reload) {
-                            CustomStorage.bumpGeneration(appContext);
+                            if (ponies == null) {
+                                // Already drained; bump is for other hosts.
+                                markHandledLibraryGenerationBump();
+                            } else {
+                                CustomStorage.bumpGeneration(appContext);
+                            }
                         } else if (result.changed) {
-                            dropHerd();
+                            if (isHerdDraining()) {
+                                pendingHerdReload = true;
+                            } else {
+                                dropHerd();
+                            }
                         }
                     }
                 });
@@ -1896,6 +1929,14 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         if (PREF_NUM_PONIES.equals(key) || PREF_BACKGROUND.equals(key)) {
             scheduleDropHerd();
+            return;
+        }
+        if (CustomStorage.PREF_LIBRARY_GENERATION.equals(key)) {
+            long gen = prefs.getLong(CustomStorage.PREF_LIBRARY_GENERATION, 0L);
+            if (!HerdDrain.shouldReloadForGeneration(lastHandledLibraryGeneration, gen)) {
+                return;
+            }
+            requestRosterReload();
             return;
         }
         if (isHerdMetadataKey(key)) return;

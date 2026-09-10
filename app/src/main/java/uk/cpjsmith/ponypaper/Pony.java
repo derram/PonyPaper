@@ -839,6 +839,11 @@ public class Pony {
                         resumeWorldFlowExit();
                         break;
                     }
+                    if (drainExitDelayMs > 0) {
+                        // Herd drain already scheduled an exit; do not start a
+                        // new on-screen wander trip before forceSceneExit.
+                        break;
+                    }
                     waitTimerMs -= deltaMs;
                     if (waitTimerMs <= 0) {
                         waitTimerMs = 0;

@@ -36,6 +36,9 @@ public final class HerdDrainTest {
         failures += run("pickFastestFluttershyCap", HerdDrainTest::testPickFastestFluttershyCap);
         failures += run("pickFastestTiesUniform", HerdDrainTest::testPickFastestTiesUniform);
         failures += run("nearerGutter", HerdDrainTest::testNearerGutter);
+        failures += run("rosterReloadWhileDraining",
+                HerdDrainTest::testRosterReloadWhileDraining);
+        failures += run("generationEcho", HerdDrainTest::testGenerationEcho);
         if (failures > 0) {
             System.err.println(failures + " herd-drain check(s) failed.");
             System.exit(1);
@@ -280,6 +283,27 @@ public final class HerdDrainTest {
         }
         if (HerdDrain.nearerFirst(90f, -8f, 120f)) {
             throw new AssertionError("near bottom dest should take bottom");
+        }
+    }
+
+    private static void testRosterReloadWhileDraining() {
+        if (!HerdDrain.shouldStartRosterReload(false)) {
+            throw new AssertionError("idle herd should accept a roster reload");
+        }
+        if (HerdDrain.shouldStartRosterReload(true)) {
+            throw new AssertionError("in-flight drain must fold later roster changes");
+        }
+    }
+
+    private static void testGenerationEcho() {
+        if (!HerdDrain.shouldReloadForGeneration(Long.MIN_VALUE, 1L)) {
+            throw new AssertionError("first generation bump should reload");
+        }
+        if (HerdDrain.shouldReloadForGeneration(42L, 42L)) {
+            throw new AssertionError("echo of a generation this host wrote must not reload");
+        }
+        if (!HerdDrain.shouldReloadForGeneration(42L, 43L)) {
+            throw new AssertionError("a newer generation should reload");
         }
     }
 }
