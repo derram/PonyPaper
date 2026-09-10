@@ -190,11 +190,11 @@ public final class FramesToSpritesheet {
         System.out.println("  --timing-cs N        Duration for every frame (hundredths of a second, default 10)");
         System.out.println("  --strict-size        Fail if frame pixel sizes differ (default: pad to max, bottom-centre)");
         System.out.println("  --scale " + ImageImport.SCALE_CLI_TOKENS);
-        System.out.println("                       Dyadic nearest-neighbour scale before packing");
+        System.out.println("                       Nearest-neighbour scale before packing");
         System.out.println("                       (default 100). 200/2x/double pixel-doubles;");
-        System.out.println("                       bare 2 is ÷2 (50%). fit = largest shrink with");
-        System.out.println("                       frame height ≤ " + ImageImport.LARGE_CELL_HEIGHT_PX
-                + "px (never 200%)");
+        System.out.println("                       150/1.5x/3/2 is ×1.5. bare 2 is ÷2 (50%).");
+        System.out.println("                       fit = largest shrink with frame height ≤ "
+                + ImageImport.LARGE_CELL_HEIGHT_PX + "px (never 150% or 200%)");
         System.out.println("  --half               Same as --scale 50 (Desktop Ponies → built-in size)");
         System.out.println("  --lifts N,N,...      Pixels up from the baseline for each frame (0 = on the ground).");
         System.out.println("                       Length must match the frame count. Omit for all zeros.");

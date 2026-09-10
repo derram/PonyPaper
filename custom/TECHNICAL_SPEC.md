@@ -51,7 +51,7 @@ java -jar custom/build/libs/customponies.jar \
   -save oc.xml
 ```
 
-`-scale` is dyadic nearest-neighbour for the next GIF/`-sprite-frames` import (`200`/`2x`/`double` pixel-doubles; bare `2` is ÷2 / 50%). Fit never selects 200%.
+`-scale` is nearest-neighbour for the next GIF/`-sprite-frames` import (`200`/`2x`/`double` pixel-doubles; `150`/`1.5x`/`3/2` is ×1.5; bare `2` is ÷2 / 50%). Fit never selects 150% or 200%.
 
 ## Engine Logic & Behaviors
 

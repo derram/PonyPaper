@@ -55,7 +55,7 @@ import javax.swing.event.ListSelectionListener;
 
 /**
  * Modal dialog: review imported frames (PNG stills or coalesced GIF frames),
- * choose a dyadic pack scale (200%…6.25%, or fit-to-built-in), rearrange
+ * choose a pack scale (200% / 150%…6.25%, or fit-to-built-in), rearrange
  * playback order (move, reverse, clone, or delete), set per-frame lift (or
  * apply one value to all frames), and pack. Frames taller than built-in open
  * on Fit. Sheets over {@link ImageImport#SHEET_PIXEL_BUDGET} defer the strip
@@ -75,7 +75,7 @@ public final class FramePackDialog extends JDialog {
      * sequence of source indices ({@code 0..sourceCount-1}); duplicates
      * (clone) and omissions (delete) are allowed, so its length is the packed
      * frame count. {@link #scaleNumerator}/{@link #scaleDivisor} is the
-     * resolved dyadic ratio actually applied (never a "fit" sentinel).
+     * resolved ratio actually applied (never a "fit" sentinel).
      */
     public static final class Result {
         public final int[] lifts;
@@ -266,6 +266,11 @@ public final class FramePackDialog extends JDialog {
                         ImageImport.formatScaleLabel(
                                 ImageImport.SCALE_NUMERATOR_DOUBLE,
                                 ImageImport.SCALE_DIVISOR_NATIVE)),
+                new ScaleItem(ImageImport.SCALE_NUMERATOR_THREE_HALVES,
+                        ImageImport.SCALE_DIVISOR_THREE_HALVES,
+                        ImageImport.formatScaleLabel(
+                                ImageImport.SCALE_NUMERATOR_THREE_HALVES,
+                                ImageImport.SCALE_DIVISOR_THREE_HALVES)),
                 new ScaleItem(ImageImport.SCALE_DIVISOR_NATIVE,
                         ImageImport.formatScaleDivisorLabel(ImageImport.SCALE_DIVISOR_NATIVE)),
                 new ScaleItem(ImageImport.SCALE_DIVISOR_HALF,
@@ -282,6 +287,8 @@ public final class FramePackDialog extends JDialog {
             scaleItems = new ScaleItem[] {
                 new ScaleItem(ImageImport.SCALE_NUMERATOR_DOUBLE,
                         ImageImport.SCALE_DIVISOR_NATIVE, "200% (×2)"),
+                new ScaleItem(ImageImport.SCALE_NUMERATOR_THREE_HALVES,
+                        ImageImport.SCALE_DIVISOR_THREE_HALVES, "150% (×1.5)"),
                 new ScaleItem(ImageImport.SCALE_DIVISOR_NATIVE, "100% (native)"),
                 fitScaleItem,
             };
@@ -289,11 +296,11 @@ public final class FramePackDialog extends JDialog {
         scaleCombo = new JComboBox<ScaleItem>(scaleItems);
         selectScaleItem(ImageImport.SCALE_NUMERATOR_NATIVE, initialDivisor, selectFitByDefault);
         scaleCombo.setToolTipText(
-                "Nearest-neighbour dyadic scale before packing. "
-                        + "200% pixel-doubles undersized art. "
+                "Nearest-neighbour scale before packing. "
+                        + "200% pixel-doubles undersized art; 150% is ×1.5. "
                         + "Prefer ÷2 / ÷4 / ÷8 / ÷16 to shrink. "
                         + "Fit picks the largest shrink whose tallest frame is ≤ "
-                        + ImageImport.LARGE_CELL_HEIGHT_PX + "px (never 200%). "
+                        + ImageImport.LARGE_CELL_HEIGHT_PX + "px (never 150% or 200%). "
                         + "Oversized imports open on Fit automatically. "
                         + "Lifts are in output pixels after scale.");
         scaleCombo.addActionListener(new ActionListener() {
@@ -693,7 +700,19 @@ public final class FramePackDialog extends JDialog {
                 && numerator == ImageImport.SCALE_NUMERATOR_NATIVE) {
             scaleCombo.setSelectedIndex(fitIndex);
         } else {
-            scaleCombo.setSelectedIndex(Math.min(1, scaleCombo.getItemCount() - 1));
+            int nativeIndex = -1;
+            for (int i = 0; i < scaleCombo.getItemCount(); i++) {
+                ScaleItem item = scaleCombo.getItemAt(i);
+                if (item != null && !item.fit
+                        && item.numerator == ImageImport.SCALE_NUMERATOR_NATIVE
+                        && item.divisor == ImageImport.SCALE_DIVISOR_NATIVE) {
+                    nativeIndex = i;
+                    break;
+                }
+            }
+            scaleCombo.setSelectedIndex(nativeIndex >= 0
+                    ? nativeIndex
+                    : Math.min(1, scaleCombo.getItemCount() - 1));
         }
     }
 
@@ -944,7 +963,7 @@ public final class FramePackDialog extends JDialog {
                         .append("px (a common GPU texture limit).\n\n");
             }
             message.append("Prefer Fit to built-in, fewer frames, or a smaller scale ")
-                    .append("(200% quadruples pixels) unless you need the full resolution.")
+                    .append("(200% quadruples pixels; 150% is 2.25×) unless you need the full resolution.")
                     .append("\n\nPack anyway?");
             int choice = JOptionPane.showConfirmDialog(
                     this,

@@ -180,10 +180,11 @@ public final class GifToSpritesheet {
         System.out.println("  -q, --quiet          Suppress status on stderr (timings still on stdout)");
         System.out.println("  -t, --timings FILE   Also write comma-separated frame timings to FILE");
         System.out.println("  --scale " + ImageImport.SCALE_CLI_TOKENS);
-        System.out.println("                       Dyadic nearest-neighbour scale (default 100).");
-        System.out.println("                       200/2x/double pixel-doubles; bare 2 is ÷2 (50%).");
-        System.out.println("                       fit = largest shrink with frame height ≤ "
-                + ImageImport.LARGE_CELL_HEIGHT_PX + "px (never 200%)");
+        System.out.println("                       Nearest-neighbour scale (default 100).");
+        System.out.println("                       200/2x/double pixel-doubles; 150/1.5x/3/2 is ×1.5.");
+        System.out.println("                       Bare 2 is ÷2 (50%). fit = largest shrink with");
+        System.out.println("                       frame height ≤ " + ImageImport.LARGE_CELL_HEIGHT_PX
+                + "px (never 150% or 200%)");
         System.out.println("  --half               Same as --scale 50 (Desktop Ponies → built-in size)");
         System.out.println();
         System.out.println("If OUTPUT is omitted, writes INPUT with the extension replaced by .png.");

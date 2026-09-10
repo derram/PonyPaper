@@ -26,14 +26,16 @@ import javax.imageio.ImageIO;
  * Animated GIFs are decoded, fully coalesced (so each frame is a complete
  * image, not a dirty-rectangle delta), and packed left-to-right into a
  * single PNG spritesheet with matching frame timings. Scale is an exact
- * dyadic ratio: numerator {@link #SCALE_NUMERATOR_NATIVE} or
- * {@link #SCALE_NUMERATOR_DOUBLE} over a divisor
+ * ratio: numerator {@link #SCALE_NUMERATOR_NATIVE},
+ * {@link #SCALE_NUMERATOR_THREE_HALVES} (150% / 3÷2), or
+ * {@link #SCALE_NUMERATOR_DOUBLE} (200%) over a divisor
  * ({@link #SCALE_DIVISOR_NATIVE}…{@link #SCALE_DIVISOR_SIXTEENTH}). Shrinks
  * are nearest-neighbour point samples on the even lattice
  * ({@code src[x·D, y·D]}), equivalent to successive top-left halvings, so
  * ÷2 / ÷4 / ÷8 / ÷16 match re-running the 50% option. 200% is pixel doubling
- * (each source texel becomes a 2×2 block), the inverse of ÷2, and never
- * combines with a shrink. {@link #SCALE_DIVISOR_HALF} is what the
+ * (each source texel becomes a 2×2 block), the inverse of ÷2. 150% is
+ * nearest-neighbour 3/2 ({@code src[x·2/3, y·2/3]}). Upscales never combine
+ * with a shrink (200% is 2/1 only; 150% is 3/2 only). {@link #SCALE_DIVISOR_HALF} is what the
  * Desktop Ponies folder importer uses so stock ponies match built-in sheet
  * size. Integer sampling avoids {@code Graphics2D} nearest-neighbour, which
  * picks the odd pixel of each 2×2 and can turn isolated encoder speckles
@@ -60,15 +62,28 @@ public class ImageImport {
     public static final int SCALE_NUMERATOR_DOUBLE = 2;
 
     /**
-     * Allowed dyadic scale numerators, largest scale first (×2 then native).
+     * 150% / ×1.5 — nearest-neighbour 3/2. Pairs only with
+     * {@link #SCALE_DIVISOR_THREE_HALVES}.
+     */
+    public static final int SCALE_NUMERATOR_THREE_HALVES = 3;
+
+    /**
+     * Allowed scale numerators, largest scale first (×2, ×1.5, native).
      */
     public static final int[] SCALE_NUMERATORS = {
         SCALE_NUMERATOR_DOUBLE,
+        SCALE_NUMERATOR_THREE_HALVES,
         SCALE_NUMERATOR_NATIVE,
     };
 
     /** Pack at the source pixel size (÷1). */
     public static final int SCALE_DIVISOR_NATIVE = 1;
+
+    /**
+     * Denominator of the 150% pair (3/2). Same numeric value as
+     * {@link #SCALE_DIVISOR_HALF}; 150% is an upscale, not a shrink.
+     */
+    public static final int SCALE_DIVISOR_THREE_HALVES = 2;
 
     /**
      * Half linear size (÷2) — Desktop Ponies GIFs vs typical built-in
@@ -104,6 +119,12 @@ public class ImageImport {
     public static final int SCALE_DOUBLE = 200;
 
     /**
+     * Percent label for 150% / ×1.5. Prefer
+     * {@link #SCALE_NUMERATOR_THREE_HALVES} in new code.
+     */
+    public static final int SCALE_ONE_AND_HALF = 150;
+
+    /**
      * Percent label for native size. Prefer {@link #SCALE_DIVISOR_NATIVE} in
      * new code; kept for call sites and docs that speak in percents.
      */
@@ -112,10 +133,10 @@ public class ImageImport {
     /**
      * Tokens accepted by {@link #parseScale(String)} / {@code --scale}.
      * {@code 2} remains ÷2 (50%); use {@code 200}, {@code 2x}, or {@code double}
-     * for 200%.
+     * for 200%; {@code 150}, {@code 1.5x}, or {@code 3/2} for 150%.
      */
     public static final String SCALE_CLI_TOKENS =
-            "200|100|50|25|12.5|6.25|fit|2x|double";
+            "200|150|100|50|25|12.5|6.25|fit|2x|1.5x|double";
 
     /**
      * Percent label for half size / Desktop Ponies. Prefer
@@ -176,25 +197,28 @@ public class ImageImport {
          */
         public int[] lifts;
         /**
-         * Dyadic linear upscale applied before packing:
-         * {@link #SCALE_NUMERATOR_NATIVE} (default) or
-         * {@link #SCALE_NUMERATOR_DOUBLE} (200%). Must stay native when
-         * {@link #scaleDivisor} is not {@link #SCALE_DIVISOR_NATIVE}. Ignored
-         * when {@link #scaleFitBuiltin} is true. Fit never selects 200%.
+         * Linear upscale applied before packing:
+         * {@link #SCALE_NUMERATOR_NATIVE} (default),
+         * {@link #SCALE_NUMERATOR_THREE_HALVES} (150% / 3/2), or
+         * {@link #SCALE_NUMERATOR_DOUBLE} (200%). 200% must stay native when
+         * {@link #scaleDivisor} is not {@link #SCALE_DIVISOR_NATIVE}; 150%
+         * pairs only with {@link #SCALE_DIVISOR_THREE_HALVES}. Ignored
+         * when {@link #scaleFitBuiltin} is true. Fit never selects 150% or 200%.
          */
         public int scaleNumerator = SCALE_NUMERATOR_NATIVE;
         /**
-         * Dyadic linear shrink applied before packing:
+         * Linear shrink applied before packing:
          * {@link #SCALE_DIVISOR_NATIVE} (default), {@link #SCALE_DIVISOR_HALF},
          * {@link #SCALE_DIVISOR_QUARTER}, {@link #SCALE_DIVISOR_EIGHTH}, or
-         * {@link #SCALE_DIVISOR_SIXTEENTH}. Ignored when
+         * {@link #SCALE_DIVISOR_SIXTEENTH}. For 150% this is
+         * {@link #SCALE_DIVISOR_THREE_HALVES} (2), not a shrink. Ignored when
          * {@link #scaleFitBuiltin} is true.
          */
         public int scaleDivisor = SCALE_DIVISOR_NATIVE;
         /**
          * When true, pick the largest dyadic <em>shrink</em> whose max frame
          * height is ≤ {@link #LARGE_CELL_HEIGHT_PX} (see
-         * {@link #fitBuiltinScaleDivisor}). Never resolves to 200%.
+         * {@link #fitBuiltinScaleDivisor}). Never resolves to 150% or 200%.
          */
         public boolean scaleFitBuiltin = false;
         /**
@@ -218,6 +242,8 @@ public class ImageImport {
                 new ScaleSpec(SCALE_NUMERATOR_NATIVE, SCALE_DIVISOR_NATIVE, false);
         public static final ScaleSpec DOUBLE =
                 new ScaleSpec(SCALE_NUMERATOR_DOUBLE, SCALE_DIVISOR_NATIVE, false);
+        public static final ScaleSpec THREE_HALVES =
+                new ScaleSpec(SCALE_NUMERATOR_THREE_HALVES, SCALE_DIVISOR_THREE_HALVES, false);
         public static final ScaleSpec HALF =
                 new ScaleSpec(SCALE_NUMERATOR_NATIVE, SCALE_DIVISOR_HALF, false);
         public static final ScaleSpec FIT =
@@ -365,16 +391,19 @@ public class ImageImport {
 
     public static int normalizeScaleNumerator(int scaleNumerator) throws IOException {
         if (scaleNumerator == SCALE_NUMERATOR_NATIVE
-                || scaleNumerator == SCALE_NUMERATOR_DOUBLE) {
+                || scaleNumerator == SCALE_NUMERATOR_DOUBLE
+                || scaleNumerator == SCALE_NUMERATOR_THREE_HALVES) {
             return scaleNumerator;
         }
         throw new IOException(
-                "Scale numerator must be 1 or 2 (got " + scaleNumerator + ").");
+                "Scale numerator must be 1, 2, or 3 (got " + scaleNumerator + ").");
     }
 
     /**
-     * Normalises a dyadic scale pair. 200% ({@link #SCALE_NUMERATOR_DOUBLE})
-     * only pairs with {@link #SCALE_DIVISOR_NATIVE}.
+     * Normalises a scale pair. 200% ({@link #SCALE_NUMERATOR_DOUBLE})
+     * only pairs with {@link #SCALE_DIVISOR_NATIVE}. 150%
+     * ({@link #SCALE_NUMERATOR_THREE_HALVES}) only pairs with
+     * {@link #SCALE_DIVISOR_THREE_HALVES}.
      */
     public static ScaleSpec normalizeScale(int scaleNumerator, int scaleDivisor)
             throws IOException {
@@ -382,6 +411,10 @@ public class ImageImport {
         int divisor = normalizeScaleDivisor(scaleDivisor);
         if (numerator == SCALE_NUMERATOR_DOUBLE && divisor != SCALE_DIVISOR_NATIVE) {
             throw new IOException("200% cannot combine with a shrink divisor.");
+        }
+        if (numerator == SCALE_NUMERATOR_THREE_HALVES
+                && divisor != SCALE_DIVISOR_THREE_HALVES) {
+            throw new IOException("150% cannot combine with a shrink divisor.");
         }
         return new ScaleSpec(numerator, divisor, false);
     }
@@ -410,8 +443,8 @@ public class ImageImport {
 
     /**
      * Maps legacy percent labels ({@link #SCALE_NATIVE}, {@link #SCALE_DESKTOP_PONIES},
-     * 25) onto a dyadic divisor. Prefer passing divisors directly. 200% is an
-     * upscale — use {@link #scaleSpecFromPercent(int)}.
+     * 25) onto a dyadic divisor. Prefer passing divisors directly. 150% / 200%
+     * are upscales — use {@link #scaleSpecFromPercent(int)}.
      */
     public static int scaleDivisorFromPercent(int scalePercent) throws IOException {
         if (scalePercent == SCALE_NATIVE || scalePercent == 100) {
@@ -425,16 +458,20 @@ public class ImageImport {
         }
         throw new IOException(
                 "Scale percent must be 100, 50, or 25 (got " + scalePercent
-                        + "). Use 200% via scaleSpecFromPercent, or divisor 8 or 16 "
+                        + "). Use 150% / 200% via scaleSpecFromPercent, or divisor 8 or 16 "
                         + "for 12.5% / 6.25%.");
     }
 
     /**
-     * Percent labels including {@link #SCALE_DOUBLE} (200%).
+     * Percent labels including {@link #SCALE_DOUBLE} (200%) and
+     * {@link #SCALE_ONE_AND_HALF} (150%).
      */
     public static ScaleSpec scaleSpecFromPercent(int scalePercent) throws IOException {
         if (scalePercent == SCALE_DOUBLE || scalePercent == 200) {
             return ScaleSpec.DOUBLE;
+        }
+        if (scalePercent == SCALE_ONE_AND_HALF || scalePercent == 150) {
+            return ScaleSpec.THREE_HALVES;
         }
         return new ScaleSpec(SCALE_NUMERATOR_NATIVE,
                 scaleDivisorFromPercent(scalePercent), false);
@@ -456,17 +493,18 @@ public class ImageImport {
     }
 
     /**
-     * One dimension after the dyadic scale {@code numerator/divisor}.
+     * One dimension after the scale {@code numerator/divisor}.
      */
     public static int scaleDimension(int size, int scaleNumerator, int scaleDivisor)
             throws IOException {
         ScaleSpec spec = normalizeScale(scaleNumerator, scaleDivisor);
-        if (spec.numerator == SCALE_NUMERATOR_DOUBLE) {
-            long value = (long) Math.max(1, size) * spec.numerator;
+        if (spec.numerator != SCALE_NUMERATOR_NATIVE) {
+            long value = (long) Math.max(1, size) * spec.numerator / spec.divisor;
             if (value > Integer.MAX_VALUE) {
-                throw new IOException("Scaled dimension is too large (" + size + " × 2).");
+                throw new IOException("Scaled dimension is too large (" + size + " × "
+                        + spec.numerator + "/" + spec.divisor + ").");
             }
-            return (int) value;
+            return Math.max(1, (int) value);
         }
         int halvings = scaleHalveCount(spec.divisor);
         int value = Math.max(0, size);
@@ -537,13 +575,14 @@ public class ImageImport {
     }
 
     /**
-     * Shrink-only resolve. Throws when the resolved scale is 200%.
+     * Shrink-only resolve. Throws when the resolved scale is 150% or 200%.
      */
     public static int resolveScaleDivisor(PackOptions options, List<BufferedImage> frames)
             throws IOException {
         ScaleSpec spec = resolveScale(options, frames);
         if (spec.numerator != SCALE_NUMERATOR_NATIVE) {
-            throw new IOException("Resolved scale is 200%; use resolveScale.");
+            throw new IOException("Resolved scale is "
+                    + formatScale(spec.numerator, spec.divisor) + "; use resolveScale.");
         }
         return spec.divisor;
     }
@@ -572,21 +611,27 @@ public class ImageImport {
         return formatScaleLabel(SCALE_NUMERATOR_NATIVE, scaleDivisor);
     }
 
-    /** Human-readable scale, e.g. {@code 200%}, {@code 12.5%}. */
+    /** Human-readable scale, e.g. {@code 200%}, {@code 150%}, {@code 12.5%}. */
     public static String formatScale(int scaleNumerator, int scaleDivisor) throws IOException {
         ScaleSpec spec = normalizeScale(scaleNumerator, scaleDivisor);
         if (spec.numerator == SCALE_NUMERATOR_DOUBLE) {
             return "200%";
         }
+        if (spec.numerator == SCALE_NUMERATOR_THREE_HALVES) {
+            return "150%";
+        }
         return formatScaleDivisor(spec.divisor);
     }
 
-    /** Combo / header label, e.g. {@code 200% (×2)}, {@code 25% (÷4)}. */
+    /** Combo / header label, e.g. {@code 200% (×2)}, {@code 150% (×1.5)}, {@code 25% (÷4)}. */
     public static String formatScaleLabel(int scaleNumerator, int scaleDivisor)
             throws IOException {
         ScaleSpec spec = normalizeScale(scaleNumerator, scaleDivisor);
         if (spec.numerator == SCALE_NUMERATOR_DOUBLE) {
             return "200% (×2)";
+        }
+        if (spec.numerator == SCALE_NUMERATOR_THREE_HALVES) {
+            return "150% (×1.5)";
         }
         int divisor = spec.divisor;
         if (divisor == SCALE_DIVISOR_NATIVE) {
@@ -599,7 +644,7 @@ public class ImageImport {
     }
 
     /**
-     * Status line marker: {@code 200% (×2)} or {@code 50% (÷2)}.
+     * Status line marker: {@code 200% (×2)}, {@code 150% (×1.5)}, or {@code 50% (÷2)}.
      */
     public static String formatScaleMarker(int scaleNumerator, int scaleDivisor)
             throws IOException {
@@ -607,11 +652,15 @@ public class ImageImport {
         if (spec.numerator == SCALE_NUMERATOR_DOUBLE) {
             return "200% (×2)";
         }
+        if (spec.numerator == SCALE_NUMERATOR_THREE_HALVES) {
+            return "150% (×1.5)";
+        }
         return formatScaleDivisor(spec.divisor) + " (÷" + spec.divisor + ")";
     }
 
     /**
-     * Accepts {@code 200}, {@code 2x}, {@code double}, {@code 100}, {@code 50%},
+     * Accepts {@code 200}, {@code 2x}, {@code double}, {@code 150},
+     * {@code 1.5x}, {@code 3/2}, {@code 100}, {@code 50%},
      * {@code 12.5}, {@code 1/8}, {@code 2/1}, {@code half}, {@code fit},
      * {@code native}. Bare {@code 2} is ÷2 (50%), not 200%.
      * {@link ScaleSpec#fit} is true for {@code fit} (caller must resolve
@@ -633,6 +682,12 @@ public class ImageImport {
                 || "x2".equalsIgnoreCase(t)
                 || "×2".equals(t)) {
             return ScaleSpec.DOUBLE;
+        }
+        if ("1.5x".equalsIgnoreCase(t)
+                || "x1.5".equalsIgnoreCase(t)
+                || "×1.5".equals(t)
+                || "1.5".equals(t)) {
+            return ScaleSpec.THREE_HALVES;
         }
         if ("half".equalsIgnoreCase(t)
                 || "dp".equalsIgnoreCase(t)
@@ -685,8 +740,8 @@ public class ImageImport {
         } catch (NumberFormatException e) {
             throw new IOException("Invalid scale: " + text);
         }
-        // Bare 1/2/4/8/16 are divisors; 200/100/50/25 are percent labels.
-        if (value == 200 || value == 100 || value == 50 || value == 25) {
+        // Bare 1/2/4/8/16 are divisors; 200/150/100/50/25 are percent labels.
+        if (value == 200 || value == 150 || value == 100 || value == 50 || value == 25) {
             return scaleSpecFromPercent(value);
         }
         return normalizeScale(SCALE_NUMERATOR_NATIVE, value);
@@ -694,7 +749,7 @@ public class ImageImport {
 
     /**
      * Shrink-only parse. Returns a scale divisor, or {@code -1} for {@code fit}.
-     * 200% tokens fail — use {@link #parseScale(String)}.
+     * 150% / 200% tokens fail — use {@link #parseScale(String)}.
      */
     public static int parseScaleDivisor(String text) throws IOException {
         ScaleSpec spec = parseScale(text);
@@ -703,7 +758,8 @@ public class ImageImport {
         }
         if (spec.numerator != SCALE_NUMERATOR_NATIVE) {
             throw new IOException(
-                    "Scale 200% is not a shrink divisor (got " + text + ").");
+                    "Scale " + formatScale(spec.numerator, spec.divisor)
+                            + " is not a shrink divisor (got " + text + ").");
         }
         return spec.divisor;
     }
@@ -823,13 +879,14 @@ public class ImageImport {
 
     /**
      * Short note for packer dialogs: Fit is auto-selected when frames are
-     * taller than built-in; otherwise 100% is the default. 200% is never
-     * auto-selected.
+     * taller than built-in; otherwise 100% is the default. 150% and 200% are
+     * never auto-selected.
      */
     public static String packerScaleNotes() {
         return "Scale defaults to 100%, or Fit to built-in when frames are taller than "
-                + LARGE_CELL_HEIGHT_PX + "px. Choose 200% (×2) for undersized pixel art, "
-                + "or 50%/25%/12.5%/6.25% or Fit to shrink. 200% is never auto-selected.";
+                + LARGE_CELL_HEIGHT_PX + "px. Choose 200% (×2) or 150% (×1.5) for undersized "
+                + "pixel art, or 50%/25%/12.5%/6.25% or Fit to shrink. "
+                + "150% and 200% are never auto-selected.";
     }
 
     /**
@@ -843,13 +900,13 @@ public class ImageImport {
     }
 
     /**
-     * Nearest-neighbour dyadic scale. Native 100% returns {@code frames} itself.
+     * Nearest-neighbour scale. Native 100% returns {@code frames} itself.
      * Shrinks point-sample {@code src[x·divisor, y·divisor]} (even lattice /
      * top-left of each block), which matches successive integer halvings.
-     * 200% pixel-doubles. For {@link #SCALE_DIVISOR_QUARTER} and smaller
-     * shrinks, an opaque sample whose block has fewer than {@code divisor}
-     * opaque pixels becomes transparent so sparse encoder speckles do not
-     * survive large shrinks.
+     * 200% pixel-doubles. 150% is nearest-neighbour 3/2. For
+     * {@link #SCALE_DIVISOR_QUARTER} and smaller shrinks, an opaque sample
+     * whose block has fewer than {@code divisor} opaque pixels becomes
+     * transparent so sparse encoder speckles do not survive large shrinks.
      */
     public static List<BufferedImage> scaleFrames(List<BufferedImage> frames, int scaleDivisor)
             throws IOException {
@@ -891,6 +948,9 @@ public class ImageImport {
         }
         if (spec.numerator == SCALE_NUMERATOR_DOUBLE) {
             return scaleImageDouble(src);
+        }
+        if (spec.numerator == SCALE_NUMERATOR_THREE_HALVES) {
+            return scaleImageThreeHalves(src);
         }
         int divisor = spec.divisor;
         // Even-lattice point sample. Equivalent to successive top-left halvings;
@@ -949,6 +1009,33 @@ public class ImageImport {
                 dstPixels[dstRow0 + dx + 1] = p;
                 dstPixels[dstRow1 + dx] = p;
                 dstPixels[dstRow1 + dx + 1] = p;
+            }
+        }
+        out.setRGB(0, 0, w, h, dstPixels, 0, w);
+        return out;
+    }
+
+    /**
+     * Nearest-neighbour 150% (3/2). Each destination pixel samples
+     * {@code src[x·2/3, y·2/3]}. Sparse-block dropping does not apply.
+     */
+    private static BufferedImage scaleImageThreeHalves(BufferedImage src) throws IOException {
+        int sw = src.getWidth();
+        int sh = src.getHeight();
+        int w = scaleDimension(sw, SCALE_NUMERATOR_THREE_HALVES, SCALE_DIVISOR_THREE_HALVES);
+        int h = scaleDimension(sh, SCALE_NUMERATOR_THREE_HALVES, SCALE_DIVISOR_THREE_HALVES);
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        int[] srcPixels = src.getRGB(0, 0, sw, sh, null, 0, sw);
+        int[] dstPixels = new int[w * h];
+        for (int y = 0; y < h; y++) {
+            int srcY = Math.min(sh - 1, y * SCALE_DIVISOR_THREE_HALVES
+                    / SCALE_NUMERATOR_THREE_HALVES);
+            int srcRow = srcY * sw;
+            int dstRow = y * w;
+            for (int x = 0; x < w; x++) {
+                int srcX = Math.min(sw - 1, x * SCALE_DIVISOR_THREE_HALVES
+                        / SCALE_NUMERATOR_THREE_HALVES);
+                dstPixels[dstRow + x] = srcPixels[srcRow + srcX];
             }
         }
         out.setRGB(0, 0, w, h, dstPixels, 0, w);

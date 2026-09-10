@@ -507,16 +507,17 @@ public class PonyEditorCLI {
         System.out.println("    Create NAME as a spritesfrom-alias of the current action at SPEED,");
         System.out.println("    then select the new action.");
         System.out.println("-scale " + ImageImport.SCALE_CLI_TOKENS + "|native|half|quarter|eighth");
-        System.out.println("    Dyadic nearest-neighbour scale for the next -sprite (GIF only)");
+        System.out.println("    Nearest-neighbour scale for the next -sprite (GIF only)");
         System.out.println("    and -sprite-frames. 100/native is default. 200/2x/double pixel-doubles.");
-        System.out.println("    Bare 2 is ÷2 (50%), not 200%. 50/half matches built-in ponies for");
-        System.out.println("    Desktop Ponies art. fit picks the largest shrink whose tallest");
-        System.out.println("    frame is ≤ " + ImageImport.LARGE_CELL_HEIGHT_PX + "px (never 200%).");
+        System.out.println("    150/1.5x/3/2 is ×1.5. Bare 2 is ÷2 (50%), not 200%. 50/half matches");
+        System.out.println("    built-in ponies for Desktop Ponies art. fit picks the largest shrink");
+        System.out.println("    whose tallest frame is ≤ " + ImageImport.LARGE_CELL_HEIGHT_PX
+                + "px (never 150% or 200%).");
         System.out.println("    Persists until changed.");
         System.out.println("-sprite DIRECTION FILE");
         System.out.println("    Set the current action's sprite for the given direction.");
         System.out.println("    GIFs are coalesced and packed (scale from -scale; default 100%,");
-        System.out.println("    including 200% when set).");
+        System.out.println("    including 150% / 200% when set).");
         System.out.println("    PNG strips are stored as-is.");
         System.out.println("-lifts N,N,...|none");
         System.out.println("    Per-frame lift in pixels up from the baseline for the next");
