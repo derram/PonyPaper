@@ -113,6 +113,10 @@ Wander (and World Flow) roster changes — mix shuffle, Load mix, checkbox edits
 
 Drain leave picks the **fastest** leave-capable next-moving slot (uniform among ties) so the default gait bag cannot roll stroll/walk for the exit. In Wander, the destination is the **nearest allowed gutter** (left/right at current Y for horizontal/`any`; top/bottom at current X for vertical) rather than a coin-flip that can send a pony across the screen; a mid-walk is retargeted to that nearer gutter. World Flow ponies are already crossing to a gutter — drain does **not** flip them to the nearer edge (that U-turns an enter into a second leave); they keep the current crossing and only upgrade gait. Gait upgrades stay **on the same facing axis** (back/front vertical clips stay vertical; they are not swapped for a faster left/right trot). Incidental 1-in-8 scene exits still pick a random gutter. Tableau reloads still hold the posed scene until the incoming herd is ready.
 
+### Drag to edge
+
+Releasing a dragged pony within `30×scale` of any screen edge forces a leave (same pad on all four sides; corners pick the deeper margin). The fastest leave-capable next-moving clip whose facing axis matches that edge walks to that gutter (left/right at current Y, top/bottom at current X). `screen-out` / `teleport-out` vanish in place on any edge. If no clip matches the thrown axis, the fastest leave clip still exits via **its** nearest legal gutter (a vertical-only OC dragged to the left climbs off the nearer top/bottom; a horizontal-only OC dragged to the top walks off the nearer side) rather than sliding sideways on a back/front sheet. `any` movement matches left/right only. World Flow off-edge release still resumes the current crossing.
+
 ### Speed, aliases, and gaits
 
 Custom ponies can handle discrete speeds in two ways:

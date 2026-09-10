@@ -994,9 +994,10 @@ public class Pony {
     
     /**
      * Brings the pony back out of the dragged state. If the pony has been
-     * dragged to the edge of the screen, it will immediately walk (fly, etc.)
-     * off screen. Otherwise it will resume normal behaviour.
-     * Pinned ponies keep the dragged feet as the new pin (no leave).
+     * dragged to any screen edge, it leaves: a clip matching that edge's
+     * facing axis walks/flies to that gutter, otherwise the fastest leave
+     * clip uses its own nearest legal gutter. Otherwise it resumes normal
+     * behaviour. Pinned ponies keep the dragged feet as the new pin (no leave).
      */
     public void stopDrag() {
         if (pinned) {
@@ -1009,42 +1010,16 @@ public class Pony {
             return;
         }
         int s = (int)(30 * getScale());
-        int x = Math.round(posX);
-        int y = Math.round(posY);
-        
-        if (x < screenBounds.left + s) {
-            beginForcedExit(new Point(screenBounds.left - s, y));
-        } else if (x >= screenBounds.right - s) {
-            beginForcedExit(new Point(screenBounds.right + s, y));
-        } else if (shouldForceVerticalDragExit(y)) {
-            boolean exitTop = y < screenBounds.centerY();
-            beginForcedExit(new Point(x, offScreenExitY(exitTop)));
+        int edge = DragExit.nearestEdge(posX, posY,
+                screenBounds.left, screenBounds.right,
+                screenBounds.top, screenBounds.bottom, s);
+        if (edge != DragExit.EDGE_NONE) {
+            beginForcedExit(edge);
         } else if (worldFlow) {
             resumeWorldFlowExit();
         } else {
             beginWaitingInPlace();
         }
-    }
-
-    /**
-     * True when a vertical-wander mover was dragged past the on-screen Y band
-     * (top or bottom). Uses the on-screen feet clamp so standing near the
-     * bottom pad does not count as an edge leave.
-     */
-    private boolean shouldForceVerticalDragExit(int feetY) {
-        if (screenBounds == null || currentAction == null) {
-            return false;
-        }
-        if (!WanderTarget.usesVerticalGutters(wander, currentAction.getMovement(),
-                random)) {
-            return false;
-        }
-        float scale = getScale();
-        int top = SpawnYBand.onScreenTopInset(maxUnscaledFrameHeight(), scale);
-        int bottom = SpawnYBand.bottomInset(scale);
-        int minY = SpawnYBand.minY(screenBounds.top, screenBounds.height(), top, bottom);
-        int maxY = SpawnYBand.maxY(screenBounds.top, screenBounds.height(), top, bottom);
-        return feetY < minY || feetY > maxY;
     }
     
     /**
@@ -1134,6 +1109,18 @@ public class Pony {
      *                   (drag-to-edge already chose to leave)
      */
     private boolean tryBeginMoving(boolean alwaysNewTarget, boolean forceLeave) {
+        return tryBeginMoving(alwaysNewTarget, forceLeave, null, DragExit.EDGE_NONE);
+    }
+
+    /**
+     * @param matchMovement when {@code forceLeave}, prefer this facing axis
+     *                      ({@link DragExit#sampleMovementForEdge}); {@code null}
+     *                      keeps the unfiltered fastest leave
+     * @param edge          drag-to-edge; {@link DragExit#EDGE_NONE} uses the
+     *                      clip's nearest legal gutter
+     */
+    private boolean tryBeginMoving(boolean alwaysNewTarget, boolean forceLeave,
+            String matchMovement, int edge) {
         if (pinned) {
             return false;
         }
@@ -1141,7 +1128,7 @@ public class Pony {
             return false;
         }
         PonyAction next = forceLeave
-                ? currentAction.pickFastestLeaveMoving(random)
+                ? pickForceLeaveMoving(matchMovement)
                 : currentAction.getNextMoving(random);
         if (next == null) {
             return false;
@@ -1173,7 +1160,10 @@ public class Pony {
         // Seed motion/target before changeAction so effect spawn sees travel.
         // Band uses the *incoming* action's movement (not the previous clip).
         motion = next.type == PonyAction.NORMAL ? MOTION_MOVING : MOTION_SPECIAL;
-        if (alwaysNewTarget || targetPos == null) {
+        if (forceLeave && edge != DragExit.EDGE_NONE
+                && DragExit.travelMatchesEdge(wander, next.getMovement(), edge)) {
+            targetPos = offScreenForEdge(edge);
+        } else if (alwaysNewTarget || targetPos == null) {
             setRandomTarget(next, forceLeave);
         }
         if (forceLeave) {
@@ -1182,13 +1172,30 @@ public class Pony {
         if (motion == MOTION_MOVING && targetPos != null) {
             travelX = targetPos.x - posX;
             travelY = targetPos.y - posY;
-            setDirection(targetPos);
         } else {
             travelX = 0;
             travelY = 0;
         }
         changeAction(next);
+        if (motion == MOTION_MOVING && targetPos != null) {
+            setDirection(targetPos);
+        }
         return true;
+    }
+
+    /**
+     * Fastest leave clip on {@code matchMovement}'s facing axis, or any
+     * fastest leave when that axis has no mover (walk the clip's own gutter).
+     */
+    private PonyAction pickForceLeaveMoving(String matchMovement) {
+        if (matchMovement != null) {
+            PonyAction axis = currentAction.pickFastestLeaveMoving(
+                    random, wander, matchMovement);
+            if (axis != null) {
+                return axis;
+            }
+        }
+        return currentAction.pickFastestLeaveMoving(random);
     }
 
     /**
@@ -1339,25 +1346,45 @@ public class Pony {
     }
 
     /**
-     * Drag-to-edge: leave now. A {@code screen-out} clip plays in place;
-     * interpolating movers walk/fly/teleport to {@code offScreenTarget}.
-     * Pinned ponies snap back instead of leaving.
+     * Drag-to-edge: leave now. A {@code screen-out} / teleport-out clip plays
+     * in place. Travel clips that match {@code edge}'s facing axis walk to
+     * that gutter; otherwise the fastest leave clip uses its nearest legal
+     * gutter. Pinned ponies snap back instead of leaving.
      */
-    private void beginForcedExit(Point offScreenTarget) {
+    private void beginForcedExit(int edge) {
         if (pinned) {
             snapBackToPin();
             return;
         }
-        if (tryBeginMoving(false, true)) {
+        String match = DragExit.sampleMovementForEdge(edge);
+        if (tryBeginMoving(false, true, match, edge)) {
             if (leavingMode == LM_GONE) {
                 return;
             }
             leavingMode = LM_GOING;
-            if (currentAction.type != PonyAction.SCREEN_OUT) {
-                targetPos = offScreenTarget;
-            }
         } else {
             beginWaitingInPlace();
+        }
+    }
+
+    /**
+     * Off-screen point just past {@code edge}, keeping the other feet axis.
+     */
+    private Point offScreenForEdge(int edge) {
+        int s = (int)(30 * getScale());
+        int x = Math.round(posX);
+        int y = Math.round(posY);
+        switch (edge) {
+            case DragExit.EDGE_LEFT:
+                return new Point(screenBounds.left - s, y);
+            case DragExit.EDGE_RIGHT:
+                return new Point(screenBounds.right + s, y);
+            case DragExit.EDGE_TOP:
+                return new Point(x, offScreenExitY(true));
+            case DragExit.EDGE_BOTTOM:
+                return new Point(x, offScreenExitY(false));
+            default:
+                return closestOffScreenForBand(WanderTarget.BAND_SOFT_H);
         }
     }
     

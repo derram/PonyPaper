@@ -842,7 +842,9 @@ public class PonyAction {
 
     /**
      * Fastest leave mover whose facing axis matches {@code matchMovement}
-     * (back/front vs left/right). Used when upgrading an in-flight walk.
+     * (back/front vs left/right). {@link #PORT_O} / {@link #SCREEN_OUT} stay
+     * eligible on either axis (they leave in place). Used when upgrading an
+     * in-flight walk and when drag-to-edge prefers the thrown edge's axis.
      */
     PonyAction pickFastestLeaveMoving(Random random, String wander,
             String matchMovement) {
@@ -857,8 +859,9 @@ public class PonyAction {
     }
 
     /**
-     * @param matchMovement when non-null, skip candidates whose
-     *                      {@link WanderTarget#sameFacingAxis} does not match
+     * @param matchMovement when non-null, skip traveling candidates whose
+     *                      {@link WanderTarget#sameFacingAxis} does not match.
+     *                      {@link #isAxisAgnosticLeave} clips stay eligible.
      */
     static PonyAction pickFastestLeave(PonyAction[] actions, Random random,
             String wander, String matchMovement) {
@@ -873,7 +876,8 @@ public class PonyAction {
                 speeds[i] = 0f;
                 continue;
             }
-            if (filterFacing && !WanderTarget.sameFacingAxis(wander,
+            if (filterFacing && !isAxisAgnosticLeave(a)
+                    && !WanderTarget.sameFacingAxis(wander,
                     matchMovement, a.getMovement())) {
                 speeds[i] = 0f;
                 continue;
@@ -889,6 +893,14 @@ public class PonyAction {
             return false;
         }
         return a.type == NORMAL || a.type == PORT_O || a.type == SCREEN_OUT;
+    }
+
+    /**
+     * Vanish / teleport-out: no interpolated travel, so any drag edge is a
+     * legal leave (do not require a facing-axis match).
+     */
+    static boolean isAxisAgnosticLeave(PonyAction a) {
+        return a != null && (a.type == PORT_O || a.type == SCREEN_OUT);
     }
     
     public PonyAction getNextDrag(Random random) {

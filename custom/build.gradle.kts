@@ -43,6 +43,7 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/UnpinnedLru.java",
                 "uk/cpjsmith/ponypaper/InactivePick.java",
                 "uk/cpjsmith/ponypaper/HerdDrain.java",
+                "uk/cpjsmith/ponypaper/DragExit.java",
                 "uk/cpjsmith/ponypaper/CustomDefinitionCache.java",
                 "uk/cpjsmith/ponypaper/SecureXml.java",
             )
@@ -211,6 +212,13 @@ tasks.register<JavaExec>("testHerdDrain") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.HerdDrainTest")
 }
 
+tasks.register<JavaExec>("testDragExit") {
+    group = "verification"
+    description = "Run drag-to-edge axis and margin checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.DragExitTest")
+}
+
 tasks.register<JavaExec>("testEditorCli") {
     group = "verification"
     description = "Run custom editor CLI implied -load checks"
@@ -253,6 +261,7 @@ tasks.named("check") {
     dependsOn("testDefinitionCache")
     dependsOn("testInactivePick")
     dependsOn("testHerdDrain")
+    dependsOn("testDragExit")
     dependsOn("testEditorCli")
     dependsOn("testEditorWindowFocus")
 }
