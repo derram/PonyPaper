@@ -58,7 +58,8 @@ import java.util.Random;
  * Brightness stays with the host device. Thermal hard-stop still ends the dream.
  * Loading a mix (or a shuffle hop) writes the live herd the same way Settings
  * does, so the home-screen wallpaper follows. Shuffle hops among named mixes
- * and Previous herd when that snapshot is distinct from the named list.
+ * and Previous herd when that snapshot is distinct from the named list, or a
+ * user-chosen subset ({@link PonyMixes#PREF_SHUFFLE_MIX_IDS}; unset means all).
  *
  * <p>Enter and exit use a black content overlay (fade-in / fade-out) so the herd
  * does not hard-cut against the lock screen, and so any OEM window wipe only
@@ -219,7 +220,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private boolean chromeVisible = false;
     private boolean sheetExpanded = false;
     private boolean mixListVisible = false;
-    /** Session opt-in: hop among named mixes and Previous herd on a timer. */
+    /** Session opt-in: hop among the shuffle bag on a timer. */
     private boolean shuffleMixes = false;
     /** Last applied mix id (or {@link PonyMixes#PREVIOUS_HERD_ID}), used to skip repeats. */
     private String lastUserMixId = "";
@@ -243,9 +244,12 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                         }
                     }
                     if (PonyMixes.PREF_MIXES_JSON.equals(key)
-                            || PonyMixes.PREF_PREVIOUS_HERD_JSON.equals(key)) {
+                            || PonyMixes.PREF_PREVIOUS_HERD_JSON.equals(key)
+                            || PonyMixes.PREF_SHUFFLE_MIX_IDS.equals(key)) {
                         if (!canShuffleUserMixes()) {
                             stopShuffle();
+                        } else if (shuffleMixes) {
+                            refillShuffleBag(shuffleCandidates());
                         }
                         if (sheetExpanded) {
                             syncChromeWidgets();
@@ -1116,10 +1120,10 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             if (shuffleSummary != null) {
                 if (tableau) {
                     shuffleSummary.setText(R.string.dream_mix_tableau_toast);
+                } else if (canShuffle) {
+                    shuffleSummary.setText(shuffleSummaryText());
                 } else {
-                    shuffleSummary.setText(canShuffle
-                            ? R.string.dream_shuffle_summary
-                            : R.string.dream_shuffle_need_two);
+                    shuffleSummary.setText(shuffleNeedTwoText());
                 }
             }
             if (mixSummary != null) {
@@ -1432,6 +1436,25 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
 
     private List<PonyMixes.Mix> shuffleCandidates() {
         return PonyMixes.shuffleCandidates(getDreamPreferences(), AllPonies.allHerdKeys(this));
+    }
+
+    private CharSequence shuffleSummaryText() {
+        SharedPreferences prefs = getDreamPreferences();
+        if (PonyMixes.loadShuffleInclude(prefs) == null) {
+            return getString(R.string.dream_shuffle_summary);
+        }
+        ArrayList<String> herdKeys = AllPonies.allHerdKeys(this);
+        int n = PonyMixes.shuffleCandidates(prefs, herdKeys).size();
+        int total = PonyMixes.shuffleEligible(prefs, herdKeys).size();
+        return getString(R.string.dream_shuffle_summary_bag, n, total);
+    }
+
+    private CharSequence shuffleNeedTwoText() {
+        SharedPreferences prefs = getDreamPreferences();
+        if (PonyMixes.loadShuffleInclude(prefs) == null) {
+            return getString(R.string.dream_shuffle_need_two);
+        }
+        return getString(R.string.dream_shuffle_need_two_bag);
     }
 
     /** Mix / shuffle rewrite herd checkboxes — no-op while Tableau owns the scene. */

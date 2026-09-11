@@ -26,6 +26,11 @@
         android:key="pref_load_mix"
         android:title="@string/pref_load_mix_title"
         android:summary="@string/pref_load_mix_summary" />
+    <Preference
+        android:key="pref_shuffle_bag"
+        android:title="@string/pref_shuffle_bag_title"
+        android:summary="@string/pref_shuffle_bag_summary_empty"
+        android:persistent="false" />
 
     <Preference
         android:key="pref_screen_builtin"

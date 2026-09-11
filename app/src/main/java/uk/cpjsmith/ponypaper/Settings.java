@@ -878,6 +878,16 @@ public class Settings extends AppCompatActivity
                 }
             });
         }
+        Preference bag = findPreference("pref_shuffle_bag");
+        if (bag != null) {
+            bag.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    showShuffleBagDialog();
+                    return true;
+                }
+            });
+        }
+        refreshShuffleBagSummary();
     }
 
     private void showSaveMixDialog() {
@@ -1047,6 +1057,7 @@ public class Settings extends AppCompatActivity
         int custom = PonyMixes.countCustom(on);
         showAlertDialog(getString(R.string.pref_save_mix_ok_title),
                 getString(R.string.pref_save_mix_ok_message, name, builtIn, custom));
+        refreshHerdScreenSummaries();
         return true;
     }
 
@@ -1097,10 +1108,90 @@ public class Settings extends AppCompatActivity
                 PonyMixes.deleteById(
                         PreferenceManager.getDefaultSharedPreferences(Settings.this),
                         mixes.get(which).id);
+                refreshHerdScreenSummaries();
             }
         });
         builder.setNegativeButton(R.string.dialog_cancel, null);
         builder.create().show();
+    }
+
+    private void showShuffleBagDialog() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        final List<PonyMixes.Mix> eligible = PonyMixes.shuffleEligible(prefs, allHerdKeys());
+        if (eligible.isEmpty()) {
+            showAlertDialog(getString(R.string.pref_shuffle_bag_title),
+                    getString(R.string.pref_shuffle_bag_empty_message));
+            return;
+        }
+        Set<String> include = PonyMixes.loadShuffleInclude(prefs);
+        CharSequence[] labels = new CharSequence[eligible.size()];
+        final boolean[] checked = new boolean[eligible.size()];
+        ArrayList<String> herdKeys = allHerdKeys();
+        for (int i = 0; i < eligible.size(); i++) {
+            PonyMixes.Mix mix = eligible.get(i);
+            labels[i] = shuffleBagItemLabel(mix, herdKeys);
+            checked[i] = include == null || include.contains(mix.id);
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.pref_shuffle_bag_dialog);
+        builder.setMultiChoiceItems(labels, checked,
+                new DialogInterface.OnMultiChoiceClickListener() {
+                    public void onClick(DialogInterface dialog, int which, boolean isChecked) {
+                        checked[which] = isChecked;
+                    }
+                });
+        builder.setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                HashSet<String> selected = new HashSet<String>();
+                for (int i = 0; i < eligible.size(); i++) {
+                    if (checked[i]) selected.add(eligible.get(i).id);
+                }
+                PonyMixes.saveShuffleInclude(
+                        PreferenceManager.getDefaultSharedPreferences(Settings.this),
+                        eligible, selected);
+                refreshShuffleBagSummary();
+            }
+        });
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        builder.create().show();
+    }
+
+    private CharSequence shuffleBagItemLabel(PonyMixes.Mix mix, List<String> herdKeys) {
+        if (mix == null) return "";
+        if (PonyMixes.isPreviousHerdId(mix.id)) {
+            HashSet<String> live = new HashSet<String>();
+            if (herdKeys != null) {
+                for (int i = 0; i < herdKeys.size(); i++) {
+                    String key = herdKeys.get(i);
+                    if (mix.keys.contains(key)) live.add(key);
+                }
+            }
+            return getString(R.string.pref_load_mix_previous_item,
+                    PonyMixes.countBuiltIn(live), PonyMixes.countCustom(live));
+        }
+        return getString(R.string.pref_load_mix_user_item, mix.name,
+                PonyMixes.countBuiltIn(mix.keys), PonyMixes.countCustom(mix.keys));
+    }
+
+    private void refreshShuffleBagSummary() {
+        Preference bag = findPreference("pref_shuffle_bag");
+        if (bag == null) return;
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        List<PonyMixes.Mix> eligible = PonyMixes.shuffleEligible(prefs, allHerdKeys());
+        if (eligible.isEmpty()) {
+            bag.setSummary(R.string.pref_shuffle_bag_summary_empty);
+            return;
+        }
+        if (PonyMixes.loadShuffleInclude(prefs) == null) {
+            bag.setSummary(R.string.pref_shuffle_bag_summary_all);
+            return;
+        }
+        int n = PonyMixes.shuffleCandidates(prefs, allHerdKeys()).size();
+        if (n == 0) {
+            bag.setSummary(R.string.pref_shuffle_bag_summary_none);
+            return;
+        }
+        bag.setSummary(getString(R.string.pref_shuffle_bag_summary_count, n, eligible.size()));
     }
 
     private ArrayList<LoadMixItem> loadMixItems() {
@@ -1944,6 +2035,7 @@ public class Settings extends AppCompatActivity
         Preference herd = findPreference("pref_herd_summary");
         Preference builtin = findPreference("pref_screen_builtin");
         Preference custom = findPreference("pref_screen_custom");
+        refreshShuffleBagSummary();
         if (herd == null && builtin == null && custom == null) return;
 
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);

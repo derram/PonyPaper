@@ -49,6 +49,13 @@
     <string name="pref_load_mix_missing_message">Loaded \"%1$s\". %2$d custom %3$s not in the library and skipped.</string>
     <string name="pref_load_mix_missing_pony_one">pony was</string>
     <string name="pref_load_mix_missing_pony_many">ponies were</string>
+    <string name="pref_shuffle_bag_title">Shuffle bag</string>
+    <string name="pref_shuffle_bag_summary_all">All saved mixes and Previous herd. New mixes join until you uncheck one.</string>
+    <string name="pref_shuffle_bag_summary_count">%1$d of %2$d mixes. New mixes stay out until you add them.</string>
+    <string name="pref_shuffle_bag_summary_none">None selected. Shuffle needs two mixes.</string>
+    <string name="pref_shuffle_bag_summary_empty">Save two mixes, or one mix plus Previous herd</string>
+    <string name="pref_shuffle_bag_dialog">Mixes in the shuffle bag</string>
+    <string name="pref_shuffle_bag_empty_message">Save at least one mix first. Shuffle hops among saved mixes and Previous herd when that snapshot is distinct.</string>
     <string name="pref_enable_all_title">Enable all</string>
     <string name="dialog_save">Save</string>
     <string name="dialog_replace">Replace</string>
@@ -228,10 +235,12 @@
     <string name="dream_mix_back">Back</string>
     <string name="dream_mix_back_summary">Session settings</string>
     <string name="dream_mix_shuffle_now">Shuffle now</string>
-    <string name="dream_mix_shuffle_now_summary">Pick a random saved mix or Previous herd</string>
+    <string name="dream_mix_shuffle_now_summary">Pick a random mix from the shuffle bag</string>
     <string name="dream_shuffle_title">Shuffle mixes</string>
     <string name="dream_shuffle_summary">A random mix every 5 minutes, including Previous herd. Changes the home-screen herd too.</string>
+    <string name="dream_shuffle_summary_bag">A random mix every 5 minutes among %1$d of %2$d mixes. Changes the home-screen herd too.</string>
     <string name="dream_shuffle_need_two">Need two mixes — saved mixes and/or Previous herd</string>
+    <string name="dream_shuffle_need_two_bag">Need two mixes in the shuffle bag</string>
 
     <string name="pony_group_mane6">Mane 6</string>
     <string name="pony_group_cmc">Cutie Mark Crusaders</string>

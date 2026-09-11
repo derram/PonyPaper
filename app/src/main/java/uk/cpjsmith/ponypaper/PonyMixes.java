@@ -23,7 +23,8 @@ import org.json.JSONObject;
  * leaving a non-loaded (home) state; hopping from mix to mix leaves it alone.
  * A checkbox or favorite change marks the herd as home again. Dream shuffle
  * may hop to that snapshot as a virtual mix ({@link #PREVIOUS_HERD_ID}); it
- * is not stored in the named list.
+ * is not stored in the named list. Shuffle uses every eligible mix unless
+ * {@link #PREF_SHUFFLE_MIX_IDS} is set (an explicit include-set).
  *
  * <p>Custom ponies are stored by preference key ({@code pref_custom_} +
  * filename). Missing files are skipped on load; they are not copied into
@@ -38,6 +39,12 @@ final class PonyMixes {
     static final String PREF_MIXES_JSON = "pref_mixes_json";
     static final String PREF_PREVIOUS_HERD_JSON = "pref_previous_herd_json";
     static final String PREF_VIEWING_LOADED_MIX = "pref_viewing_loaded_mix";
+    /**
+     * Explicit dream-shuffle include-set (JSON {@code ids} array). Absent
+     * means all eligible mixes plus Previous herd when it is a distinct
+     * candidate. Present (even {@code []}) is a customized bag.
+     */
+    static final String PREF_SHUFFLE_MIX_IDS = "pref_dream_shuffle_mix_ids";
     static final String PREF_WAIFU = "pref_waifu";
     static final String CUSTOM_PREFIX = "pref_custom_";
     /**
@@ -228,11 +235,14 @@ final class PonyMixes {
             }
         }
         if (removed) {
+            SharedPreferences.Editor editor = prefs.edit();
             if (mixes.isEmpty()) {
-                prefs.edit().remove(PREF_MIXES_JSON).commit();
+                editor.remove(PREF_MIXES_JSON);
             } else {
-                prefs.edit().putString(PREF_MIXES_JSON, encode(mixes)).commit();
+                editor.putString(PREF_MIXES_JSON, encode(mixes));
             }
+            pruneShuffleInclude(prefs, editor, id);
+            editor.commit();
         }
     }
 
@@ -393,14 +403,100 @@ final class PonyMixes {
     }
 
     /**
-     * Named user mixes plus Previous herd when it is a distinct shuffle target.
+     * Named user mixes plus Previous herd when it is a distinct shuffle
+     * target, before the include-set filter.
      */
-    static List<Mix> shuffleCandidates(SharedPreferences prefs, List<String> herdKeys) {
+    static List<Mix> shuffleEligible(SharedPreferences prefs, List<String> herdKeys) {
         if (prefs == null) return Collections.emptyList();
         ArrayList<Mix> out = new ArrayList<Mix>(loadUserMixes(prefs));
         Mix prev = shufflePreviousHerd(prefs, herdKeys);
         if (prev != null) out.add(prev);
         return out;
+    }
+
+    /**
+     * Eligible mixes filtered by {@link #PREF_SHUFFLE_MIX_IDS}. Absent key
+     * means all eligible. Stale ids are ignored.
+     */
+    static List<Mix> shuffleCandidates(SharedPreferences prefs, List<String> herdKeys) {
+        List<Mix> eligible = shuffleEligible(prefs, herdKeys);
+        Set<String> include = loadShuffleInclude(prefs);
+        if (include == null) return eligible;
+        ArrayList<String> kept = ShuffleMixBag.filterIds(mixIds(eligible), include);
+        if (kept.size() == eligible.size()) return eligible;
+        HashSet<String> keep = new HashSet<String>(kept);
+        ArrayList<Mix> out = new ArrayList<Mix>(kept.size());
+        for (int i = 0; i < eligible.size(); i++) {
+            Mix mix = eligible.get(i);
+            if (keep.contains(mix.id)) out.add(mix);
+        }
+        return out;
+    }
+
+    /**
+     * Explicit include-set, or {@code null} when the bag is unset (all
+     * eligible). An empty set means none.
+     */
+    static Set<String> loadShuffleInclude(SharedPreferences prefs) {
+        if (prefs == null || !prefs.contains(PREF_SHUFFLE_MIX_IDS)) return null;
+        return parseShuffleIds(prefs.getString(PREF_SHUFFLE_MIX_IDS, ""));
+    }
+
+    /**
+     * Persist the shuffle bag. If {@code checked} covers every eligible mix,
+     * the key is removed so new mixes still join.
+     */
+    static void saveShuffleInclude(SharedPreferences prefs, List<Mix> eligible, Set<String> checked) {
+        if (prefs == null) return;
+        ArrayList<String> ids = mixIds(eligible);
+        if (ShuffleMixBag.coversAll(ids, checked)) {
+            prefs.edit().remove(PREF_SHUFFLE_MIX_IDS).commit();
+            return;
+        }
+        HashSet<String> stored = new HashSet<String>();
+        if (checked != null) {
+            for (int i = 0; i < ids.size(); i++) {
+                String id = ids.get(i);
+                if (checked.contains(id)) stored.add(id);
+            }
+        }
+        prefs.edit().putString(PREF_SHUFFLE_MIX_IDS, encodeShuffleIds(stored)).commit();
+    }
+
+    static String encodeShuffleIds(Set<String> ids) {
+        JSONObject root = new JSONObject();
+        JSONArray arr = new JSONArray();
+        try {
+            ArrayList<String> sorted = new ArrayList<String>();
+            if (ids != null) sorted.addAll(ids);
+            Collections.sort(sorted);
+            for (int i = 0; i < sorted.size(); i++) {
+                String id = sorted.get(i);
+                if (id != null && id.length() > 0) arr.put(id);
+            }
+            root.put("version", 1);
+            root.put("ids", arr);
+            return root.toString();
+        } catch (Exception e) {
+            return "{\"ids\":[]}";
+        }
+    }
+
+    static HashSet<String> parseShuffleIds(String json) {
+        HashSet<String> out = new HashSet<String>();
+        if (json == null || json.length() == 0) return out;
+        try {
+            JSONObject root = new JSONObject(json);
+            JSONArray arr = root.optJSONArray("ids");
+            if (arr == null) return out;
+            for (int i = 0; i < arr.length(); i++) {
+                String id = arr.optString(i, "");
+                if (id.length() > 0) out.add(id);
+            }
+            return out;
+        } catch (Exception e) {
+            return out;
+        }
     }
 
     /**
@@ -590,6 +686,25 @@ final class PonyMixes {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private static void pruneShuffleInclude(SharedPreferences prefs, SharedPreferences.Editor editor,
+            String id) {
+        if (prefs == null || editor == null || id == null) return;
+        if (!prefs.contains(PREF_SHUFFLE_MIX_IDS)) return;
+        HashSet<String> ids = parseShuffleIds(prefs.getString(PREF_SHUFFLE_MIX_IDS, ""));
+        if (!ids.remove(id)) return;
+        editor.putString(PREF_SHUFFLE_MIX_IDS, encodeShuffleIds(ids));
+    }
+
+    private static ArrayList<String> mixIds(List<Mix> mixes) {
+        ArrayList<String> ids = new ArrayList<String>();
+        if (mixes == null) return ids;
+        for (int i = 0; i < mixes.size(); i++) {
+            Mix mix = mixes.get(i);
+            if (mix != null && mix.id.length() > 0) ids.add(mix.id);
+        }
+        return ids;
     }
 
     private static boolean sameLiveHerd(SharedPreferences prefs, Mix mix, List<String> herdKeys) {

@@ -43,6 +43,7 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/UnpinnedLru.java",
                 "uk/cpjsmith/ponypaper/InactivePick.java",
                 "uk/cpjsmith/ponypaper/HerdDrain.java",
+                "uk/cpjsmith/ponypaper/ShuffleMixBag.java",
                 "uk/cpjsmith/ponypaper/DragExit.java",
                 "uk/cpjsmith/ponypaper/CustomDefinitionCache.java",
                 "uk/cpjsmith/ponypaper/SecureXml.java",
@@ -212,6 +213,13 @@ tasks.register<JavaExec>("testHerdDrain") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.HerdDrainTest")
 }
 
+tasks.register<JavaExec>("testShuffleMixBag") {
+    group = "verification"
+    description = "Run dream shuffle include-set filter checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.ShuffleMixBagTest")
+}
+
 tasks.register<JavaExec>("testDragExit") {
     group = "verification"
     description = "Run drag-to-edge axis and margin checks"
@@ -261,6 +269,7 @@ tasks.named("check") {
     dependsOn("testDefinitionCache")
     dependsOn("testInactivePick")
     dependsOn("testHerdDrain")
+    dependsOn("testShuffleMixBag")
     dependsOn("testDragExit")
     dependsOn("testEditorCli")
     dependsOn("testEditorWindowFocus")
