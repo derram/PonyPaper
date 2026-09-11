@@ -231,14 +231,15 @@
     <string name="dream_reload_herd_summary">Re-read custom ponies from disk and rebuild the scene.</string>
     <string name="dream_reload_herd_busy">Reloading… try again in a moment.</string>
     <string name="dream_mix_title">Mix</string>
+    <string name="dream_mix_home_herd">Options below also update the home-screen herd.</string>
     <string name="dream_mix_current_herd">Current herd</string>
     <string name="dream_mix_back">Back</string>
     <string name="dream_mix_back_summary">Session settings</string>
     <string name="dream_mix_shuffle_now">Shuffle now</string>
     <string name="dream_mix_shuffle_now_summary">Pick a random mix from the shuffle bag</string>
     <string name="dream_shuffle_title">Shuffle mixes</string>
-    <string name="dream_shuffle_summary">A random mix every 5 minutes, including Previous herd. Changes the home-screen herd too.</string>
-    <string name="dream_shuffle_summary_bag">A random mix every 5 minutes among %1$d of %2$d mixes. Changes the home-screen herd too.</string>
+    <string name="dream_shuffle_summary">A random mix every 5 minutes, including Previous herd.</string>
+    <string name="dream_shuffle_summary_bag">A random mix every 5 minutes among %1$d of %2$d mixes.</string>
     <string name="dream_shuffle_need_two">Need two mixes — saved mixes and/or Previous herd</string>
     <string name="dream_shuffle_need_two_bag">Need two mixes in the shuffle bag</string>
 

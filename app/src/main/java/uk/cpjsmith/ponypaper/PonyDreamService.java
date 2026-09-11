@@ -185,6 +185,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     private View sheetMain;
     private View sheetMixPage;
     private TextView mixSummary;
+    private TextView mixHomeHerdNote;
     private TextView shuffleSummary;
     private View reloadHerdRow;
     private TextView reloadHerdSummary;
@@ -514,6 +515,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         sheetMain = null;
         sheetMixPage = null;
         mixSummary = null;
+        mixHomeHerdNote = null;
         shuffleSummary = null;
         reloadHerdRow = null;
         reloadHerdSummary = null;
@@ -805,6 +807,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         sheetMain = chromeRoot.findViewById(R.id.dream_sheet_main);
         sheetMixPage = chromeRoot.findViewById(R.id.dream_sheet_mix_page);
         mixSummary = chromeRoot.findViewById(R.id.dream_mix_summary);
+        mixHomeHerdNote = chromeRoot.findViewById(R.id.dream_mix_home_herd);
         shuffleSummary = chromeRoot.findViewById(R.id.dream_shuffle_summary);
         keepScreenOnSwitch = chromeRoot.findViewById(R.id.dream_keep_screen_on);
         disableAutoDimSwitch = chromeRoot.findViewById(R.id.dream_disable_auto_dim);
@@ -1125,6 +1128,9 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 } else {
                     shuffleSummary.setText(shuffleNeedTwoText());
                 }
+            }
+            if (mixHomeHerdNote != null) {
+                mixHomeHerdNote.setVisibility(tableau ? View.GONE : View.VISIBLE);
             }
             if (mixSummary != null) {
                 mixSummary.setText(tableau

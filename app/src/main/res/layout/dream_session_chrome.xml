@@ -141,6 +141,16 @@
                     android:layout_marginBottom="4dp"
                     android:background="#33FFFFFF" />
 
+                <TextView
+                    android:id="@+id/dream_mix_home_herd"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="4dp"
+                    android:text="@string/dream_mix_home_herd"
+                    android:textColor="#B3FFFFFF"
+                    android:textSize="12sp" />
+
                 <LinearLayout
                     android:id="@+id/dream_mix"
                     android:layout_width="match_parent"
@@ -288,6 +298,16 @@
                 android:layout_height="1dp"
                 android:layout_marginBottom="4dp"
                 android:background="#33FFFFFF" />
+
+            <TextView
+                android:id="@+id/dream_mix_page_home_herd"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="8dp"
+                android:paddingBottom="4dp"
+                android:text="@string/dream_mix_home_herd"
+                android:textColor="#B3FFFFFF"
+                android:textSize="12sp" />
 
             <uk.cpjsmith.ponypaper.MaxHeightScrollView
                 android:id="@+id/dream_mix_scroll"
