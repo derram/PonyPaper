@@ -1243,6 +1243,7 @@ public class AllPonies {
         Pony pony = new Pony(all.toArray(new PonyAction[all.size()]), start, effectDefs,
                 definition.wander);
         pony.setCrossingActions(crossing);
+        pony.setAuthorScale(definition.scale);
         return pony;
     }
 

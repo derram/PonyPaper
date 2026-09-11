@@ -131,6 +131,11 @@ public class Pony {
      * {@code min(w,h)/200} scale).
      */
     private float sizeFactor = 1f;
+    /**
+     * Authoring multiplier from custom XML {@code <scale>} (1 = packed
+     * pixels). Built-in ponies stay 1. Composes with {@link #sizeFactor}.
+     */
+    private float authorScale = 1f;
 
     /**
      * Receives action-change and leave notifications so the scene can spawn
@@ -207,10 +212,11 @@ public class Pony {
     }
 
     float getScale() {
+        float factor = sizeFactor * authorScale;
         if (screenBounds == null) {
-            return sizeFactor;
+            return factor;
         }
-        return Math.min(screenBounds.width(), screenBounds.height()) / 200.0f * sizeFactor;
+        return Math.min(screenBounds.width(), screenBounds.height()) / 200.0f * factor;
     }
 
     Random effectRandom() {
@@ -263,11 +269,24 @@ public class Pony {
 
     /**
      * Sets the user character-size multiplier. {@code 1} is the original scale.
-     * Values {@code <= 0} are ignored.
+     * Values {@code <= 0} are ignored. Does not change the authoring
+     * {@code <scale>} multiplier.
      */
     public void setSizeFactor(float factor) {
         if (factor > 0f) {
             sizeFactor = factor;
+        }
+    }
+
+    /**
+     * Sets the authoring size multiplier from custom XML {@code <scale>}.
+     * {@code 1} is packed sheet size. Values {@code <= 0} are ignored;
+     * otherwise clamped to [{@link PonyDefinition#SCALE_MIN},
+     * {@link PonyDefinition#SCALE_MAX}].
+     */
+    public void setAuthorScale(float scale) {
+        if (scale > 0f) {
+            authorScale = PonyDefinition.clampScale(scale);
         }
     }
 

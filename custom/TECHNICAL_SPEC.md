@@ -51,7 +51,17 @@ java -jar custom/build/libs/customponies.jar \
   -save oc.xml
 ```
 
-`-scale` is nearest-neighbour for the next GIF/`-sprite-frames` import (`200`/`2x`/`double` pixel-doubles; `150`/`1.5x`/`3/2` is ×1.5; bare `2` is ÷2 / 50%). Fit never selects 150% or 200%.
+`-scale` is nearest-neighbour for the next GIF/`-sprite-frames` import (`200`/`2x`/`double` pixel-doubles; bare `2` is ÷2 / 50%). Fit never selects 200%. Herd-relative size is pony `<scale>` / CLI `-size`, not a 150% pack.
+
+### Pony visual scale
+
+Optional pony-level `<scale>` is a linear draw multiplier relative to packed sheet pixels (`1` omitted). Range `0.25`–`2`. Runtime compose: `min(w,h)/200 × user Character size × scale`. Effects, drag lift, edge pads, and spawn gutters use that combined scale. The editor Size field and `-size 75` / `-size 75%` / `-size 0.75` write the same tag.
+
+```xml
+<scale>0.75</scale>
+```
+
+Pack tiny pixel art at 200% when you need more texels; set `<scale>0.75</scale>` if 2× looks too big next to stock ponies.
 
 ## Engine Logic & Behaviors
 

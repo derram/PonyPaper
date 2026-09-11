@@ -3,6 +3,7 @@ package uk.cpjsmith.ponypaper.custom;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
+import uk.cpjsmith.ponypaper.PonyDefinition;
 
 /**
  * Checks implied {@code -load} for a bare XML path on the editor CLI.
@@ -42,6 +43,7 @@ public final class PonyEditorCLITest {
         failures += run("unknownFlagStillErrors", PonyEditorCLITest::testUnknownFlagStillErrors);
         failures += run("bareThenSaveDoesNotOpenGui", PonyEditorCLITest::testBareThenSaveDoesNotOpenGui);
         failures += run("copyFacingWritesSharedXml", PonyEditorCLITest::testCopyFacingWritesSharedXml);
+        failures += run("sizeWritesScaleElement", PonyEditorCLITest::testSizeWritesScaleElement);
         if (failures > 0) {
             System.err.println(failures + " editor CLI check(s) failed.");
             System.exit(1);
@@ -173,6 +175,27 @@ public final class PonyEditorCLITest {
         }
         if (!standXml.contains("<image>") || !standXml.contains("<timings>10</timings>")) {
             throw new AssertionError("copied stand missing bare image/timings: " + standXml);
+        }
+    }
+
+    private static void testSizeWritesScaleElement() throws Exception {
+        File in = tempXml("in.xml", VALID_XML);
+        File out = tempXml("sized.xml", "");
+        PonyEditorCLI cli = new PonyEditorCLI();
+        cli.processArguments(new String[] {
+            in.getAbsolutePath(),
+            "-size", "75",
+            "-save", out.getAbsolutePath()
+        });
+        if (cli.hadError()) {
+            throw new AssertionError("-size then -save must not error");
+        }
+        if (!PonyDefinition.sameSpeed(0.75f, cli.getEditor().getVisualScale())) {
+            throw new AssertionError("editor scale was " + cli.getEditor().getVisualScale());
+        }
+        String saved = new String(java.nio.file.Files.readAllBytes(out.toPath()), StandardCharsets.UTF_8);
+        if (!saved.contains("<scale>0.75</scale>")) {
+            throw new AssertionError("saved XML missing scale: " + saved);
         }
     }
 

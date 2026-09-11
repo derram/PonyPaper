@@ -417,6 +417,76 @@ public class PonyDefinition {
     public static boolean sameSpeed(float a, float b) {
         return Math.abs(a - b) < 1e-4f;
     }
+
+    /** Packed sheet size at stock wallpaper scale ({@code min(w,h)/200}). */
+    public static final float SCALE_DEFAULT = 1f;
+    /** Smallest authoring size (25%). */
+    public static final float SCALE_MIN = 0.25f;
+    /** Largest authoring size (200%). */
+    public static final float SCALE_MAX = 2f;
+
+    /** True when {@code scale} is omitted / 100%. */
+    public static boolean isDefaultScale(float scale) {
+        return sameSpeed(scale, SCALE_DEFAULT);
+    }
+
+    /**
+     * Clamps a pony visual scale into [{@link #SCALE_MIN}, {@link #SCALE_MAX}].
+     * Non-finite values become {@link #SCALE_DEFAULT}.
+     */
+    public static float clampScale(float scale) {
+        if (Float.isNaN(scale) || Float.isInfinite(scale) || scale <= 0f) {
+            return SCALE_DEFAULT;
+        }
+        if (scale < SCALE_MIN) {
+            return SCALE_MIN;
+        }
+        if (scale > SCALE_MAX) {
+            return SCALE_MAX;
+        }
+        return scale;
+    }
+
+    /**
+     * Parses editor/CLI size. A multiplier in [{@link #SCALE_MIN},
+     * {@link #SCALE_MAX}] ({@code 0.75}) or a percent ({@code 75}, {@code 75%}).
+     * Values greater than {@link #SCALE_MAX} are treated as percents so
+     * {@code 75} means 75% and {@code 1} means 100%.
+     *
+     * @throws IllegalArgumentException if empty, not a number, or out of range
+     */
+    public static float parseVisualScale(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            throw new IllegalArgumentException("Size is empty.");
+        }
+        String t = text.trim();
+        boolean percent = false;
+        if (t.endsWith("%")) {
+            percent = true;
+            t = t.substring(0, t.length() - 1).trim();
+        }
+        float value;
+        try {
+            value = Float.parseFloat(t);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid size: " + text);
+        }
+        if (percent || value > SCALE_MAX) {
+            value = value / 100.0f;
+        }
+        if (Float.isNaN(value) || value < SCALE_MIN - 1e-4f || value > SCALE_MAX + 1e-4f) {
+            throw new IllegalArgumentException("Size must be between "
+                    + formatSpeed(SCALE_MIN) + " and " + formatSpeed(SCALE_MAX)
+                    + " (or " + Math.round(SCALE_MIN * 100) + "%–"
+                    + Math.round(SCALE_MAX * 100) + "%), got " + text + ".");
+        }
+        return value;
+    }
+
+    /** Integer percent for the editor Size spinner ({@code 0.75} → {@code 75}). */
+    public static int scaleToPercent(float scale) {
+        return Math.round(clampScale(scale) * 100.0f);
+    }
     
     public static class Action {
         
@@ -1195,6 +1265,12 @@ public class PonyDefinition {
      * Defaults to horizontal.
      */
     public String wander;
+    /**
+     * Authoring draw multiplier relative to packed sheet pixels. {@code 1}
+     * (omitted in XML) matches stock wallpaper scale. Composes with the user
+     * Character size preference. Range [{@link #SCALE_MIN}, {@link #SCALE_MAX}].
+     */
+    public float scale;
     
     public PonyDefinition() {
         actions = new Action[0];
@@ -1203,6 +1279,7 @@ public class PonyDefinition {
         crossingActions = "";
         defaultDrag = "";
         wander = WanderTarget.WANDER_HORIZONTAL;
+        scale = SCALE_DEFAULT;
     }
     
     public PonyDefinition(Document document) throws InvalidPonyException {
@@ -1218,6 +1295,7 @@ public class PonyDefinition {
         List<Action> actions = new ArrayList<Action>();
         List<Effect> effects = new ArrayList<Effect>();
         String parsedWander = null;
+        Float parsedScale = null;
         
         for (Node node = element.getFirstChild(); node != null; node = node.getNextSibling()) {
             switch (node.getNodeType()) {
@@ -1270,6 +1348,15 @@ public class PonyDefinition {
                                 }
                             }
                         }
+                    } else if (nodeName.equals("scale")) {
+                        if (parsedScale != null) {
+                            errors.add("Too many <scale> elements.");
+                        } else {
+                            String text = getContent((Element)node, errors);
+                            if (text != null) {
+                                parsedScale = parseXmlScale(text, errors);
+                            }
+                        }
                     } else {
                         errors.add("Unexpected " + node.getNodeName() + " element.");
                     }
@@ -1304,6 +1391,31 @@ public class PonyDefinition {
         this.wander = parsedWander != null
                 ? parsedWander
                 : WanderTarget.WANDER_HORIZONTAL;
+        this.scale = parsedScale != null ? parsedScale.floatValue() : SCALE_DEFAULT;
+    }
+
+    /**
+     * XML {@code <scale>} is a multiplier in [{@link #SCALE_MIN},
+     * {@link #SCALE_MAX}]. Percents belong in the editor Size field / {@code -size}.
+     */
+    private static float parseXmlScale(String text, List<String> errors) {
+        String trimmed = text.trim();
+        if (trimmed.isEmpty()) {
+            return SCALE_DEFAULT;
+        }
+        try {
+            float value = Float.parseFloat(trimmed);
+            if (Float.isNaN(value) || Float.isInfinite(value)
+                    || value < SCALE_MIN - 1e-4f || value > SCALE_MAX + 1e-4f) {
+                errors.add("Invalid <scale> \"" + trimmed + "\" (must be between "
+                        + formatSpeed(SCALE_MIN) + " and " + formatSpeed(SCALE_MAX) + ").");
+                return SCALE_DEFAULT;
+            }
+            return value;
+        } catch (NumberFormatException e) {
+            errors.add("Invalid <scale> \"" + trimmed + "\".");
+            return SCALE_DEFAULT;
+        }
     }
     
     private static String getContent(Element container, List<String> errors) {
@@ -1727,6 +1839,13 @@ public class PonyDefinition {
             errors.add("Unknown <wander> value \"" + wander + "\".");
         } else {
             wander = WanderTarget.normalizeWander(wander);
+        }
+
+        if (Float.isNaN(scale) || Float.isInfinite(scale) || scale <= 0f) {
+            scale = SCALE_DEFAULT;
+        } else if (scale < SCALE_MIN - 1e-4f || scale > SCALE_MAX + 1e-4f) {
+            errors.add("Invalid <scale> \"" + formatSpeed(scale) + "\" (must be between "
+                    + formatSpeed(SCALE_MIN) + " and " + formatSpeed(SCALE_MAX) + ").");
         }
 
         if (!canReachSceneExit()) {
@@ -2208,6 +2327,12 @@ public class PonyDefinition {
         writer.print("    <wander>");
         writeCharacters(writer, wanderOut);
         writer.println("</wander>");
+
+        if (!isDefaultScale(scale)) {
+            writer.print("    <scale>");
+            writeCharacters(writer, formatSpeed(scale));
+            writer.println("</scale>");
+        }
         
         writer.println("</pony>");
     }

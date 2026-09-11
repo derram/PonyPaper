@@ -212,6 +212,24 @@ public class PonyEditor {
     public void setWander(String wander) {
         ponyDefinition.wander = WanderTarget.normalizeWander(wander);
     }
+
+    /**
+     * Authoring draw multiplier ({@code 1} = packed sheet size).
+     */
+    public float getVisualScale() {
+        return PonyDefinition.clampScale(ponyDefinition.scale);
+    }
+
+    /**
+     * Sets the authoring draw multiplier. Values {@code <= 0} are ignored;
+     * otherwise clamped to [{@link PonyDefinition#SCALE_MIN},
+     * {@link PonyDefinition#SCALE_MAX}].
+     */
+    public void setVisualScale(float scale) {
+        if (scale > 0f) {
+            ponyDefinition.scale = PonyDefinition.clampScale(scale);
+        }
+    }
     
     /**
      * Returns the number of actions that the pony has. All methods that take

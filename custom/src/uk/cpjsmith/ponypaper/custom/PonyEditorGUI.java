@@ -46,9 +46,11 @@ import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
+import javax.swing.SpinnerNumberModel;
 import uk.cpjsmith.ponypaper.PonyDefinition;
 import uk.cpjsmith.ponypaper.WanderTarget;
 import javax.swing.JToolBar;
@@ -56,6 +58,8 @@ import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.border.TitledBorder;
 import javax.swing.SwingUtilities;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.ListSelectionEvent;
@@ -602,8 +606,9 @@ public class PonyEditorGUI extends JPanel {
             imageLeftImportFrames = new JButton("Import frames");
             imageLeftImportFrames.setToolTipText(
                     "Build a spritesheet from a folder or several PNG frames. "
-                            + "Dyadic scale (100%…6.25% or fit-to-built-in; Fit auto-selected when oversized) "
-                            + "and per-frame lift for hops.");
+                            + "Nearest-neighbour scale (200% pixel-double, 100%…6.25%, or fit-to-built-in; "
+                            + "Fit auto-selected when oversized). Herd-relative size is the Pony Size field, "
+                            + "not packer 150%. Per-frame lift for hops.");
             imageLeftImportFrames.addActionListener(importFramesLeftListener);
             imageLeftExport = new JButton("Export Spritesheet");
             imageLeftExport.setToolTipText("Save the left spritesheet as a PNG file.");
@@ -658,8 +663,9 @@ public class PonyEditorGUI extends JPanel {
             imageRightImportFrames = new JButton("Import frames");
             imageRightImportFrames.setToolTipText(
                     "Build a spritesheet from a folder or several PNG frames. "
-                            + "Dyadic scale (100%…6.25% or fit-to-built-in; Fit auto-selected when oversized) "
-                            + "and per-frame lift for hops.");
+                            + "Nearest-neighbour scale (200% pixel-double, 100%…6.25%, or fit-to-built-in; "
+                            + "Fit auto-selected when oversized). Herd-relative size is the Pony Size field, "
+                            + "not packer 150%. Per-frame lift for hops.");
             imageRightImportFrames.addActionListener(importFramesRightListener);
             imageRightExport = new JButton("Export Spritesheet");
             imageRightExport.setToolTipText("Save the right spritesheet as a PNG file.");
@@ -2297,6 +2303,19 @@ public class PonyEditorGUI extends JPanel {
         }
     };
 
+    private ChangeListener sizeListener = new ChangeListener() {
+        public void stateChanged(ChangeEvent e) {
+            if (sizeSpinner == null) {
+                return;
+            }
+            int percent = ((Number) sizeSpinner.getValue()).intValue();
+            if (percent != PonyDefinition.scaleToPercent(editor.getVisualScale())) {
+                editor.setVisualScale(percent / 100.0f);
+                setDirty(true);
+            }
+        }
+    };
+
     private void refreshFacingLabels() {
         if (actionSettingsPane != null) {
             actionSettingsPane.refreshFacingLabels();
@@ -2318,6 +2337,7 @@ public class PonyEditorGUI extends JPanel {
     private JTextField crossingActionsField;
     private JTextField defaultDragField;
     private JComboBox<String> wanderCombo;
+    private JSpinner sizeSpinner;
     private JLabel statusLabel;
     
     private JFileChooser fc;
@@ -2558,6 +2578,10 @@ public class PonyEditorGUI extends JPanel {
         if (wanderCombo != null) {
             wanderCombo.setSelectedItem(wanderLabelFromToken(editor.getWander()));
         }
+        if (sizeSpinner != null) {
+            sizeSpinner.setValue(Integer.valueOf(
+                    PonyDefinition.scaleToPercent(editor.getVisualScale())));
+        }
         refreshFacingLabels();
         
         if (editor.getActionCount() > 0) {
@@ -2688,7 +2712,18 @@ public class PonyEditorGUI extends JPanel {
      *                         When {@code false}, write without asking (plain Save
      *                         of the already-open file).
      */
+    private void commitSizeSpinner() {
+        if (sizeSpinner == null) {
+            return;
+        }
+        try {
+            sizeSpinner.commitEdit();
+        } catch (java.text.ParseException ignored) {
+        }
+    }
+
     private boolean savePony(File file, boolean confirmOverwrite) {
+        commitSizeSpinner();
         file = ensureXmlExtension(file);
         if (confirmOverwrite && !confirmOverwrite(file)) {
             return false;
@@ -3041,11 +3076,36 @@ public class PonyEditorGUI extends JPanel {
             }
         }, true);
         c = getConstraints(1, 1);
-        c.gridwidth = 5;
+        c.gridwidth = 3;
         c.weightx = 1.0;
         c.fill = GridBagConstraints.HORIZONTAL;
         c.insets = new Insets(2, 0, 2, 0);
         result.add(crossingActionsField, c);
+
+        JLabel sizeLabel = new JLabel("Size:");
+        c = getConstraints(4, 1);
+        c.anchor = GridBagConstraints.WEST;
+        c.insets = new Insets(2, 12, 2, 8);
+        result.add(sizeLabel, c);
+
+        sizeSpinner = new JSpinner(new SpinnerNumberModel(100, 25, 200, 1));
+        sizeSpinner.setToolTipText("On-screen size relative to packed sheet pixels. "
+                + "100% matches a built-in pony of the same cell height. "
+                + "Use 75% if a 200% pack looks too big next to the herd. "
+                + "Wallpaper Character size still applies on top. "
+                + "Does not re-pack sprites.");
+        JSpinner.DefaultEditor sizeEditor = (JSpinner.DefaultEditor) sizeSpinner.getEditor();
+        sizeEditor.getTextField().setColumns(3);
+        sizeSpinner.addChangeListener(sizeListener);
+        JPanel sizeWrap = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        sizeWrap.setOpaque(false);
+        sizeWrap.add(sizeSpinner);
+        sizeWrap.add(new JLabel("%"));
+        c = getConstraints(5, 1);
+        c.weightx = 0.2;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.insets = new Insets(2, 0, 2, 0);
+        result.add(sizeWrap, c);
         
         JLabel defaultDragLabel = new JLabel("Default drag:");
         c = getConstraints(2, 0);

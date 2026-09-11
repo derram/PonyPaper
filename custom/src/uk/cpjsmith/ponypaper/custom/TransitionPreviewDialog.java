@@ -114,7 +114,8 @@ public final class TransitionPreviewDialog extends JDialog {
         scaleSlider.setMajorTickSpacing(1);
         scaleSlider.setPaintTicks(true);
         scaleSlider.setSnapToTicks(true);
-        scaleSlider.setToolTipText("Nearest-neighbour display scale.");
+        scaleSlider.setToolTipText("Nearest-neighbour display zoom. Pony Size also applies; "
+                + "the dashed line is stock pony height at this zoom.");
 
         rateSlider = new JSlider(25, 300, 100);
         rateSlider.setMajorTickSpacing(25);
@@ -696,8 +697,12 @@ public final class TransitionPreviewDialog extends JDialog {
         }
     }
 
-    private float displayScale() {
+    private float zoomScale() {
         return scaleSlider.getValue();
+    }
+
+    private float displayScale() {
+        return zoomScale() * (editor != null ? editor.getVisualScale() : 1f);
     }
 
     private void updateStatus() {
@@ -876,6 +881,8 @@ public final class TransitionPreviewDialog extends JDialog {
                 g2.setColor(EditorTheme.GROUND_STAGE);
                 g2.setStroke(new BasicStroke(2f));
                 g2.drawLine(PAD / 2, Math.round(feetY), w - PAD / 2, Math.round(feetY));
+                EditorTheme.paintStockHeightGuide(g2, feetX, feetY,
+                        ImageImport.LARGE_CELL_HEIGHT_PX * zoomScale());
 
                 g2.setRenderingHint(
                         RenderingHints.KEY_INTERPOLATION,

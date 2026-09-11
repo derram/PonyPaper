@@ -90,6 +90,14 @@ public final class PonyDefinitionValidateTest {
                 PonyDefinitionValidateTest::testOnlyLeftImageInvalid);
         failures += run("sharedEffectRoundTripXml",
                 PonyDefinitionValidateTest::testSharedEffectRoundTripXml);
+        failures += run("scaleRoundTripXml",
+                PonyDefinitionValidateTest::testScaleRoundTripXml);
+        failures += run("scaleOmittedWhenDefault",
+                PonyDefinitionValidateTest::testScaleOmittedWhenDefault);
+        failures += run("scaleOutOfRangeInvalid",
+                PonyDefinitionValidateTest::testScaleOutOfRangeInvalid);
+        failures += run("scalePercentParse",
+                PonyDefinitionValidateTest::testScalePercentParse);
         if (failures > 0) {
             System.err.println(failures + " definition check(s) failed.");
             System.exit(1);
@@ -692,6 +700,111 @@ public final class PonyDefinitionValidateTest {
         }
         if (!"Center".equals(loaded.effects[0].placement.get("left"))) {
             throw new AssertionError("placement should still be per-facing");
+        }
+    }
+
+    private static void testScaleRoundTripXml() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        def.scale = 0.75f;
+        def.validate();
+        String xml = writeXml(def);
+        if (!xml.contains("<scale>0.75</scale>")) {
+            throw new AssertionError("missing scale: " + xml);
+        }
+        PonyDefinition loaded = parseXml(xml);
+        loaded.validate();
+        if (!PonyDefinition.sameSpeed(0.75f, loaded.scale)) {
+            throw new AssertionError("scale mismatch: " + loaded.scale);
+        }
+    }
+
+    private static void testScaleOmittedWhenDefault() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        def.validate();
+        String xml = writeXml(def);
+        if (xml.contains("<scale>")) {
+            throw new AssertionError("default scale should be omitted: " + xml);
+        }
+        PonyDefinition loaded = parseXml(xml);
+        loaded.validate();
+        if (!PonyDefinition.isDefaultScale(loaded.scale)) {
+            throw new AssertionError("omitted scale should load as 1, got " + loaded.scale);
+        }
+    }
+
+    private static void testScaleOutOfRangeInvalid() {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        def.scale = 3f;
+        assertInvalid(def, "<scale>");
+        def.scale = 0.1f;
+        assertInvalid(def, "<scale>");
+        try {
+            parseXml(ponyXml(
+                    "    <action name=\"stand\">\n"
+                    + "      <image>x</image><timings>10</timings>\n"
+                    + "      <nextactions type=\"waiting\">stand</nextactions>\n"
+                    + "      <nextactions type=\"moving\">trot</nextactions>\n"
+                    + "    </action>\n"
+                    + "    <action name=\"trot\">\n"
+                    + "      <image>x</image><timings>10</timings>\n"
+                    + "      <nextactions type=\"waiting\">stand</nextactions>\n"
+                    + "      <nextactions type=\"moving\">trot</nextactions>\n"
+                    + "    </action>\n")
+                    .replace("</pony>", "    <scale>75</scale>\n</pony>"));
+            throw new AssertionError("expected percent-looking XML scale to fail");
+        } catch (PonyDefinition.InvalidPonyException e) {
+            boolean found = false;
+            for (int i = 0; i < e.errors.size(); i++) {
+                if (e.errors.get(i).contains("<scale>")) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                throw new AssertionError("expected scale error, got " + e.errors);
+            }
+        } catch (AssertionError e) {
+            throw e;
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static void testScalePercentParse() {
+        if (!PonyDefinition.sameSpeed(0.75f, PonyDefinition.parseVisualScale("75"))) {
+            throw new AssertionError("75 should be 0.75");
+        }
+        if (!PonyDefinition.sameSpeed(0.75f, PonyDefinition.parseVisualScale("75%"))) {
+            throw new AssertionError("75% should be 0.75");
+        }
+        if (!PonyDefinition.sameSpeed(0.75f, PonyDefinition.parseVisualScale("0.75"))) {
+            throw new AssertionError("0.75 should stay 0.75");
+        }
+        if (!PonyDefinition.sameSpeed(1f, PonyDefinition.parseVisualScale("100"))) {
+            throw new AssertionError("100 should be 1");
+        }
+        if (!PonyDefinition.sameSpeed(2f, PonyDefinition.parseVisualScale("200"))) {
+            throw new AssertionError("200 should be 2");
+        }
+        if (!PonyDefinition.sameSpeed(2f, PonyDefinition.parseVisualScale("2"))) {
+            throw new AssertionError("2 should be multiplier 2");
+        }
+        try {
+            PonyDefinition.parseVisualScale("10");
+            throw new AssertionError("expected 10% to fail");
+        } catch (IllegalArgumentException e) {
+            if (!e.getMessage().contains("between")) {
+                throw new AssertionError(e.getMessage());
+            }
+        }
+        if (PonyDefinition.scaleToPercent(0.75f) != 75) {
+            throw new AssertionError("percent of 0.75");
         }
     }
 

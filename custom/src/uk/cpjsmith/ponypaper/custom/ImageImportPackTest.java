@@ -47,11 +47,9 @@ public final class ImageImportPackTest {
         failures += run("scale200DoublesCell", ImageImportPackTest::testScale200DoublesCell);
         failures += run("scale200ThenHalfIsIdentity", ImageImportPackTest::testScale200ThenHalfIsIdentity);
         failures += run("scale200CannotCombineWithShrink", ImageImportPackTest::testScale200CannotCombineWithShrink);
-        failures += run("scale150ScalesCell", ImageImportPackTest::testScale150ScalesCell);
-        failures += run("scale150CannotCombineWithShrink", ImageImportPackTest::testScale150CannotCombineWithShrink);
         failures += run("parseScaleDivisor", ImageImportPackTest::testParseScaleDivisor);
         failures += run("parseScale200", ImageImportPackTest::testParseScale200);
-        failures += run("parseScale150", ImageImportPackTest::testParseScale150);
+        failures += run("parseScale150Removed", ImageImportPackTest::testParseScale150Removed);
         failures += run("fitBuiltinScaleDivisor", ImageImportPackTest::testFitBuiltinScaleDivisor);
         failures += run("defaultScaleForOversizedFrames", ImageImportPackTest::testDefaultScaleForOversizedFrames);
         failures += run("sheetPixelBudget", ImageImportPackTest::testSheetPixelBudget);
@@ -577,74 +575,6 @@ public final class ImageImportPackTest {
         }
     }
 
-    private static void testScale150ScalesCell() throws IOException {
-        BufferedImage a = new BufferedImage(4, 2, BufferedImage.TYPE_INT_ARGB);
-        a.setRGB(0, 0, 0xffff0000);
-        a.setRGB(1, 0, 0xff00ff00);
-        a.setRGB(2, 0, 0xff0000ff);
-        a.setRGB(3, 0, 0xffffff00);
-        a.setRGB(0, 1, 0xff00ffff);
-        a.setRGB(3, 1, 0xffffffff);
-        ImageImport.PackOptions opts = new ImageImport.PackOptions();
-        opts.scaleNumerator = ImageImport.SCALE_NUMERATOR_THREE_HALVES;
-        opts.scaleDivisor = ImageImport.SCALE_DIVISOR_THREE_HALVES;
-        ImageImport packed = ImageImport.fromFrames(Arrays.asList(a), opts);
-        assertEq("cellW", 6, packed.cellWidth);
-        assertEq("cellH", 3, packed.cellHeight);
-        BufferedImage sheet = decode(packed.loadedImage);
-        // dest x maps to src x·2/3: 0,1→0; 2→1; 3,4→2; 5→3
-        assertEq("x0", 0xffff0000, sheet.getRGB(0, 0));
-        assertEq("x1 replica", 0xffff0000, sheet.getRGB(1, 0));
-        assertEq("x2", 0xff00ff00, sheet.getRGB(2, 0));
-        assertEq("x3", 0xff0000ff, sheet.getRGB(3, 0));
-        assertEq("x4 replica", 0xff0000ff, sheet.getRGB(4, 0));
-        assertEq("x5", 0xffffff00, sheet.getRGB(5, 0));
-        assertEq("y0", 0xffff0000, sheet.getRGB(0, 0));
-        assertEq("y1 replica", 0xffff0000, sheet.getRGB(0, 1));
-        assertEq("y2", 0xff00ffff, sheet.getRGB(0, 2));
-        assertEq("br", 0xffffffff, sheet.getRGB(5, 2));
-        assertEq("dim even", 6, ImageImport.scaleDimension(4,
-                ImageImport.SCALE_NUMERATOR_THREE_HALVES,
-                ImageImport.SCALE_DIVISOR_THREE_HALVES));
-        assertEq("dim odd", 7, ImageImport.scaleDimension(5,
-                ImageImport.SCALE_NUMERATOR_THREE_HALVES,
-                ImageImport.SCALE_DIVISOR_THREE_HALVES));
-        try {
-            ImageImport.scaleDimension(Integer.MAX_VALUE,
-                    ImageImport.SCALE_NUMERATOR_THREE_HALVES,
-                    ImageImport.SCALE_DIVISOR_THREE_HALVES);
-            throw new AssertionError("expected overflow failure");
-        } catch (IOException e) {
-            if (!e.getMessage().contains("too large")) {
-                throw new AssertionError("unexpected message: " + e.getMessage());
-            }
-        }
-    }
-
-    private static void testScale150CannotCombineWithShrink() throws IOException {
-        BufferedImage a = solid(4, 4, 0xff112233);
-        ImageImport.PackOptions opts = new ImageImport.PackOptions();
-        opts.scaleNumerator = ImageImport.SCALE_NUMERATOR_THREE_HALVES;
-        opts.scaleDivisor = ImageImport.SCALE_DIVISOR_NATIVE;
-        try {
-            ImageImport.fromFrames(Arrays.asList(a), opts);
-            throw new AssertionError("expected combine failure");
-        } catch (IOException e) {
-            if (!e.getMessage().contains("cannot combine")) {
-                throw new AssertionError("unexpected message: " + e.getMessage());
-            }
-        }
-        opts.scaleDivisor = ImageImport.SCALE_DIVISOR_QUARTER;
-        try {
-            ImageImport.fromFrames(Arrays.asList(a), opts);
-            throw new AssertionError("expected combine failure for ÷4");
-        } catch (IOException e) {
-            if (!e.getMessage().contains("cannot combine")) {
-                throw new AssertionError("unexpected message: " + e.getMessage());
-            }
-        }
-    }
-
     private static void testParseScale200() throws IOException {
         assertScale("200", 2, 1, false, ImageImport.parseScale("200"));
         assertScale("200%", 2, 1, false, ImageImport.parseScale("200%"));
@@ -672,21 +602,26 @@ public final class ImageImportPackTest {
         assertEq("fit not pending", false, resolved.fit);
     }
 
-    private static void testParseScale150() throws IOException {
-        assertScale("150", 3, 2, false, ImageImport.parseScale("150"));
-        assertScale("150%", 3, 2, false, ImageImport.parseScale("150%"));
-        assertScale("1.5x", 3, 2, false, ImageImport.parseScale("1.5x"));
-        assertScale("x1.5", 3, 2, false, ImageImport.parseScale("x1.5"));
-        assertScale("1.5", 3, 2, false, ImageImport.parseScale("1.5"));
-        assertScale("3/2", 3, 2, false, ImageImport.parseScale("3/2"));
-        assertEq("format 150", "150%", ImageImport.formatScale(3, 2));
-        assertEq("label 150", "150% (×1.5)", ImageImport.formatScaleLabel(3, 2));
-        assertEq("marker 150", "150% (×1.5)", ImageImport.formatScaleMarker(3, 2));
-        ImageImport.PackOptions opts = new ImageImport.PackOptions();
-        ImageImport.applyScale(opts, ImageImport.parseScale("1.5x"));
-        assertEq("applied num", 3, opts.scaleNumerator);
-        assertEq("applied div", 2, opts.scaleDivisor);
-        assertEq("applied fit", false, opts.scaleFitBuiltin);
+    private static void testParseScale150Removed() throws IOException {
+        String[] tokens = { "150", "150%", "1.5x", "x1.5", "1.5", "3/2" };
+        for (int i = 0; i < tokens.length; i++) {
+            try {
+                ImageImport.parseScale(tokens[i]);
+                throw new AssertionError("expected " + tokens[i] + " to fail");
+            } catch (IOException e) {
+                if (!e.getMessage().contains("150%")) {
+                    throw new AssertionError(tokens[i] + ": " + e.getMessage());
+                }
+            }
+        }
+        try {
+            ImageImport.normalizeScaleNumerator(3);
+            throw new AssertionError("expected numerator 3 to fail");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("1 or 2")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
     }
 
     private static void assertScale(String label, int numerator, int divisor, boolean fit,
@@ -764,7 +699,7 @@ public final class ImageImportPackTest {
                 ImageImport.packerScaleNotes().contains("Fit to built-in"));
         assertEq("notes mention 200", true,
                 ImageImport.packerScaleNotes().contains("200%"));
-        assertEq("notes mention 150", true,
+        assertEq("notes omit 150 pack", false,
                 ImageImport.packerScaleNotes().contains("150%"));
         assertEq("order notes mention clone", true,
                 ImageImport.packerOrderNotes().contains("Clone"));

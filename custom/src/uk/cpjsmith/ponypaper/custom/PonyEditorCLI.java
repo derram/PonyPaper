@@ -1,6 +1,7 @@
 package uk.cpjsmith.ponypaper.custom;
 
 import java.io.File;
+import uk.cpjsmith.ponypaper.PonyDefinition;
 
 public class PonyEditorCLI {
     
@@ -408,6 +409,15 @@ public class PonyEditorCLI {
                         editor.setWander(args[++i]);
                         guiDirty = true;
                         break;
+                    case "-size":
+                        checkArgument(args, i);
+                        try {
+                            editor.setVisualScale(PonyDefinition.parseVisualScale(args[++i]));
+                            guiDirty = true;
+                        } catch (IllegalArgumentException e) {
+                            throw new PonyEditor.GenericException("", e.getMessage());
+                        }
+                        break;
                         
                     default:
                         if (isImpliedLoadPath(args[i])) {
@@ -471,6 +481,10 @@ public class PonyEditorCLI {
         System.out.println("    movement resolve as soft_vertical; both is for mixed H/V actions");
         System.out.println("    (per-action movement; inherit stays soft-horizontal).");
         System.out.println("    Soft/hard vertical movers spawn from top/bottom gutters.");
+        System.out.println("-size 75|75%|0.75");
+        System.out.println("    Pony on-screen size relative to packed sheet pixels (25–200% or");
+        System.out.println("    0.25–2). 100%/1 is omitted in XML. Composes with wallpaper");
+        System.out.println("    Character size. Use this instead of packing at 150%.");
         System.out.println("-action NAME");
         System.out.println("    Switch to editing the named action, creating it if it does not exist.");
         System.out.println("-next TYPE NAMES");
@@ -509,15 +523,15 @@ public class PonyEditorCLI {
         System.out.println("-scale " + ImageImport.SCALE_CLI_TOKENS + "|native|half|quarter|eighth");
         System.out.println("    Nearest-neighbour scale for the next -sprite (GIF only)");
         System.out.println("    and -sprite-frames. 100/native is default. 200/2x/double pixel-doubles.");
-        System.out.println("    150/1.5x/3/2 is ×1.5. Bare 2 is ÷2 (50%), not 200%. 50/half matches");
+        System.out.println("    Bare 2 is ÷2 (50%), not 200%. 50/half matches");
         System.out.println("    built-in ponies for Desktop Ponies art. fit picks the largest shrink");
         System.out.println("    whose tallest frame is ≤ " + ImageImport.LARGE_CELL_HEIGHT_PX
-                + "px (never 150% or 200%).");
+                + "px (never 200%). Herd-relative size is -size, not packer 150%.");
         System.out.println("    Persists until changed.");
         System.out.println("-sprite DIRECTION FILE");
         System.out.println("    Set the current action's sprite for the given direction.");
         System.out.println("    GIFs are coalesced and packed (scale from -scale; default 100%,");
-        System.out.println("    including 150% / 200% when set).");
+        System.out.println("    including 200% when set).");
         System.out.println("    PNG strips are stored as-is.");
         System.out.println("-lifts N,N,...|none");
         System.out.println("    Per-frame lift in pixels up from the baseline for the next");
@@ -567,6 +581,7 @@ public class PonyEditorCLI {
             case "-crossing":
             case "-defaultdrag":
             case "-wander":
+            case "-size":
                 return true;
             default:
                 return false;

@@ -3,7 +3,10 @@ package uk.cpjsmith.ponypaper.custom;
 import com.formdev.flatlaf.FlatDarkLaf;
 import com.formdev.flatlaf.FlatLaf;
 import com.formdev.flatlaf.FlatLightLaf;
+import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.Stroke;
 import java.util.Collections;
 import java.util.prefs.BackingStoreException;
 import java.util.prefs.Preferences;
@@ -41,6 +44,28 @@ public final class EditorTheme {
     public static final Color GROUND_LINE = new Color(0xFF, 0x55, 0x33);
     public static final Color GROUND_LABEL = new Color(0xFF, 0xCC, 0x00);
     public static final Color GROUND_STAGE = new Color(0x44, 0xAA, 0x44, 0xCC);
+
+    /**
+     * Dashed tick at stock-pony height above the feet so Check previews can
+     * compare a Size-scaled sprite against {@code LARGE_CELL_HEIGHT_PX}.
+     *
+     * @param height display pixels from the ground line up to the guide
+     */
+    public static void paintStockHeightGuide(Graphics2D g2, float feetX, float feetY,
+            float height) {
+        if (g2 == null || height <= 0f) {
+            return;
+        }
+        int y = Math.round(feetY - height);
+        int x0 = Math.round(feetX - 28);
+        int x1 = Math.round(feetX + 28);
+        Stroke previous = g2.getStroke();
+        g2.setColor(GUIDE_MUTED);
+        g2.setStroke(new BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
+                8f, new float[] { 4f, 3f }, 0f));
+        g2.drawLine(x0, y, x1, y);
+        g2.setStroke(previous);
+    }
 
     public static final Color SELECTION = new Color(0x33, 0x99, 0xFF, 0xCC);
     public static final Color DIM_OVERLAY = new Color(0, 0, 0, 0x66);
