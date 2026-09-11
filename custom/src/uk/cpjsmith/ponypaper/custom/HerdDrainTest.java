@@ -38,6 +38,8 @@ public final class HerdDrainTest {
         failures += run("nearerGutter", HerdDrainTest::testNearerGutter);
         failures += run("rosterReloadWhileDraining",
                 HerdDrainTest::testRosterReloadWhileDraining);
+        failures += run("prepareIncomingAfterDrain",
+                HerdDrainTest::testPrepareIncomingAfterDrain);
         failures += run("generationEcho", HerdDrainTest::testGenerationEcho);
         if (failures > 0) {
             System.err.println(failures + " herd-drain check(s) failed.");
@@ -292,6 +294,15 @@ public final class HerdDrainTest {
         }
         if (HerdDrain.shouldStartRosterReload(true)) {
             throw new AssertionError("in-flight drain must fold later roster changes");
+        }
+    }
+
+    private static void testPrepareIncomingAfterDrain() {
+        if (!HerdDrain.shouldPrepareIncoming(false)) {
+            throw new AssertionError("empty/idle stage should decode the incoming herd");
+        }
+        if (HerdDrain.shouldPrepareIncoming(true)) {
+            throw new AssertionError("incoming pin/decode must wait until drain finishes");
         }
     }
 

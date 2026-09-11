@@ -7,8 +7,10 @@ import java.util.Random;
  * inactive pool, then rebuild on an empty screen.
  *
  * <p>Tableau reloads keep {@code outgoingPonies} instead of draining.
- * Wander mix reloads drain while the incoming herd is built off-thread, then
- * cut over when the stage is empty.
+ * Wander mix reloads drain first. Incoming pin/decode starts after the
+ * stage is empty (or timeout) so BitmapFactory / HARDWARE upload does not
+ * overlap the last leavers, and outgoing sheets can hit the unpinned LRU
+ * before the new mix pins.
  */
 public final class HerdDrain {
 
@@ -96,6 +98,16 @@ public final class HerdDrain {
      * empty stage) is the wander “walk back then swap” / flow double-clear.
      */
     public static boolean shouldStartRosterReload(boolean draining) {
+        return !draining;
+    }
+
+    /**
+     * Incoming herd construction, sprite pin, and background decode must not
+     * run while a wander drain is still walking ponies off. Overlapping that
+     * work with the last leavers is the mix-switch hitch; after unload the
+     * outgoing sheets can hit the unpinned LRU first.
+     */
+    public static boolean shouldPrepareIncoming(boolean draining) {
         return !draining;
     }
 

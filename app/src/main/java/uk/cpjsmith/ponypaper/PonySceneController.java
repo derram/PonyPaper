@@ -228,7 +228,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private Ponies ponies = null;
     /**
      * Previous herd kept on-screen while a reload decodes. Tableau draws it
-     * until pinned spawn; wander draws it until the incoming herd is installed.
+     * until pinned spawn. Wander instant drops (cap / mode) draw it until the
+     * incoming herd is installed. Mix-shuffle drain unloads on an empty stage,
+     * then decodes the incoming herd.
      */
     private Ponies outgoingPonies = null;
     /**
@@ -339,12 +341,6 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private int sceneLoadGeneration = 0;
     /** True after a failed scene load until the next {@link #dropHerd}. */
     private boolean sceneLoadFailed = false;
-    /**
-     * Wander herd built while the previous one is still draining. Installed
-     * in {@link #finishHerdDrain} so mix rebuild overlaps the walk-off.
-     */
-    private Ponies pendingIncomingPonies = null;
-    private Bitmap pendingIncomingBackground = null;
     /**
      * Collapses a burst of preference notifications (one per checkbox when a
      * mix is applied) into a single drain or unload. Runs on {@link #handler}.
@@ -596,12 +592,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             scheduleDropHerd();
             return;
         }
+        // Discard any stray incoming build so pin/decode cannot overlap leavers.
+        sceneLoadGeneration++;
+        sceneLoadInFlight = false;
+        sceneLoadFailed = false;
         herdDrainStartMs = SystemClock.uptimeMillis();
         forceSceneRedraw = true;
     }
 
     /**
-     * Compact any remaining leavers, unload the empty herd, then either let
+     * Compact any remaining leavers and unload the empty herd so outgoing
+     * sheets hit the unpinned LRU before incoming pin/decode. Then either let
      * {@link #ensureScenePrepared} rebuild or (reload button) sync/bump first.
      */
     private void finishHerdDrain(boolean timedOut) {
@@ -610,20 +611,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         boolean reload = pendingHerdReload;
         pendingHerdReload = false;
-        Ponies incoming = pendingIncomingPonies;
-        Bitmap incomingBg = pendingIncomingBackground;
-        pendingIncomingPonies = null;
-        pendingIncomingBackground = null;
-        boolean keepLoad = incoming != null || sceneLoadInFlight;
-        if (keepLoad) {
-            releaseDrainingHerdToOutgoing();
-            if (incoming != null) {
-                installReadyHerd(incoming, incomingBg, false);
-                if (ponies != null) {
-                    ponies.update(clipRect, 0);
-                }
-            }
-            return;
+        // Empty stage: do not park the drained herd as outgoingPonies (nothing
+        // left to draw, and holding pins would dual-reside with the next mix).
+        if (ponies != null) {
+            ponies.unloadSprites();
+            ponies = null;
         }
         dropHerdNow();
         if (reload) {
@@ -633,22 +625,6 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 markHandledLibraryGenerationBump();
             }
         }
-    }
-
-    /**
-     * Move the drained wander herd to {@link #outgoingPonies} without aborting
-     * an in-flight incoming build ({@link #dropHerdNow} would bump generation).
-     */
-    private void releaseDrainingHerdToOutgoing() {
-        herdDrainStartMs = 0;
-        clearTableauReveal();
-        if (ponies != null) {
-            clearOutgoingHerd();
-            outgoingPonies = ponies;
-            ponies = null;
-        }
-        tableauHerd = false;
-        forceSceneRedraw = true;
     }
 
     /**
@@ -665,7 +641,6 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         sceneLoadGeneration++;
         sceneLoadInFlight = false;
         sceneLoadFailed = false;
-        discardPendingIncoming();
         herdDrainStartMs = 0;
         clearTableauReveal();
         // Keep outgoing for in-session reloads (stop() clears started first).
@@ -692,20 +667,6 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             outgoingPonies = null;
         }
         discardPendingTableauBackground();
-    }
-
-    private void discardPendingIncoming() {
-        if (pendingIncomingPonies != null) {
-            pendingIncomingPonies.unloadSprites();
-            pendingIncomingPonies = null;
-        }
-        if (pendingIncomingBackground != null) {
-            if (pendingIncomingBackground != background
-                    && !pendingIncomingBackground.isRecycled()) {
-                pendingIncomingBackground.recycle();
-            }
-            pendingIncomingBackground = null;
-        }
     }
 
     private void discardPendingTableauBackground() {
@@ -784,21 +745,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /**
      * Build the herd and decode the optional background on the decode worker.
      * The frame loop keeps painting the last decoded background bitmap until
-     * this completes (solid fill only when there is no image yet).
+     * this completes (solid fill only when there is no image yet). Wander
+     * drain must finish and unload first ({@link HerdDrain#shouldPrepareIncoming}).
      */
     private void ensureScenePrepared(final int canvasW, final int canvasH) {
         if (sceneLoadInFlight || sceneLoadFailed || !started) {
             return;
         }
-        if (pendingIncomingPonies != null) {
+        if (!HerdDrain.shouldPrepareIncoming(isHerdDraining())) {
             return;
         }
-        if (ponies != null && !ponies.isDraining()) {
-            return;
-        }
-        // Reload-herd drain waits for the library sync; do not build from
-        // files that the bump is about to replace.
-        if (ponies != null && ponies.isDraining() && pendingHerdReload) {
+        if (ponies != null) {
             return;
         }
         // Reload-herd library sync: wait for the generation bump so we do not
@@ -890,10 +847,12 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                             }
                             return;
                         }
-                        if (ponies != null && ponies.isDraining()) {
-                            discardPendingIncoming();
-                            pendingIncomingPonies = readyHerd;
-                            pendingIncomingBackground = readyBg;
+                        if (ponies != null) {
+                            readyHerd.unloadSprites();
+                            if (readyBg != null && readyBg != background
+                                    && !readyBg.isRecycled()) {
+                                readyBg.recycle();
+                            }
                             return;
                         }
                         installReadyHerd(readyHerd, readyBg, buildTableau);
@@ -908,7 +867,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Bind a decoded herd as the live scene. Wander cuts over immediately;
+     * Bind a built herd as the live scene. Wander ponies stay in
+     * {@code MOTION_INIT} until sheets decode ({@link Pony#actionsReady});
      * Tableau arms the spawn/reveal gate and keeps {@link #outgoingPonies}.
      */
     private void installReadyHerd(Ponies readyHerd, Bitmap readyBg, boolean buildTableau) {
@@ -2197,8 +2157,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             frameW = surfaceFrame.width();
             frameH = surfaceFrame.height();
         }
-        if (frameW > 0 && frameH > 0
-                && (ponies == null || ponies.isDraining())) {
+        if (frameW > 0 && frameH > 0 && ponies == null) {
             ensureScenePrepared(frameW, frameH);
         }
 
