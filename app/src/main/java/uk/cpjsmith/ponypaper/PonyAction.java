@@ -320,8 +320,7 @@ public class PonyAction {
                 return sprites[LEFT] == sprites[RIGHT];
             }
             if (custom != null) {
-                custom.ensureKeys();
-                return custom.leftKey.equals(custom.rightKey);
+                return custom.sharesFacingImages();
             }
             return leftDrawableId != 0 && leftDrawableId == rightDrawableId
                     && leftTimingId == rightTimingId;
@@ -366,45 +365,77 @@ public class PonyAction {
 
     /**
      * Decoded custom sheets plus a {@link SpriteCache} factory that captures
-     * only those arrays (so an LRU entry does not pin this action). Keys are
-     * filled on first {@link #load()} so Tableau wait-bag-only pins do not
-     * SHA-256 unused sheets.
+     * only those arrays (so an LRU entry does not pin this action). Base64
+     * decode is deferred to first {@link #load()} so unused mix members and
+     * Tableau wait-bag-only pins do not decode the catalog. Keys are filled
+     * on that same first load so unused sheets are not SHA-256'd.
      */
     private static final class CustomSheets {
-        final byte[] leftBytes;
-        final byte[] rightBytes;
-        final int[] leftTimes;
-        final int[] rightTimes;
-        final SpriteCache.SheetFactory leftFactory;
-        final SpriteCache.SheetFactory rightFactory;
+        final PonyDefinition.Action definition;
+        byte[] leftBytes;
+        byte[] rightBytes;
+        int[] leftTimes;
+        int[] rightTimes;
+        SpriteCache.SheetFactory leftFactory;
+        SpriteCache.SheetFactory rightFactory;
         String leftKey;
         String rightKey;
 
         CustomSheets(PonyDefinition.Action definition) {
+            this.definition = definition;
+        }
+
+        boolean sharesFacingImages() {
             String leftB64 = definition.images.get("left");
             String rightB64 = definition.images.get("right");
             String leftTimingText = definition.timings.get("left");
             String rightTimingText = definition.timings.get("right");
-            leftBytes = Base64.decode(leftB64, 0);
-            leftTimes = parseInts(leftTimingText);
-            validateDefinitionSide(leftBytes, leftTimes, "left");
-            boolean shared = leftB64 != null && leftB64.equals(rightB64)
+            return leftB64 != null && leftB64.equals(rightB64)
                     && leftTimingText != null && leftTimingText.equals(rightTimingText);
-            if (shared) {
-                rightBytes = leftBytes;
-                rightTimes = leftTimes;
-                leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
+        }
+
+        void ensurePrepared() {
+            if (leftBytes != null) {
+                return;
+            }
+            synchronized (definition) {
+                if (definition.runtimeImageLeft == null) {
+                    String leftB64 = definition.images.get("left");
+                    String rightB64 = definition.images.get("right");
+                    String leftTimingText = definition.timings.get("left");
+                    String rightTimingText = definition.timings.get("right");
+                    byte[] left = Base64.decode(leftB64, 0);
+                    int[] leftT = parseInts(leftTimingText);
+                    validateDefinitionSide(left, leftT, "left");
+                    definition.runtimeImageLeft = left;
+                    definition.runtimeTimesLeft = leftT;
+                    if (leftB64 != null && leftB64.equals(rightB64)
+                            && leftTimingText != null && leftTimingText.equals(rightTimingText)) {
+                        definition.runtimeImageRight = left;
+                        definition.runtimeTimesRight = leftT;
+                    } else {
+                        byte[] right = Base64.decode(rightB64, 0);
+                        int[] rightT = parseInts(rightTimingText);
+                        validateDefinitionSide(right, rightT, "right");
+                        definition.runtimeImageRight = right;
+                        definition.runtimeTimesRight = rightT;
+                    }
+                }
+            }
+            leftBytes = definition.runtimeImageLeft;
+            leftTimes = definition.runtimeTimesLeft;
+            rightBytes = definition.runtimeImageRight;
+            rightTimes = definition.runtimeTimesRight;
+            leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
+            if (leftBytes == rightBytes && leftTimes == rightTimes) {
                 rightFactory = leftFactory;
             } else {
-                rightBytes = Base64.decode(rightB64, 0);
-                rightTimes = parseInts(rightTimingText);
-                validateDefinitionSide(rightBytes, rightTimes, "right");
-                leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
                 rightFactory = SpriteCache.bytesFactory(rightBytes, rightTimes);
             }
         }
 
         void ensureKeys() {
+            ensurePrepared();
             if (leftKey == null) {
                 leftKey = SpriteCache.bytesKey(leftBytes, leftTimes);
             }

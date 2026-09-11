@@ -42,6 +42,7 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/SpawnYBand.java",
                 "uk/cpjsmith/ponypaper/UnpinnedLru.java",
                 "uk/cpjsmith/ponypaper/InactivePick.java",
+                "uk/cpjsmith/ponypaper/InactiveRoster.java",
                 "uk/cpjsmith/ponypaper/HerdDrain.java",
                 "uk/cpjsmith/ponypaper/ShuffleMixBag.java",
                 "uk/cpjsmith/ponypaper/DragExit.java",
@@ -206,6 +207,13 @@ tasks.register<JavaExec>("testInactivePick") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.InactivePickTest")
 }
 
+tasks.register<JavaExec>("testInactiveRoster") {
+    group = "verification"
+    description = "Run key-only inactive roster pick/skip checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.InactiveRosterTest")
+}
+
 tasks.register<JavaExec>("testHerdDrain") {
     group = "verification"
     description = "Run wander herd-drain stagger, timeout, and exit-decision checks"
@@ -268,6 +276,7 @@ tasks.named("check") {
     dependsOn("testUnpinnedLru")
     dependsOn("testDefinitionCache")
     dependsOn("testInactivePick")
+    dependsOn("testInactiveRoster")
     dependsOn("testHerdDrain")
     dependsOn("testShuffleMixBag")
     dependsOn("testDragExit")

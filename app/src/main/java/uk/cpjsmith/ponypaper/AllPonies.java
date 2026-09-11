@@ -5,7 +5,6 @@ import android.content.SharedPreferences;
 import android.content.res.Resources;
 import java.io.File;
 import java.io.FilenameFilter;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -237,7 +236,7 @@ public class AllPonies {
     private static final Map<String, BuiltInMaker> BUILTIN_BY_KEY;
 
     static {
-        HashMap<String, BuiltInMaker> m = new HashMap<String, BuiltInMaker>();
+        LinkedHashMap<String, BuiltInMaker> m = new LinkedHashMap<String, BuiltInMaker>();
         m.put("pref_ab", AllPonies::makeAppleBloom);
         m.put("pref_aj", AllPonies::makeApplejack);
         m.put("pref_babs", AllPonies::makeBabsSeed);
@@ -310,6 +309,31 @@ public class AllPonies {
     }
 
     /**
+     * Enabled built-in and custom preference keys, in load order. Does not
+     * construct {@link Pony} graphs — wander herds materialize on take.
+     */
+    static ArrayList<String> enabledHerdKeys(Context context, SharedPreferences prefs) {
+        ArrayList<String> result = new ArrayList<String>();
+        if (prefs == null) {
+            return result;
+        }
+        for (String key : BUILTIN_BY_KEY.keySet()) {
+            if (prefs.getBoolean(key, true)) {
+                result.add(key);
+            }
+        }
+        File[] files = CustomStorage.listCustomXml(context);
+        CustomDefinitionCache.retainOnly(files);
+        for (int i = 0; i < files.length; i++) {
+            String prefKey = PonyMixes.CUSTOM_PREFIX + files[i].getName();
+            if (prefs.getBoolean(prefKey, true)) {
+                result.add(prefKey);
+            }
+        }
+        return result;
+    }
+
+    /**
      * Returns the complete list of ponies.
      * 
      * @param context the current application context
@@ -317,53 +341,14 @@ public class AllPonies {
      * @return ponies, so many ponies
      */
     public static ArrayList<Pony> getPonies(Context context, SharedPreferences prefs) {
-        ArrayList<Pony> result = new ArrayList<Pony>();
-        
-        Resources res = context.getResources();
-        if (prefs.getBoolean("pref_ab", true)) result.add(makeAppleBloom(res).withPrefKey("pref_ab"));
-        if (prefs.getBoolean("pref_aj", true)) result.add(makeApplejack(res).withPrefKey("pref_aj"));
-        if (prefs.getBoolean("pref_babs", true)) result.add(makeBabsSeed(res).withPrefKey("pref_babs"));
-        if (prefs.getBoolean("pref_bp", true)) result.add(makeBerryPunch(res).withPrefKey("pref_bp"));
-        if (prefs.getBoolean("pref_bigmac", true)) result.add(makeBigMcIntosh(res).withPrefKey("pref_bigmac"));
-        if (prefs.getBoolean("pref_derpy", true)) result.add(makeDerpyHooves(res).withPrefKey("pref_derpy"));
-        if (prefs.getBoolean("pref_doctor", true)) result.add(makeDoctorHooves(res).withPrefKey("pref_doctor"));
-        if (prefs.getBoolean("pref_ember", true)) result.add(makeEmber(res).withPrefKey("pref_ember"));
-        if (prefs.getBoolean("pref_fs", true)) result.add(makeFluttershy(res).withPrefKey("pref_fs"));
-        if (prefs.getBoolean("pref_gallus", true)) result.add(makeGallus(res).withPrefKey("pref_gallus"));
-        if (prefs.getBoolean("pref_gilda", true)) result.add(makeGilda(res).withPrefKey("pref_gilda"));
-        if (prefs.getBoolean("pref_lyra", true)) result.add(makeLyraHeartstrings(res).withPrefKey("pref_lyra"));
-        if (prefs.getBoolean("pref_minuette", true)) result.add(makeMinuette(res).withPrefKey("pref_minuette"));
-        if (prefs.getBoolean("pref_ocellus", true)) result.add(makeOcellus(res).withPrefKey("pref_ocellus"));
-        if (prefs.getBoolean("pref_octavia", true)) result.add(makeOctavia(res).withPrefKey("pref_octavia"));
-        if (prefs.getBoolean("pref_pp", true)) result.add(makePinkiePie(res).withPrefKey("pref_pp"));
-        if (prefs.getBoolean("pref_cadance", true)) result.add(makePrincessCadance(res).withPrefKey("pref_cadance"));
-        if (prefs.getBoolean("pref_celestia", true)) result.add(makePrincessCelestia(res).withPrefKey("pref_celestia"));
-        if (prefs.getBoolean("pref_luna", true)) result.add(makePrincessLuna(res).withPrefKey("pref_luna"));
-        if (prefs.getBoolean("pref_rd", true)) result.add(makeRainbowDash(res).withPrefKey("pref_rd"));
-        if (prefs.getBoolean("pref_rainbowshine", true)) result.add(makeRainbowshine(res).withPrefKey("pref_rainbowshine"));
-        if (prefs.getBoolean("pref_rarity", true)) result.add(makeRarity(res).withPrefKey("pref_rarity"));
-        if (prefs.getBoolean("pref_roseluck", true)) result.add(makeRoseluck(res).withPrefKey("pref_roseluck"));
-        if (prefs.getBoolean("pref_sandbar", true)) result.add(makeSandbar(res).withPrefKey("pref_sandbar"));
-        if (prefs.getBoolean("pref_scootaloo", true)) result.add(makeScootaloo(res).withPrefKey("pref_scootaloo"));
-        if (prefs.getBoolean("pref_sa", true)) result.add(makeShiningArmor(res).withPrefKey("pref_sa"));
-        if (prefs.getBoolean("pref_silverstream", true)) result.add(makeSilverstream(res).withPrefKey("pref_silverstream"));
-        if (prefs.getBoolean("pref_smolder", true)) result.add(makeSmolder(res).withPrefKey("pref_smolder"));
-        if (prefs.getBoolean("pref_soarin", true)) result.add(makeSoarin(res).withPrefKey("pref_soarin"));
-        if (prefs.getBoolean("pref_spike", true)) result.add(makeSpike(res).withPrefKey("pref_spike"));
-        if (prefs.getBoolean("pref_spitfire", true)) result.add(makeSpitfire(res).withPrefKey("pref_spitfire"));
-        if (prefs.getBoolean("pref_sg", true)) result.add(makeStarlightGlimmer(res).withPrefKey("pref_sg"));
-        if (prefs.getBoolean("pref_ss", true)) result.add(makeSunsetShimmer(res).withPrefKey("pref_ss"));
-        if (prefs.getBoolean("pref_sunburst", true)) result.add(makeSunburst(res).withPrefKey("pref_sunburst"));
-        if (prefs.getBoolean("pref_sb", true)) result.add(makeSweetieBelle(res).withPrefKey("pref_sb"));
-        if (prefs.getBoolean("pref_sd", true)) result.add(makeSweetieDrops(res).withPrefKey("pref_sd"));
-        if (prefs.getBoolean("pref_thorax", true)) result.add(makeThorax(res).withPrefKey("pref_thorax"));
-        if (prefs.getBoolean("pref_trixie", true)) result.add(makeTrixie(res).withPrefKey("pref_trixie"));
-        if (prefs.getBoolean("pref_ts", true)) result.add(makeTwilightSparkle(res).withPrefKey("pref_ts"));
-        if (prefs.getBoolean("pref_vinyl", true)) result.add(makeVinylScratch(res).withPrefKey("pref_vinyl"));
-        if (prefs.getBoolean("pref_yona", true)) result.add(makeYona(res).withPrefKey("pref_yona"));
-        if (prefs.getBoolean("pref_zecora", true)) result.add(makeZecora(res).withPrefKey("pref_zecora"));
-        loadCustomPonies(context, prefs, result);
-        
+        ArrayList<String> keys = enabledHerdKeys(context, prefs);
+        ArrayList<Pony> result = new ArrayList<Pony>(keys.size());
+        for (int i = 0; i < keys.size(); i++) {
+            Pony pony = createPony(context, keys.get(i));
+            if (pony != null) {
+                result.add(pony);
+            }
+        }
         return result;
     }
 
@@ -1119,28 +1104,6 @@ public class AllPonies {
         return Float.toString(speed);
     }
     
-    private static void loadCustomPonies(Context context, SharedPreferences prefs, ArrayList<Pony> ponies) {
-        File dir = CustomStorage.localDir(context);
-        if (dir == null) return; // External storage is unavailable, so we can't load any custom ponies.
-        
-        try {
-            new File(dir, "custom-ponies-go-here").createNewFile();
-        } catch (IOException e) {
-        }
-        
-        File[] files = dir.listFiles(xmlFilter);
-        if (files == null) return;
-        CustomDefinitionCache.retainOnly(files);
-
-        for (int i = 0; i < files.length; i++) {
-            String prefKey = "pref_custom_" + files[i].getName();
-            if (prefs.getBoolean(prefKey, true)) {
-                Pony pony = loadCustomPonyUnchecked(context, prefKey);
-                if (pony != null) ponies.add(pony);
-            }
-        }
-    }
-
     /**
      * Checkbox-free custom load for {@link #createPony}. Missing or invalid
      * files return null (slot drop) after logging.

@@ -473,6 +473,14 @@ public class PonyDefinition {
         public final Map<String, String> images = new HashMap<String, String>();
         public final Map<String, String> timings = new HashMap<String, String>();
         /**
+         * Decoded PNG bytes filled on first wallpaper {@code load()}. Shared
+         * across {@link Pony} instances via {@link CustomDefinitionCache}.
+         */
+        public byte[] runtimeImageLeft;
+        public byte[] runtimeImageRight;
+        public int[] runtimeTimesLeft;
+        public int[] runtimeTimesRight;
+        /**
          * Next-action lists by motion type ({@code waiting}, {@code moving},
          * {@code drag}). Waiting and moving are required. Drag is an optional
          * override: empty/omitted means use the pony-level {@link #defaultDrag}.
@@ -903,6 +911,14 @@ public class PonyDefinition {
         public final Map<String, String> centering = new HashMap<String, String>();
         public final Map<String, String> images = new HashMap<String, String>();
         public final Map<String, String> timings = new HashMap<String, String>();
+        /**
+         * Decoded PNG bytes filled on first wallpaper {@code load()}. Shared
+         * across {@link Pony} instances via {@link CustomDefinitionCache}.
+         */
+        public byte[] runtimeImageLeft;
+        public byte[] runtimeImageRight;
+        public int[] runtimeTimesLeft;
+        public int[] runtimeTimesRight;
 
         public Effect() {
             name = "";

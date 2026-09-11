@@ -42,12 +42,13 @@ final class PonyEffectDef {
     private final int centeringLeft;
     private final int centeringRight;
 
-    private final byte[] leftBytes;
-    private final int[] leftTimes;
-    private final byte[] rightBytes;
-    private final int[] rightTimes;
-    private final SpriteCache.SheetFactory leftFactory;
-    private final SpriteCache.SheetFactory rightFactory;
+    private final PonyDefinition.Effect definition;
+    private byte[] leftBytes;
+    private int[] leftTimes;
+    private byte[] rightBytes;
+    private int[] rightTimes;
+    private SpriteCache.SheetFactory leftFactory;
+    private SpriteCache.SheetFactory rightFactory;
     private String leftKey;
     private String rightKey;
 
@@ -70,26 +71,46 @@ final class PonyEffectDef {
         this.placementRight = cellIndex(def.placement.get("right"));
         this.centeringLeft = cellIndex(def.centering.get("left"));
         this.centeringRight = cellIndex(def.centering.get("right"));
-        String leftB64 = def.images.get("left");
-        String rightB64 = def.images.get("right");
-        String leftTimingText = def.timings.get("left");
-        String rightTimingText = def.timings.get("right");
-        this.leftBytes = Base64.decode(leftB64, 0);
-        this.leftTimes = parseTimes(leftTimingText);
-        validateSide(leftBytes, leftTimes, "left");
-        boolean shared = leftB64 != null && leftB64.equals(rightB64)
-                && leftTimingText != null && leftTimingText.equals(rightTimingText);
-        if (shared) {
-            this.rightBytes = leftBytes;
-            this.rightTimes = leftTimes;
-            this.leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
-            this.rightFactory = leftFactory;
+        this.definition = def;
+    }
+
+    private void ensurePrepared() {
+        if (leftBytes != null) {
+            return;
+        }
+        synchronized (definition) {
+            if (definition.runtimeImageLeft == null) {
+                String leftB64 = definition.images.get("left");
+                String rightB64 = definition.images.get("right");
+                String leftTimingText = definition.timings.get("left");
+                String rightTimingText = definition.timings.get("right");
+                byte[] left = Base64.decode(leftB64, 0);
+                int[] leftT = parseTimes(leftTimingText);
+                validateSide(left, leftT, "left");
+                definition.runtimeImageLeft = left;
+                definition.runtimeTimesLeft = leftT;
+                if (leftB64 != null && leftB64.equals(rightB64)
+                        && leftTimingText != null && leftTimingText.equals(rightTimingText)) {
+                    definition.runtimeImageRight = left;
+                    definition.runtimeTimesRight = leftT;
+                } else {
+                    byte[] right = Base64.decode(rightB64, 0);
+                    int[] rightT = parseTimes(rightTimingText);
+                    validateSide(right, rightT, "right");
+                    definition.runtimeImageRight = right;
+                    definition.runtimeTimesRight = rightT;
+                }
+            }
+        }
+        leftBytes = definition.runtimeImageLeft;
+        leftTimes = definition.runtimeTimesLeft;
+        rightBytes = definition.runtimeImageRight;
+        rightTimes = definition.runtimeTimesRight;
+        leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
+        if (leftBytes == rightBytes && leftTimes == rightTimes) {
+            rightFactory = leftFactory;
         } else {
-            this.rightBytes = Base64.decode(rightB64, 0);
-            this.rightTimes = parseTimes(rightTimingText);
-            validateSide(rightBytes, rightTimes, "right");
-            this.leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
-            this.rightFactory = SpriteCache.bytesFactory(rightBytes, rightTimes);
+            rightFactory = SpriteCache.bytesFactory(rightBytes, rightTimes);
         }
     }
 
@@ -110,6 +131,7 @@ final class PonyEffectDef {
             if (sprites != null || leftPin != null) {
                 return;
             }
+            ensurePrepared();
             if (leftKey == null) {
                 leftKey = SpriteCache.bytesKey(leftBytes, leftTimes);
             }

@@ -6,7 +6,9 @@ import java.util.Random;
  * Wander-herd drain: force on-screen ponies to exit, do not refill from the
  * inactive pool, then rebuild on an empty screen.
  *
- * <p>Tableau reloads keep {@code outgoingPonies} instead; they do not drain.
+ * <p>Tableau reloads keep {@code outgoingPonies} instead of draining.
+ * Wander mix reloads drain while the incoming herd is built off-thread, then
+ * cut over when the stage is empty.
  */
 public final class HerdDrain {
 

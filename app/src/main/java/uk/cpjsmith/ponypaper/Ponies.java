@@ -13,6 +13,8 @@ import android.view.ViewConfiguration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
 
@@ -50,8 +52,14 @@ public class Ponies implements Pony.EffectHost {
     private int activeCount;
     
     private Random random;
-    
-    private ArrayList<Pony> inactivePonies;
+
+    private final Context ponyContext;
+    /** Keys of ponies not on screen; graphs are created on take/prefetch. */
+    private final InactiveRoster inactiveKeys = new InactiveRoster();
+    /** Already-built ponies still in {@link #inactiveKeys}. */
+    private final HashMap<String, Pony> inactiveReady = new HashMap<String, Pony>();
+    private boolean worldFlow;
+    private float sizeFactor = 1f;
     private Pony[] activePonies;
     /**
      * Tableau only: maps full active-JSON slot index → live {@link #activePonies}
@@ -168,32 +176,32 @@ public class Ponies implements Pony.EffectHost {
      */
     public Ponies(Context context, SharedPreferences prefs, int desiredCount,
             boolean isDream) {
-        inactivePonies = AllPonies.getPonies(context, prefs);
+        ponyContext = context.getApplicationContext() != null
+                ? context.getApplicationContext() : context;
         randomSizeMode = SceneMode.isRandomSize(prefs, isDream);
-        boolean worldFlow = SceneMode.isWorldFlow(prefs, isDream);
+        worldFlow = SceneMode.isWorldFlow(prefs, isDream);
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         String rawWaifu = prefs.getString("pref_waifu", "");
         waifuKey = rawWaifu != null ? rawWaifu : "";
         tableauJsonToLive = null;
         tableauPrefs = null;
+        inactiveKeys.setAll(AllPonies.enabledHerdKeys(context, prefs));
+        sizeFactor = PonySize.factor(prefs);
 
         if (desiredCount < 0) desiredCount = 0;
-        activeCount = Math.min(inactivePonies.size(), desiredCount);
+        int want = Math.min(inactiveKeys.size(), desiredCount);
 
         random = new Random();
-        if (!randomSizeMode) {
-            applySizeFactor(PonySize.factor(prefs));
-        }
-        if (worldFlow) {
-            for (int i = 0; i < inactivePonies.size(); i++) {
-                inactivePonies.get(i).setWorldFlow(true);
+        ArrayList<Pony> spawned = new ArrayList<Pony>(want);
+        while (spawned.size() < want && !inactiveKeys.isEmpty()) {
+            Pony next = takeFromInactiveOrNull();
+            if (next == null) {
+                break;
             }
+            spawned.add(next);
         }
-        wireEffectHosts(inactivePonies);
-        activePonies = new Pony[activeCount];
-        for (int i = 0; i < activeCount; i++) {
-            activePonies[i] = takeFromInactive();
-        }
+        activeCount = spawned.size();
+        activePonies = spawned.toArray(new Pony[activeCount]);
     }
 
     /**
@@ -208,9 +216,11 @@ public class Ponies implements Pony.EffectHost {
     public Ponies(Context context, List<Pony> pinnedPonies, SharedPreferences prefs,
             int[] jsonToLive) {
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+        ponyContext = context.getApplicationContext() != null
+                ? context.getApplicationContext() : context;
         randomSizeMode = false;
+        worldFlow = false;
         waifuKey = "";
-        inactivePonies = new ArrayList<Pony>();
         random = new Random();
         tableauJsonToLive = jsonToLive;
         tableauPrefs = prefs;
@@ -333,9 +343,9 @@ public class Ponies implements Pony.EffectHost {
     }
 
     private void applySizeFactor(float factor) {
-        if (inactivePonies == null) return;
-        for (int i = 0; i < inactivePonies.size(); i++) {
-            inactivePonies.get(i).setSizeFactor(factor);
+        sizeFactor = factor;
+        for (Pony pony : inactiveReady.values()) {
+            pony.setSizeFactor(factor);
         }
     }
 
@@ -359,8 +369,8 @@ public class Ponies implements Pony.EffectHost {
         for (Pony pony : activePonies) {
             pony.unloadActions();
         }
-        for (int i = 0; i < inactivePonies.size(); i++) {
-            inactivePonies.get(i).unloadActions();
+        for (Pony pony : inactiveReady.values()) {
+            pony.unloadActions();
         }
     }
 
@@ -443,9 +453,13 @@ public class Ponies implements Pony.EffectHost {
                 }
                 Pony temp = activePonies[i];
                 temp.reset();
-                if (inactivePonies.size() != 0) {
-                    activePonies[i] = takeFromInactive();
-                    inactivePonies.add(temp);
+                if (!inactiveKeys.isEmpty()) {
+                    activePonies[i] = takeFromInactiveOrNull();
+                    if (activePonies[i] == null) {
+                        activePonies[i] = temp;
+                    } else {
+                        retireToInactive(temp);
+                    }
                 } else if (randomSizeMode) {
                     // Full pool is on-screen; re-roll size on the same pony.
                     temp.setSizeFactor(PonySize.randomFactor(random));
@@ -549,8 +563,8 @@ public class Ponies implements Pony.EffectHost {
         }
         draining = true;
         clearPrefetchUnloading();
-        for (int i = 0; i < inactivePonies.size(); i++) {
-            inactivePonies.get(i).unloadActions();
+        for (Pony pony : inactiveReady.values()) {
+            pony.unloadActions();
         }
         for (int i = 0; i < activePonies.length; i++) {
             Pony pony = activePonies[i];
@@ -596,7 +610,7 @@ public class Ponies implements Pony.EffectHost {
         }
         Pony temp = activePonies[i];
         temp.reset();
-        inactivePonies.add(temp);
+        retireToInactive(temp);
         int n = activePonies.length;
         Pony[] next = new Pony[n - 1];
         if (i > 0) {
@@ -885,8 +899,8 @@ public class Ponies implements Pony.EffectHost {
     
     /**
      * When ponies are leaving, pin that many inactive replacements (same pick
-     * as {@link #takeFromInactive}). Drop extras if exits are cancelled; keep
-     * the rest while any crossing is still in flight.
+     * as {@link #takeFromInactiveOrNull}). Drop extras if exits are cancelled;
+     * keep the rest while any crossing is still in flight.
      */
     private void updateReplacementPrefetch() {
         if (draining) {
@@ -899,25 +913,32 @@ public class Ponies implements Pony.EffectHost {
             }
         }
         for (int i = prefetched.size() - 1; i >= 0; i--) {
-            if (!inactivePonies.contains(prefetched.get(i))) {
+            if (!inactiveKeys.contains(prefetched.get(i).getPrefKey())) {
                 prefetched.remove(i);
             }
         }
         int want = leaving;
-        if (want > inactivePonies.size()) {
-            want = inactivePonies.size();
+        if (want > inactiveKeys.size()) {
+            want = inactiveKeys.size();
         }
         while (prefetched.size() > want) {
             Pony extra = prefetched.remove(prefetched.size() - 1);
             extra.unloadActions();
         }
+        HashSet<String> skipKeys = prefetchedKeys();
         while (prefetched.size() < want) {
-            int idx = indexToTakeFromInactive();
+            int idx = inactiveKeys.pickIndex(skipKeys, waifuKey, random);
             if (idx < 0) {
                 break;
             }
-            Pony next = inactivePonies.get(idx);
+            String key = inactiveKeys.get(idx);
+            Pony next = materialize(key);
+            if (next == null) {
+                inactiveKeys.removeAt(idx);
+                continue;
+            }
             prefetched.add(next);
+            skipKeys.add(key);
             next.loadActions();
         }
     }
@@ -928,57 +949,104 @@ public class Ponies implements Pony.EffectHost {
      * picks uniformly among all inactive ponies. Prefetched replacements are
      * consumed first so their sheets stay warm.
      */
-    private Pony takeFromInactive() {
-        if (inactivePonies.isEmpty()) {
-            throw new IllegalStateException("inactive pool is empty");
-        }
-        Pony pony = takePrefetchedStillInactive();
-        if (pony != null) {
-            inactivePonies.remove(pony);
-        } else {
-            int idx = indexToTakeFromInactive();
-            if (idx < 0) {
-                idx = 0;
+    private Pony takeFromInactiveOrNull() {
+        while (!inactiveKeys.isEmpty()) {
+            Pony pony = takePrefetchedStillInactive();
+            if (pony != null) {
+                applyEnterSize(pony);
+                return pony;
             }
-            pony = inactivePonies.remove(idx);
+            int idx = inactiveKeys.pickIndex(prefetchedKeys(), waifuKey, random);
+            if (idx < 0) {
+                idx = inactiveKeys.pickIndex(null, waifuKey, random);
+            }
+            if (idx < 0) {
+                return null;
+            }
+            String key = inactiveKeys.removeAt(idx);
+            for (int i = prefetched.size() - 1; i >= 0; i--) {
+                if (key.equals(prefetched.get(i).getPrefKey())) {
+                    prefetched.remove(i);
+                }
+            }
+            pony = materialize(key);
+            if (pony == null) {
+                continue;
+            }
+            inactiveReady.remove(key);
+            applyEnterSize(pony);
+            return pony;
         }
+        return null;
+    }
+
+    private void retireToInactive(Pony pony) {
+        if (pony == null) {
+            return;
+        }
+        String key = pony.getPrefKey();
+        inactiveKeys.add(key);
+        if (key.length() > 0) {
+            inactiveReady.put(key, pony);
+        }
+    }
+
+    /**
+     * Build or reuse a pony for {@code key} without removing it from the
+     * roster. Failed creates return null (caller drops the key).
+     */
+    private Pony materialize(String key) {
+        if (key == null || key.length() == 0) {
+            return null;
+        }
+        Pony existing = inactiveReady.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        Pony created = AllPonies.createPony(ponyContext, key);
+        if (created == null) {
+            return null;
+        }
+        created.setEffectHost(this);
+        if (worldFlow) {
+            created.setWorldFlow(true);
+        }
+        if (!randomSizeMode) {
+            created.setSizeFactor(sizeFactor);
+        }
+        inactiveReady.put(key, created);
+        return created;
+    }
+
+    private void applyEnterSize(Pony pony) {
         if (randomSizeMode) {
             pony.setSizeFactor(PonySize.randomFactor(random));
+        } else {
+            pony.setSizeFactor(sizeFactor);
         }
-        return pony;
+    }
+
+    private HashSet<String> prefetchedKeys() {
+        HashSet<String> skip = new HashSet<String>();
+        for (int i = 0; i < prefetched.size(); i++) {
+            skip.add(prefetched.get(i).getPrefKey());
+        }
+        return skip;
     }
 
     private Pony takePrefetchedStillInactive() {
         for (int i = 0; i < prefetched.size(); i++) {
             Pony warmed = prefetched.get(i);
-            if (inactivePonies.contains(warmed)) {
+            String key = warmed.getPrefKey();
+            if (inactiveKeys.removeKey(key)) {
                 prefetched.remove(i);
+                inactiveReady.remove(key);
                 return warmed;
             }
             prefetched.remove(i);
             i--;
         }
         return null;
-    }
-
-    private int indexToTakeFromInactive() {
-        int n = inactivePonies.size();
-        if (n == 0) {
-            return -1;
-        }
-        String[] keys = new String[n];
-        boolean[] skip = null;
-        if (!prefetched.isEmpty()) {
-            skip = new boolean[n];
-        }
-        for (int i = 0; i < n; i++) {
-            Pony pony = inactivePonies.get(i);
-            keys[i] = pony.getPrefKey();
-            if (skip != null && prefetched.contains(pony)) {
-                skip[i] = true;
-            }
-        }
-        return InactivePick.index(n, keys, skip, waifuKey, random);
     }
     
 }

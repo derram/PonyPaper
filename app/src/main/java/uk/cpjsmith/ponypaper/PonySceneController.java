@@ -227,8 +227,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     private Ponies ponies = null;
     /**
-     * Previous Tableau herd kept on-screen while a reload decodes. Drawn until
-     * the incoming herd finishes pinned spawn, then unloaded.
+     * Previous herd kept on-screen while a reload decodes. Tableau draws it
+     * until pinned spawn; wander draws it until the incoming herd is installed.
      */
     private Ponies outgoingPonies = null;
     /**
@@ -339,6 +339,12 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private int sceneLoadGeneration = 0;
     /** True after a failed scene load until the next {@link #dropHerd}. */
     private boolean sceneLoadFailed = false;
+    /**
+     * Wander herd built while the previous one is still draining. Installed
+     * in {@link #finishHerdDrain} so mix rebuild overlaps the walk-off.
+     */
+    private Ponies pendingIncomingPonies = null;
+    private Bitmap pendingIncomingBackground = null;
     /**
      * Collapses a burst of preference notifications (one per checkbox when a
      * mix is applied) into a single drain or unload. Runs on {@link #handler}.
@@ -604,6 +610,21 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         boolean reload = pendingHerdReload;
         pendingHerdReload = false;
+        Ponies incoming = pendingIncomingPonies;
+        Bitmap incomingBg = pendingIncomingBackground;
+        pendingIncomingPonies = null;
+        pendingIncomingBackground = null;
+        boolean keepLoad = incoming != null || sceneLoadInFlight;
+        if (keepLoad) {
+            releaseDrainingHerdToOutgoing();
+            if (incoming != null) {
+                installReadyHerd(incoming, incomingBg, false);
+                if (ponies != null) {
+                    ponies.update(clipRect, 0);
+                }
+            }
+            return;
+        }
         dropHerdNow();
         if (reload) {
             if (CustomStorage.hasLibraryFolder(appContext)) {
@@ -612,6 +633,22 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 markHandledLibraryGenerationBump();
             }
         }
+    }
+
+    /**
+     * Move the drained wander herd to {@link #outgoingPonies} without aborting
+     * an in-flight incoming build ({@link #dropHerdNow} would bump generation).
+     */
+    private void releaseDrainingHerdToOutgoing() {
+        herdDrainStartMs = 0;
+        clearTableauReveal();
+        if (ponies != null) {
+            clearOutgoingHerd();
+            outgoingPonies = ponies;
+            ponies = null;
+        }
+        tableauHerd = false;
+        forceSceneRedraw = true;
     }
 
     /**
@@ -628,12 +665,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         sceneLoadGeneration++;
         sceneLoadInFlight = false;
         sceneLoadFailed = false;
+        discardPendingIncoming();
         herdDrainStartMs = 0;
         clearTableauReveal();
-        // Keep outgoing only for in-session reloads (stop() clears started first).
-        boolean nextTableau = started
-                && SceneMode.isTableau(getPreferences(), isDreamHost());
-        boolean keepOutgoing = nextTableau && ponies != null;
+        // Keep outgoing for in-session reloads (stop() clears started first).
+        boolean keepOutgoing = started && ponies != null;
         if (keepOutgoing) {
             // Keep the old posed scene visible while the new one decodes.
             clearOutgoingHerd();
@@ -656,6 +692,20 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             outgoingPonies = null;
         }
         discardPendingTableauBackground();
+    }
+
+    private void discardPendingIncoming() {
+        if (pendingIncomingPonies != null) {
+            pendingIncomingPonies.unloadSprites();
+            pendingIncomingPonies = null;
+        }
+        if (pendingIncomingBackground != null) {
+            if (pendingIncomingBackground != background
+                    && !pendingIncomingBackground.isRecycled()) {
+                pendingIncomingBackground.recycle();
+            }
+            pendingIncomingBackground = null;
+        }
     }
 
     private void discardPendingTableauBackground() {
@@ -737,7 +787,18 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * this completes (solid fill only when there is no image yet).
      */
     private void ensureScenePrepared(final int canvasW, final int canvasH) {
-        if (ponies != null || sceneLoadInFlight || sceneLoadFailed || !started) {
+        if (sceneLoadInFlight || sceneLoadFailed || !started) {
+            return;
+        }
+        if (pendingIncomingPonies != null) {
+            return;
+        }
+        if (ponies != null && !ponies.isDraining()) {
+            return;
+        }
+        // Reload-herd drain waits for the library sync; do not build from
+        // files that the bump is about to replace.
+        if (ponies != null && ponies.isDraining() && pendingHerdReload) {
             return;
         }
         // Reload-herd library sync: wait for the generation bump so we do not
@@ -821,43 +882,21 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                         sceneLoadInFlight = false;
                         if (readyHerd == null) {
                             sceneLoadFailed = true;
-                            clearOutgoingHerd();
+                            if (ponies == null) {
+                                clearOutgoingHerd();
+                            }
                             if (readyBg != null && !readyBg.isRecycled()) {
                                 readyBg.recycle();
                             }
                             return;
                         }
-                        ponies = readyHerd;
-                        if (buildTableau) {
-                            tableauHerd = true;
-                            PonyScenes.TableauScene applied =
-                                    PonyScenes.resolveTableauScene(prefs,
-                                            dreamHost);
-                            // Track wallpaper active epoch only when this host
-                            // follows that composition (hot edits / loads).
-                            if (!dreamHost
-                                    || PonyScenes.dreamUsesWallpaperActive(
-                                            prefs)) {
-                                lastAppliedEpoch =
-                                        PonyScenes.activeEpoch(prefs);
-                            } else {
-                                lastAppliedEpoch = EPOCH_UNSET;
-                            }
-                            lastAppliedSlots =
-                                    PonyScenes.snapshotSlots(applied);
-                            // Keep the outgoing scene's background until reveal.
-                            discardPendingTableauBackground();
-                            pendingTableauBackground = readyBg;
-                            hasPendingTableauBackground = true;
-                            armTableauReveal();
-                        } else {
-                            tableauHerd = false;
-                            lastAppliedEpoch = EPOCH_UNSET;
-                            lastAppliedSlots = Collections.emptyList();
-                            clearOutgoingHerd();
-                            clearTableauReveal();
-                            replaceBackground(readyBg);
+                        if (ponies != null && ponies.isDraining()) {
+                            discardPendingIncoming();
+                            pendingIncomingPonies = readyHerd;
+                            pendingIncomingBackground = readyBg;
+                            return;
                         }
+                        installReadyHerd(readyHerd, readyBg, buildTableau);
                         if (active && !frozen && !thermalEmergency) {
                             lastFrameUptimeMs = 0;
                             drawFrame();
@@ -866,6 +905,39 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 });
             }
         });
+    }
+
+    /**
+     * Bind a decoded herd as the live scene. Wander cuts over immediately;
+     * Tableau arms the spawn/reveal gate and keeps {@link #outgoingPonies}.
+     */
+    private void installReadyHerd(Ponies readyHerd, Bitmap readyBg, boolean buildTableau) {
+        ponies = readyHerd;
+        if (buildTableau) {
+            tableauHerd = true;
+            SharedPreferences prefs = getPreferences();
+            boolean dreamHost = isDreamHost();
+            PonyScenes.TableauScene applied =
+                    PonyScenes.resolveTableauScene(prefs, dreamHost);
+            if (!dreamHost || PonyScenes.dreamUsesWallpaperActive(prefs)) {
+                lastAppliedEpoch = PonyScenes.activeEpoch(prefs);
+            } else {
+                lastAppliedEpoch = EPOCH_UNSET;
+            }
+            lastAppliedSlots = PonyScenes.snapshotSlots(applied);
+            discardPendingTableauBackground();
+            pendingTableauBackground = readyBg;
+            hasPendingTableauBackground = true;
+            armTableauReveal();
+        } else {
+            tableauHerd = false;
+            lastAppliedEpoch = EPOCH_UNSET;
+            lastAppliedSlots = Collections.emptyList();
+            clearOutgoingHerd();
+            clearTableauReveal();
+            replaceBackground(readyBg);
+        }
+        forceSceneRedraw = true;
     }
 
     private static int pixelationFromPrefs(SharedPreferences prefs) {
@@ -2125,7 +2197,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             frameW = surfaceFrame.width();
             frameH = surfaceFrame.height();
         }
-        if (ponies == null && frameW > 0 && frameH > 0) {
+        if (frameW > 0 && frameH > 0
+                && (ponies == null || ponies.isDraining())) {
             ensureScenePrepared(frameW, frameH);
         }
 
