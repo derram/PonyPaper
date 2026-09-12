@@ -271,6 +271,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /** True while {@link #ponies} was built via {@link TableauBuilder}. */
     private boolean tableauHerd = false;
     private Bitmap background = null;
+    /**
+     * Previous album image kept under {@link #background} during a dream
+     * cycle cross-fade. Null when not fading.
+     */
+    private Bitmap outgoingBackground = null;
+    /** {@link SystemClock#uptimeMillis()} when {@link #outgoingBackground} was parked. */
+    private long backgroundFadeStartMs = 0;
     private RenderNodeSupport backgroundNode = RenderNodeSupport.create();
     /**
      * Album hashes whose files exist. Dream cycle reads this; refreshed on
@@ -291,6 +298,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private int lastBgCanvasH = 0;
     private boolean drunkMode = false;
     private final Paint paint = new Paint();
+    /** Incoming overlay during {@link #outgoingBackground} fade; alpha only. */
+    private final Paint fadePaint = new Paint();
     private final Rect tmpSrc = new Rect();
     private final Rect tmpDst = new Rect();
     private final Rect clipRect = new Rect();
@@ -448,6 +457,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         // major heat source on both software and hardware canvas paths.
         paint.setFilterBitmap(false);
         paint.setDither(false);
+        fadePaint.setFilterBitmap(false);
+        fadePaint.setDither(false);
     }
 
     /**
@@ -772,10 +783,24 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
+     * Recycle {@link #outgoingBackground}. {@link #background} is already the
+     * incoming (or only) image.
+     */
+    private void clearBackgroundFade() {
+        Bitmap old = outgoingBackground;
+        outgoingBackground = null;
+        backgroundFadeStartMs = 0;
+        if (old != null && old != background && !old.isRecycled()) {
+            old.recycle();
+        }
+    }
+
+    /**
      * Swap in {@code next} (may be null) and recycle the previous displayed
-     * bitmap. Handler thread only.
+     * bitmap. Handler thread only. Snaps any in-flight cycle fade.
      */
     private void replaceBackground(Bitmap next) {
+        clearBackgroundFade();
         Bitmap old = background;
         background = next;
         if (old != null && old != next && !old.isRecycled()) {
@@ -791,6 +816,44 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             backgroundNode.discard();
         }
         forceSceneRedraw = true;
+    }
+
+    /**
+     * Dream album install: keep {@code old} under {@code next} and fade, or
+     * snap when there is no previous image or Berry Punch fill is translucent.
+     */
+    private void installCycledBackground(Bitmap next) {
+        if (next == null) return;
+        boolean hasPrevious = background != null && !background.isRecycled()
+                && background != next;
+        if (!BackgroundCrossfade.shouldFade(hasPrevious, paint.getAlpha() == 0xff)) {
+            replaceBackground(next);
+            return;
+        }
+        if (outgoingBackground != null && outgoingBackground != background
+                && outgoingBackground != next && !outgoingBackground.isRecycled()) {
+            outgoingBackground.recycle();
+        }
+        outgoingBackground = background;
+        background = next;
+        backgroundFadeStartMs = SystemClock.uptimeMillis();
+        forceSceneRedraw = true;
+    }
+
+    /**
+     * Finish or abort the cycle fade when elapsed, the outgoing bitmap is gone,
+     * or Berry Punch has settled to a translucent fill.
+     */
+    private void advanceBackgroundFade(long now) {
+        if (outgoingBackground == null) return;
+        if (outgoingBackground.isRecycled()
+                || background == null
+                || background.isRecycled()
+                || paint.getAlpha() != 0xff
+                || BackgroundCrossfade.incomingAlpha(now - backgroundFadeStartMs) >= 255) {
+            clearBackgroundFade();
+            forceSceneRedraw = true;
+        }
     }
 
     /**
@@ -1108,7 +1171,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Decode {@code bgFile} on the sprite worker and swap {@link #background}.
+     * Decode {@code bgFile} on the sprite worker and swap {@link #background},
+     * cross-fading when a different album image is already on screen.
      * Does not touch the live wallpaper slot on disk. {@code replaceExisting}
      * is true for album cycle / turning cycle off.
      */
@@ -1161,7 +1225,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                             lastBackgroundCycleMs = SystemClock.uptimeMillis();
                             return;
                         }
-                        replaceBackground(readyBg);
+                        if (hashesEqual(bgHash, displayedBackgroundHash)) {
+                            replaceBackground(readyBg);
+                        } else {
+                            installCycledBackground(readyBg);
+                        }
                         rememberDisplayedBackground(bgHash, pixelation, canvasW, canvasH, true);
                         if (active && !frozen && !thermalEmergency && surface.isDrawingEnabled()) {
                             lastFrameUptimeMs = 0;
@@ -1181,6 +1249,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private void maybeCycleBackground(long now, int canvasW, int canvasH) {
         if (!isDreamHost() || frozen || thermalEmergency) return;
         if (sceneLoadInFlight || cycleLoadInFlight) return;
+        if (outgoingBackground != null) return;
         if (isHerdDraining() || tableauRevealPending) return;
         if (canvasW <= 0 || canvasH <= 0) return;
         SharedPreferences prefs = getPreferences();
@@ -1313,6 +1382,65 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (oledShift) {
             DreamOledShift.apply(canvasW, canvasH, out, uptimeMs);
         }
+    }
+
+    /** Null when {@code b} cannot be blitted on {@code c} (recycled or HARDWARE-on-software). */
+    private static Bitmap bitmapDrawableOn(Canvas c, Bitmap b) {
+        if (b == null || b.isRecycled()) return null;
+        if (!c.isHardwareAccelerated() && GpuBitmaps.isHardware(b)) return null;
+        return b;
+    }
+
+    /**
+     * Fill + cover-fit background. During a cycle fade, {@code fadeFrom} is the
+     * opaque outgoing image and {@code drawBg} is src-over at {@code incomingAlpha}.
+     * Incoming uses a blit so the RenderNode is not re-recorded every frame.
+     */
+    private void drawBackgroundLayers(Canvas c, Bitmap fadeFrom, Bitmap drawBg,
+            int incomingAlpha, int canvasW, int canvasH, float xOffset, float yOffset,
+            boolean oledShift, long now) {
+        boolean opaqueFill = paint.getAlpha() == 0xff;
+        if (fadeFrom != null) {
+            if (!opaqueFill) {
+                c.drawColor(backgroundColour);
+            }
+            drawCoverBitmap(c, fadeFrom, paint, true, canvasW, canvasH,
+                    xOffset, yOffset, oledShift, now);
+            if (drawBg != null && incomingAlpha > 0) {
+                fadePaint.setAlpha(incomingAlpha);
+                drawCoverBitmap(c, drawBg, fadePaint, false, canvasW, canvasH,
+                        xOffset, yOffset, oledShift, now);
+            }
+            return;
+        }
+        if (drawBg == null || !opaqueFill) {
+            c.drawColor(backgroundColour);
+        }
+        if (drawBg != null) {
+            drawCoverBitmap(c, drawBg, paint, true, canvasW, canvasH,
+                    xOffset, yOffset, oledShift, now);
+        }
+    }
+
+    /**
+     * Cover-fit {@code bmp}. {@code useNode} records the API 29+ RenderNode
+     * (opaque outgoing / steady image). Incoming fade frames pass false.
+     */
+    private void drawCoverBitmap(Canvas c, Bitmap bmp, Paint p, boolean useNode,
+            int canvasW, int canvasH, float xOffset, float yOffset, boolean oledShift,
+            long now) {
+        layoutBackgroundDest(bmp.getWidth(), bmp.getHeight(), canvasW, canvasH,
+                xOffset, yOffset, oledShift, now, tmpDst);
+        if (useNode && backgroundNode != null && c.isHardwareAccelerated()) {
+            backgroundNode.update(bmp, tmpDst.width(), tmpDst.height(), p);
+            backgroundNode.setTranslation(tmpDst.left, tmpDst.top);
+            backgroundNode.draw(c);
+        } else {
+            tmpSrc.set(0, 0, bmp.getWidth(), bmp.getHeight());
+            c.drawBitmap(bmp, tmpSrc, tmpDst, p);
+        }
+        lastBgDestLeft = tmpDst.left;
+        lastBgDestTop = tmpDst.top;
     }
 
     /**
@@ -2465,6 +2593,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (frameW > 0 && frameH > 0) {
             maybeCycleBackground(now, frameW, frameH);
         }
+        advanceBackgroundFade(now);
+        if (outgoingBackground != null || forceSceneRedraw) {
+            contentDirty = true;
+        }
 
         SharedPreferences prefs = getPreferences();
         float xOffset = surface.getBackgroundXOffset();
@@ -2505,39 +2637,20 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             if (c != null && c.getWidth() > 0 && c.getHeight() > 0) {
                 int canvasW = c.getWidth();
                 int canvasH = c.getHeight();
-                Bitmap drawBg = background;
-                if (drawBg != null && drawBg.isRecycled()) {
-                    drawBg = null;
+                Bitmap drawBg = bitmapDrawableOn(c, background);
+                Bitmap fadeFrom = bitmapDrawableOn(c, outgoingBackground);
+                if (outgoingBackground != null && (fadeFrom == null || drawBg == null)) {
+                    clearBackgroundFade();
+                    fadeFrom = null;
+                    drawBg = bitmapDrawableOn(c, background);
                 }
-                // HARDWARE bitmaps cannot be drawn on a software canvas.
-                if (drawBg != null && !c.isHardwareAccelerated() && GpuBitmaps.isHardware(drawBg)) {
-                    drawBg = null;
+                int incomingAlpha = 255;
+                if (fadeFrom != null) {
+                    incomingAlpha = BackgroundCrossfade.incomingAlpha(
+                            now - backgroundFadeStartMs);
                 }
-
-                if (backgroundNode != null && c.isHardwareAccelerated() && drawBg != null) {
-                    if (paint.getAlpha() != 0xff) {
-                        c.drawColor(backgroundColour);
-                    }
-                    layoutBackgroundDest(drawBg.getWidth(), drawBg.getHeight(),
-                            canvasW, canvasH, xOffset, yOffset, oledShift, now, tmpDst);
-                    backgroundNode.update(drawBg, tmpDst.width(), tmpDst.height(), paint);
-                    backgroundNode.setTranslation(tmpDst.left, tmpDst.top);
-                    backgroundNode.draw(c);
-                    lastBgDestLeft = tmpDst.left;
-                    lastBgDestTop = tmpDst.top;
-                } else {
-                    if (drawBg == null || paint.getAlpha() != 0xff) {
-                        c.drawColor(backgroundColour);
-                    }
-                    if (drawBg != null) {
-                        tmpSrc.set(0, 0, drawBg.getWidth(), drawBg.getHeight());
-                        layoutBackgroundDest(drawBg.getWidth(), drawBg.getHeight(),
-                                canvasW, canvasH, xOffset, yOffset, oledShift, now, tmpDst);
-                        c.drawBitmap(drawBg, tmpSrc, tmpDst, paint);
-                        lastBgDestLeft = tmpDst.left;
-                        lastBgDestTop = tmpDst.top;
-                    }
-                }
+                drawBackgroundLayers(c, fadeFrom, drawBg, incomingAlpha, canvasW, canvasH,
+                        xOffset, yOffset, oledShift, now);
 
                 if (drawOutgoingPonies && outgoingPonies != null) {
                     outgoingPonies.draw(c);
@@ -2586,6 +2699,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         // Keep full rate while a Tableau reload/reveal is in flight so spawn
         // checks and the fade stay smooth (incoming ponies look "idle").
         if (tableauRevealPending || outgoingPonies != null
+                || outgoingBackground != null
                 || (ponies != null && ponies.isDraining())) {
             return period;
         }
