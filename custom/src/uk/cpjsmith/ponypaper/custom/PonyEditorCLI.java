@@ -59,6 +59,7 @@ public class PonyEditorCLI {
         try {
             int currentAction = -1;
             int[] packLifts = null;
+            int[] packNudges = null;
             int packScaleNumerator = ImageImport.SCALE_NUMERATOR_NATIVE;
             int packScaleDivisor = ImageImport.SCALE_DIVISOR_NATIVE;
             boolean packScaleFit = false;
@@ -335,6 +336,24 @@ public class PonyEditorCLI {
                         break;
                     }
 
+                    case "-nudges":
+                    {
+                        checkArgument(args, i);
+                        String nudgeText = args[++i].trim();
+                        if ("none".equalsIgnoreCase(nudgeText)
+                                || "clear".equalsIgnoreCase(nudgeText)
+                                || "-".equals(nudgeText)) {
+                            packNudges = null;
+                        } else {
+                            try {
+                                packNudges = ImageImport.parseNudges(nudgeText);
+                            } catch (java.io.IOException e) {
+                                throw new PonyEditor.GenericException("", "Invalid nudges: " + e.getMessage());
+                            }
+                        }
+                        break;
+                    }
+
                     case "-sprite-frames":
                     {
                         checkArgument(args, i, 2);
@@ -354,6 +373,9 @@ public class PonyEditorCLI {
                             packOpts.scaleFitBuiltin = packScaleFit;
                             if (packLifts != null) {
                                 packOpts.lifts = packLifts;
+                            }
+                            if (packNudges != null) {
+                                packOpts.nudges = packNudges;
                             }
                             editor.loadActionSpriteFrames(currentAction, spriteDir, frameFiles, packOpts);
                             guiDirty = true;
@@ -537,10 +559,15 @@ public class PonyEditorCLI {
         System.out.println("    Per-frame lift in pixels up from the baseline for the next");
         System.out.println("    -sprite-frames (hop / jump). Length must match the frame count.");
         System.out.println("    Use none/clear/- to restore all zeros. Persists until changed.");
+        System.out.println("-nudges N,N,...|none");
+        System.out.println("    Per-frame nudge in pixels right of centre for the next");
+        System.out.println("    -sprite-frames (negative = left). Length must match the frame count.");
+        System.out.println("    Use none/clear/- to restore all zeros. Persists until changed.");
         System.out.println("-sprite-frames DIRECTION DIR|FILE...");
         System.out.println("    Pack PNG frames (a folder or listed files) into a spritesheet for");
         System.out.println("    DIRECTION. Natural-sorted, bottom-centred cells, no gutters.");
         System.out.println("    Optional -lifts raises frames in a taller cell (baked into the PNG).");
+        System.out.println("    Optional -nudges shifts frames from centre (baked into the PNG).");
         System.out.println("    Optional -scale shrinks frames before packing (see -scale).");
         System.out.println("    Keeps existing timings when the frame count already matches.");
         System.out.println("-mirror-facing DIRECTION");
@@ -575,6 +602,7 @@ public class PonyEditorCLI {
             case "-sprite-frames":
             case "-scale":
             case "-lifts":
+            case "-nudges":
             case "-mirror-facing":
             case "-copy-facing":
             case "-start":

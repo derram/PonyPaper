@@ -22,7 +22,8 @@ import javax.imageio.ImageIO;
  * <p>Static PNG (or other) files are passed through as-is. Individual PNG
  * frames can be packed into that same strip via {@link #fromFrames} /
  * {@link #fromFrameFiles}: uniform cells, bottom-centre alignment, optional
- * per-frame lift (pixels of air under the sprite), no inter-frame padding.
+ * per-frame lift (pixels of air under the sprite) and nudge (pixels right of
+ * centre; negative is left), no inter-frame padding.
  * Animated GIFs are decoded, fully coalesced (so each frame is a complete
  * image, not a dirty-rectangle delta), and packed left-to-right into a
  * single PNG spritesheet with matching frame timings. Scale is an exact
@@ -177,6 +178,13 @@ public class ImageImport {
          */
         public int[] lifts;
         /**
+         * Pixels right of the centred placement for each frame ({@code 0} =
+         * current centre). Negative is left. {@code null} means all zeros.
+         * When non-null, length must equal the frame count. Cell width
+         * becomes {@code max(frameW + 2·|nudge|)}.
+         */
+        public int[] nudges;
+        /**
          * Linear upscale applied before packing:
          * {@link #SCALE_NUMERATOR_NATIVE} (default) or
          * {@link #SCALE_NUMERATOR_DOUBLE} (200%). 200% must stay native when
@@ -327,6 +335,7 @@ public class ImageImport {
         opts.defaultTimingCs = options.defaultTimingCs;
         opts.rejectMixedSizes = options.rejectMixedSizes;
         opts.lifts = options.lifts;
+        opts.nudges = options.nudges;
         opts.scaleNumerator = options.scaleNumerator;
         opts.scaleDivisor = options.scaleDivisor;
         opts.scaleFitBuiltin = options.scaleFitBuiltin;
@@ -864,6 +873,17 @@ public class ImageImport {
     }
 
     /**
+     * Short note for packer dialogs: lift and nudge are baked into the
+     * sheet; default feet stay at bottom-centre.
+     */
+    public static String packerPlacementNotes() {
+        return "Lift is pixels of air under a frame (0 = on the ground). "
+                + "Nudge is pixels right of centre (negative = left). "
+                + "Both are baked into the sheet — leave <anchorx>/<anchory> empty "
+                + "so feet stay at bottom-centre.";
+    }
+
+    /**
      * Nearest-neighbour scale. Native 100% returns {@code frames} itself.
      * Shrinks point-sample {@code src[x·divisor, y·divisor]} (even lattice /
      * top-left of each block), which matches successive integer halvings.
@@ -1252,6 +1272,79 @@ public class ImageImport {
     }
 
     /**
+     * Parses a comma-separated nudge list ({@code 0,-4,8}). Whitespace around
+     * commas is ignored. Empty parts and non-integers are errors. Negatives
+     * are allowed (left of centre).
+     */
+    public static int[] parseNudges(String text) throws IOException {
+        if (text == null || text.trim().isEmpty()) {
+            throw new IOException("Nudges list is empty.");
+        }
+        String[] parts = text.split(",", -1);
+        int[] out = new int[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            String part = parts[i].trim();
+            if (part.isEmpty()) {
+                throw new IOException("Empty nudge at position " + (i + 1) + ".");
+            }
+            try {
+                out[i] = Integer.parseInt(part);
+            } catch (NumberFormatException e) {
+                throw new IOException("Invalid nudge: " + part);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * {@code nudges} as a comma-separated string, or empty when {@code null}.
+     */
+    public static String formatNudges(int[] nudges) {
+        return formatLifts(nudges);
+    }
+
+    /**
+     * Copies {@code nudges} and checks length. {@code null} becomes
+     * {@code frameCount} zeros. Values may be negative.
+     */
+    public static int[] normalizeNudges(int[] nudges, int frameCount) throws IOException {
+        if (frameCount < 1) {
+            throw new IOException("No frames to pack.");
+        }
+        if (nudges == null) {
+            return new int[frameCount];
+        }
+        if (nudges.length != frameCount) {
+            throw new IOException("Expected " + frameCount + " nudges, got " + nudges.length + ".");
+        }
+        return Arrays.copyOf(nudges, frameCount);
+    }
+
+    /**
+     * Horizontal draw X of a frame in its cell: centred, plus {@code nudge}
+     * (positive = right).
+     */
+    public static int placedX(int cellW, int frameW, int nudge) {
+        return (cellW - frameW) / 2 + nudge;
+    }
+
+    /**
+     * Vertical draw Y of a frame in its cell: bottom-aligned, minus
+     * {@code lift}.
+     */
+    public static int placedY(int cellH, int frameH, int lift) {
+        return cellH - frameH - lift;
+    }
+
+    /**
+     * Cell width needed for a {@code frameW} sprite with {@code nudge} so the
+     * centred-plus-nudge placement stays on-canvas.
+     */
+    public static int cellWidthForNudge(int frameW, int nudge) {
+        return frameW + 2 * Math.abs(nudge);
+    }
+
+    /**
      * {@code 0, 1, …, n-1}. {@code n} must be {@code >= 1}.
      */
     public static int[] identityOrder(int n) throws IOException {
@@ -1551,7 +1644,7 @@ public class ImageImport {
     }
 
     public static PackPreview inspectFrames(List<BufferedImage> frames) throws IOException {
-        return inspectFrames(frames, null);
+        return inspectFrames(frames, null, null);
     }
 
     /**
@@ -1560,10 +1653,22 @@ public class ImageImport {
      */
     public static PackPreview inspectFrames(List<BufferedImage> frames, int[] lifts)
             throws IOException {
+        return inspectFrames(frames, lifts, null);
+    }
+
+    /**
+     * Cell size for {@code frames}. When {@code lifts} / {@code nudges} are
+     * non-null they must match the frame count; cell height is
+     * {@code max(frameH + lift)} and cell width is
+     * {@code max(frameW + 2·|nudge|)}.
+     */
+    public static PackPreview inspectFrames(List<BufferedImage> frames, int[] lifts,
+            int[] nudges) throws IOException {
         if (frames == null || frames.isEmpty()) {
             throw new IOException("No frames to pack.");
         }
-        int[] resolved = normalizeLifts(lifts, frames.size());
+        int[] resolvedLifts = normalizeLifts(lifts, frames.size());
+        int[] resolvedNudges = normalizeNudges(nudges, frames.size());
         int cellW = 0;
         int cellH = 0;
         boolean mixed = false;
@@ -1586,10 +1691,11 @@ public class ImageImport {
             if (w != firstW || h != firstH) {
                 mixed = true;
             }
-            if (w > cellW) {
-                cellW = w;
+            int placedW = cellWidthForNudge(w, resolvedNudges[i]);
+            if (placedW > cellW) {
+                cellW = placedW;
             }
-            int placedH = h + resolved[i];
+            int placedH = h + resolvedLifts[i];
             if (placedH > cellH) {
                 cellH = placedH;
             }
@@ -1598,11 +1704,22 @@ public class ImageImport {
     }
 
     /**
-     * One packed cell: centred horizontally, {@code lift} pixels of air under
-     * the sprite. Same placement as {@link #packSheetImage}.
+     * One packed cell: centred horizontally plus {@code nudge}, {@code lift}
+     * pixels of air under the sprite. Same placement as
+     * {@link #packSheetImage}.
      */
     public static BufferedImage packCellImage(
             BufferedImage frame, int cellW, int cellH, int lift)
+            throws IOException {
+        return packCellImage(frame, cellW, cellH, lift, 0);
+    }
+
+    /**
+     * One packed cell: centred horizontally plus {@code nudge} (positive =
+     * right), {@code lift} pixels of air under the sprite.
+     */
+    public static BufferedImage packCellImage(
+            BufferedImage frame, int cellW, int cellH, int lift, int nudge)
             throws IOException {
         if (frame == null) {
             throw new IOException("Null frame");
@@ -1617,8 +1734,8 @@ public class ImageImport {
         Graphics2D g = cell.createGraphics();
         try {
             g.setComposite(AlphaComposite.SrcOver);
-            int dx = (cellW - frame.getWidth()) / 2;
-            int dy = cellH - frame.getHeight() - lift;
+            int dx = placedX(cellW, frame.getWidth(), nudge);
+            int dy = placedY(cellH, frame.getHeight(), lift);
             g.drawImage(frame, dx, dy, null);
         } finally {
             g.dispose();
@@ -1635,6 +1752,20 @@ public class ImageImport {
     public static BufferedImage packSheetImage(
             List<BufferedImage> frames, int cellW, int cellH, int[] lifts)
             throws IOException {
+        return packSheetImage(frames, cellW, cellH, lifts, null);
+    }
+
+    /**
+     * Composites frames into a left-to-right strip using the same placement as
+     * {@link #fromFrames}: centred plus {@code nudge}, {@code lift} pixels of
+     * air under each sprite, no gutters. {@code lifts} must already be
+     * {@link #normalizeLifts normalized}. {@code nudges} is zeros when
+     * {@code null}; otherwise it must already be {@link #normalizeNudges
+     * normalized}.
+     */
+    public static BufferedImage packSheetImage(
+            List<BufferedImage> frames, int cellW, int cellH, int[] lifts,
+            int[] nudges) throws IOException {
         if (frames == null || frames.isEmpty()) {
             throw new IOException("No frames to pack.");
         }
@@ -1646,6 +1777,11 @@ public class ImageImport {
             throw new IOException("Expected " + n + " lifts, got "
                     + (lifts == null ? 0 : lifts.length) + ".");
         }
+        int[] resolvedNudges = nudges == null ? new int[n] : nudges;
+        if (resolvedNudges.length != n) {
+            throw new IOException("Expected " + n + " nudges, got "
+                    + resolvedNudges.length + ".");
+        }
         BufferedImage sheet = new BufferedImage(n * cellW, cellH, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = sheet.createGraphics();
         g.setComposite(AlphaComposite.SrcOver);
@@ -1655,8 +1791,8 @@ public class ImageImport {
                 g.dispose();
                 throw new IOException("Null frame");
             }
-            int dx = i * cellW + (cellW - frame.getWidth()) / 2;
-            int dy = cellH - frame.getHeight() - lifts[i];
+            int dx = i * cellW + placedX(cellW, frame.getWidth(), resolvedNudges[i]);
+            int dy = placedY(cellH, frame.getHeight(), lifts[i]);
             g.drawImage(frame, dx, dy, null);
         }
         g.dispose();
@@ -1664,17 +1800,17 @@ public class ImageImport {
     }
 
     /**
-     * Packs frames left-to-right into a PonyPaper strip: cell width is the max
-     * frame width, cell height is {@code max(frameH + lift)}, each frame is
-     * drawn bottom-centre plus lift in its cell, and there is no gutter
-     * between cells.
+     * Packs frames left-to-right into a PonyPaper strip: cell width is
+     * {@code max(frameW + 2·|nudge|)}, cell height is {@code max(frameH + lift)},
+     * each frame is drawn bottom-centre plus lift and nudge in its cell, and
+     * there is no gutter between cells.
      */
     public static ImageImport fromFrames(List<BufferedImage> frames, PackOptions options)
             throws IOException {
         PackOptions opts = options != null ? options : new PackOptions();
         ScaleSpec spec = resolveScale(opts, frames);
         List<BufferedImage> scaled = scaleFrames(frames, spec.numerator, spec.divisor);
-        PackPreview preview = inspectFrames(scaled, opts.lifts);
+        PackPreview preview = inspectFrames(scaled, opts.lifts, opts.nudges);
         if (opts.rejectMixedSizes && preview.mixedSizes) {
             throw new IOException("Frame sizes differ; every frame must be the same size.");
         }
@@ -1682,9 +1818,10 @@ public class ImageImport {
         int cellH = preview.cellHeight;
         int n = preview.frameCount;
         int[] lifts = normalizeLifts(opts.lifts, n);
+        int[] nudges = normalizeNudges(opts.nudges, n);
         String timings = buildTimings(opts, n);
 
-        BufferedImage sheet = packSheetImage(scaled, cellW, cellH, lifts);
+        BufferedImage sheet = packSheetImage(scaled, cellW, cellH, lifts, nudges);
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         if (!ImageIO.write(sheet, "png", out)) {

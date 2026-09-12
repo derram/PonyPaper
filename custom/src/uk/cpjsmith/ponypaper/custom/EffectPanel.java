@@ -599,6 +599,7 @@ final class EffectPanel extends JPanel {
                 .append(" at ").append(gif.logicalWidth).append("×").append(gif.logicalHeight).append(".");
         notes.append("\n\n").append(ImageImport.packerOrderNotes());
         notes.append("\n\n").append(ImageImport.packerScaleNotes());
+        notes.append("\n\n").append(ImageImport.packerPlacementNotes());
         String[] names = new String[gif.frames.size()];
         for (int i = 0; i < gif.frames.size(); i++) {
             names[i] = file.getName() + " #" + (i + 1);
@@ -652,7 +653,8 @@ final class EffectPanel extends JPanel {
                     "Import frames (" + direction + ")",
                     names,
                     frames,
-                    ImageImport.packerOrderNotes() + "\n\n" + ImageImport.packerScaleNotes(),
+                    ImageImport.packerOrderNotes() + "\n\n" + ImageImport.packerScaleNotes()
+                            + "\n\n" + ImageImport.packerPlacementNotes(),
                     ImageImport.SCALE_DIVISOR_NATIVE,
                     keepTimings);
             if (packed == null) {
@@ -815,7 +817,7 @@ final class EffectPanel extends JPanel {
             }
             notes.append("\n\n").append(ImageImport.packerOrderNotes());
             notes.append("\n\n").append(ImageImport.packerScaleNotes());
-            notes.append("\n\nLift is pixels of air under a cell (0 = keep the sprite grounded). ");
+            notes.append("\n\n").append(ImageImport.packerPlacementNotes());
 
             String[] names = new String[frames.size()];
             for (int i = 0; i < names.length; i++) {
@@ -857,6 +859,7 @@ final class EffectPanel extends JPanel {
         List<BufferedImage> frames = packed.gatherFrames(sourceFrames);
         ImageImport.PackOptions options = new ImageImport.PackOptions();
         options.lifts = packed.lifts;
+        options.nudges = packed.nudges;
         packed.copyScaleTo(options);
         if (sourceTimingsCs != null) {
             options.timingsCs = ImageImport.gather(sourceTimingsCs, packed.order);

@@ -30,6 +30,8 @@ public final class ActionFrameSourceTest {
                 ActionFrameSourceTest::testIsolatedLateFrameDrawsOnVolatileImage);
         failures += run("draftFramesMatchPackedCells",
                 ActionFrameSourceTest::testDraftFramesMatchPackedCells);
+        failures += run("draftFramesMatchPackedCellsWithNudge",
+                ActionFrameSourceTest::testDraftFramesMatchPackedCellsWithNudge);
         if (failures > 0) {
             System.err.println(failures + " action-frame check(s) failed.");
             System.exit(1);
@@ -188,6 +190,24 @@ public final class ActionFrameSourceTest {
         // One-cell cache: requesting frame 0 again still matches.
         assertEq("cached ground", packed0.getRGB(4, packed0.getHeight() - 1),
                 src.frameImage(0).getRGB(4, packed0.getHeight() - 1));
+    }
+
+    private static void testDraftFramesMatchPackedCellsWithNudge() throws Exception {
+        BufferedImage a = solid(8, 8, EARLY_RGB);
+        BufferedImage b = solid(8, 8, LATE_RGB);
+        int[] lifts = new int[] {0, 0};
+        int[] nudges = new int[] {0, 4};
+        List<BufferedImage> frames = Arrays.asList(a, b);
+        ImageImport.PackPreview preview = ImageImport.inspectFrames(frames, lifts, nudges);
+        ActionFrameSource src = ActionFrameSource.fromDraftFrames(
+                frames, lifts, nudges, preview.cellWidth, preview.cellHeight, new int[] {10, 10});
+        assertEq("cellW", 16, src.frameWidth);
+
+        BufferedImage packed1 = ImageImport.packCellImage(
+                b, preview.cellWidth, preview.cellHeight, lifts[1], nudges[1]);
+        BufferedImage cell1 = src.frameImage(1);
+        assertEq("nudged body", packed1.getRGB(8, 4), cell1.getRGB(8, 4));
+        assertEq("nudged left air", packed1.getRGB(7, 4), cell1.getRGB(7, 4));
     }
 
     private static BufferedImage solid(int w, int h, int argb) {

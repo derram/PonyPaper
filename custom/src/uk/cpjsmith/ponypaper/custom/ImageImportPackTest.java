@@ -29,11 +29,16 @@ public final class ImageImportPackTest {
         failures += run("listFrameFilesNaturalOrder", ImageImportPackTest::testListFrameFilesNaturalOrder);
         failures += run("collectFrameFilesRejectsMix", ImageImportPackTest::testCollectFrameFilesRejectsMix);
         failures += run("parseAndNormalizeLifts", ImageImportPackTest::testParseAndNormalizeLifts);
+        failures += run("parseAndNormalizeNudges", ImageImportPackTest::testParseAndNormalizeNudges);
         failures += run("hopCurve", ImageImportPackTest::testHopCurve);
         failures += run("packLiftsHop", ImageImportPackTest::testPackLiftsHop);
+        failures += run("packNudgesShift", ImageImportPackTest::testPackNudgesShift);
         failures += run("packCellMatchesSheetSlice", ImageImportPackTest::testPackCellMatchesSheetSlice);
+        failures += run("packCellMatchesSheetSliceWithNudge", ImageImportPackTest::testPackCellMatchesSheetSliceWithNudge);
         failures += run("inspectIncludesLiftInCellHeight", ImageImportPackTest::testInspectIncludesLiftInCellHeight);
+        failures += run("inspectIncludesNudgeInCellWidth", ImageImportPackTest::testInspectIncludesNudgeInCellWidth);
         failures += run("liftsLengthMismatch", ImageImportPackTest::testLiftsLengthMismatch);
+        failures += run("nudgesLengthMismatch", ImageImportPackTest::testNudgesLengthMismatch);
         failures += run("negativeLiftRejected", ImageImportPackTest::testNegativeLiftRejected);
         failures += run("scale50HalvesCell", ImageImportPackTest::testScale50HalvesCell);
         failures += run("scale100IsIdentity", ImageImportPackTest::testScale100IsIdentity);
@@ -255,6 +260,32 @@ public final class ImageImportPackTest {
         assertEq("zero peak mid", 0, zeroPeak[2]);
     }
 
+    private static void testParseAndNormalizeNudges() throws IOException {
+        int[] parsed = ImageImport.parseNudges(" 0 , -4,8 ");
+        assertEq("len", 3, parsed.length);
+        assertEq("n0", 0, parsed[0]);
+        assertEq("n1", -4, parsed[1]);
+        assertEq("n2", 8, parsed[2]);
+        assertEq("format", "0,-4,8", ImageImport.formatNudges(parsed));
+
+        int[] zeros = ImageImport.normalizeNudges(null, 3);
+        assertEq("null nudges length", 3, zeros.length);
+        assertEq("null nudges zero", 0, zeros[0] + zeros[1] + zeros[2]);
+
+        try {
+            ImageImport.parseNudges("0,,4");
+            throw new AssertionError("expected empty-part failure");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("Empty nudge")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+
+        int[] kept = ImageImport.normalizeNudges(new int[] {-2, 0, 5}, 3);
+        assertEq("kept -2", -2, kept[0]);
+        assertEq("kept 5", 5, kept[2]);
+    }
+
     private static void testPackLiftsHop() throws IOException {
         BufferedImage a = solid(8, 8, 0xffff0000);
         BufferedImage b = solid(8, 8, 0xff0000ff);
@@ -276,6 +307,28 @@ public final class ImageImportPackTest {
         assertEq("hop top", 0xff0000ff, sheet.getRGB(12, 0));
     }
 
+    private static void testPackNudgesShift() throws IOException {
+        BufferedImage a = solid(8, 8, 0xffff0000);
+        BufferedImage b = solid(8, 8, 0xff0000ff);
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        opts.nudges = new int[] {0, 4};
+        ImageImport packed = ImageImport.fromFrames(Arrays.asList(a, b), opts);
+        assertEq("cellW", 16, packed.cellWidth);
+        assertEq("cellH", 8, packed.cellHeight);
+        BufferedImage sheet = decode(packed.loadedImage);
+        assertEq("sheetW", 32, sheet.getWidth());
+        assertEq("sheetH", 8, sheet.getHeight());
+
+        // Centred frame sits at dx=4 in a 16px cell.
+        assertEq("centred body", 0xffff0000, sheet.getRGB(4, 4));
+        assertEq("centred left air", 0, sheet.getRGB(3, 4));
+        assertEq("centred right of sprite", 0, sheet.getRGB(12, 4));
+        // Nudged +4 sits at dx=8; left of that is air, right edge is opaque.
+        assertEq("nudged body", 0xff0000ff, sheet.getRGB(16 + 8, 4));
+        assertEq("nudged left air", 0, sheet.getRGB(16 + 7, 4));
+        assertEq("nudged right edge", 0xff0000ff, sheet.getRGB(16 + 15, 4));
+    }
+
     private static void testPackCellMatchesSheetSlice() throws IOException {
         BufferedImage a = solid(8, 8, 0xffff0000);
         BufferedImage b = solid(8, 8, 0xff0000ff);
@@ -288,6 +341,30 @@ public final class ImageImportPackTest {
                 a, preview.cellWidth, preview.cellHeight, lifts[0]);
         BufferedImage cell1 = ImageImport.packCellImage(
                 b, preview.cellWidth, preview.cellHeight, lifts[1]);
+        assertEq("cellW", preview.cellWidth, cell0.getWidth());
+        assertEq("cellH", preview.cellHeight, cell0.getHeight());
+        for (int y = 0; y < preview.cellHeight; y++) {
+            for (int x = 0; x < preview.cellWidth; x++) {
+                assertEq("cell0 " + x + "," + y, sheet.getRGB(x, y), cell0.getRGB(x, y));
+                assertEq("cell1 " + x + "," + y,
+                        sheet.getRGB(preview.cellWidth + x, y), cell1.getRGB(x, y));
+            }
+        }
+    }
+
+    private static void testPackCellMatchesSheetSliceWithNudge() throws IOException {
+        BufferedImage a = solid(8, 8, 0xffff0000);
+        BufferedImage b = solid(8, 8, 0xff0000ff);
+        int[] lifts = new int[] {0, 0};
+        int[] nudges = new int[] {-3, 4};
+        List<BufferedImage> frames = Arrays.asList(a, b);
+        ImageImport.PackPreview preview = ImageImport.inspectFrames(frames, lifts, nudges);
+        BufferedImage sheet = ImageImport.packSheetImage(
+                frames, preview.cellWidth, preview.cellHeight, lifts, nudges);
+        BufferedImage cell0 = ImageImport.packCellImage(
+                a, preview.cellWidth, preview.cellHeight, lifts[0], nudges[0]);
+        BufferedImage cell1 = ImageImport.packCellImage(
+                b, preview.cellWidth, preview.cellHeight, lifts[1], nudges[1]);
         assertEq("cellW", preview.cellWidth, cell0.getWidth());
         assertEq("cellH", preview.cellHeight, cell0.getHeight());
         for (int y = 0; y < preview.cellHeight; y++) {
@@ -316,6 +393,23 @@ public final class ImageImportPackTest {
         assertEq("taller cellH", 26, taller.cellHeight);
     }
 
+    private static void testInspectIncludesNudgeInCellWidth() throws IOException {
+        BufferedImage tall = solid(10, 20, 0xffff0000);
+        BufferedImage shortFrame = solid(20, 10, 0xff0000ff);
+        ImageImport.PackPreview noNudge = ImageImport.inspectFrames(Arrays.asList(tall, shortFrame));
+        assertEq("no-nudge cellW", 20, noNudge.cellWidth);
+        assertEq("no-nudge cellH", 20, noNudge.cellHeight);
+
+        ImageImport.PackPreview shifted = ImageImport.inspectFrames(
+                Arrays.asList(tall, shortFrame), new int[] {0, 0}, new int[] {0, 4});
+        assertEq("shifted cellW", 28, shifted.cellWidth);
+        assertEq("shifted cellH", 20, shifted.cellHeight);
+
+        ImageImport.PackPreview wider = ImageImport.inspectFrames(
+                Arrays.asList(tall, shortFrame), null, new int[] {6, 0});
+        assertEq("wider cellW", 22, wider.cellWidth);
+    }
+
     private static void testLiftsLengthMismatch() throws IOException {
         BufferedImage a = solid(4, 4, 0xff00ff00);
         ImageImport.PackOptions opts = new ImageImport.PackOptions();
@@ -325,6 +419,20 @@ public final class ImageImportPackTest {
             throw new AssertionError("expected lift-count failure");
         } catch (IOException e) {
             if (!e.getMessage().contains("Expected 1 lifts")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void testNudgesLengthMismatch() throws IOException {
+        BufferedImage a = solid(4, 4, 0xff00ff00);
+        ImageImport.PackOptions opts = new ImageImport.PackOptions();
+        opts.nudges = new int[] {0, 4};
+        try {
+            ImageImport.fromFrames(Arrays.asList(a), opts);
+            throw new AssertionError("expected nudge-count failure");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("Expected 1 nudges")) {
                 throw new AssertionError("unexpected message: " + e.getMessage());
             }
         }
@@ -709,6 +817,10 @@ public final class ImageImportPackTest {
                 ImageImport.packerOrderNotes().contains("Delete"));
         assertEq("order notes mention mirror", true,
                 ImageImport.packerOrderNotes().contains("Mirror"));
+        assertEq("placement notes mention lift", true,
+                ImageImport.packerPlacementNotes().contains("Lift"));
+        assertEq("placement notes mention nudge", true,
+                ImageImport.packerPlacementNotes().contains("Nudge"));
         assertEq("width under", false, ImageImport.exceedsSheetWidthBudget(4096));
         assertEq("width over", true, ImageImport.exceedsSheetWidthBudget(4097));
     }

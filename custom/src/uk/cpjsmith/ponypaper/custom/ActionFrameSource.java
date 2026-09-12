@@ -54,6 +54,8 @@ public final class ActionFrameSource {
     private final List<BufferedImage> draftFrames;
     /** Per-frame lift for {@link #draftFrames}; null when unused. */
     private final int[] draftLifts;
+    /** Per-frame nudge for {@link #draftFrames}; null when unused. */
+    private final int[] draftNudges;
     /** Single-cell cache for draft playback so a huge strip is never allocated. */
     private BufferedImage draftCell;
     private int draftCellIndex = -1;
@@ -72,7 +74,7 @@ public final class ActionFrameSource {
             String specialType) {
         this(actionName, actionIndex, direction, image, frameCount, 0, 0,
                 frameTimesCs, explicitAnchorX, explicitAnchorY, loops, speed,
-                specialType, null, null);
+                specialType, null, null, null);
     }
 
     private ActionFrameSource(
@@ -90,7 +92,8 @@ public final class ActionFrameSource {
             float speed,
             String specialType,
             List<BufferedImage> draftFrames,
-            int[] draftLifts) {
+            int[] draftLifts,
+            int[] draftNudges) {
         this.actionName = actionName;
         this.actionIndex = actionIndex;
         this.direction = direction;
@@ -120,6 +123,7 @@ public final class ActionFrameSource {
         this.specialType = specialType != null ? specialType : "";
         this.draftFrames = draftFrames;
         this.draftLifts = draftLifts;
+        this.draftNudges = draftNudges;
     }
 
     public float getDefaultAnchorX() {
@@ -242,11 +246,14 @@ public final class ActionFrameSource {
             return draftCell;
         }
         try {
+            int lift = draftLifts != null ? draftLifts[frameIndex] : 0;
+            int nudge = draftNudges != null ? draftNudges[frameIndex] : 0;
             draftCell = ImageImport.packCellImage(
                     draftFrames.get(frameIndex),
                     frameWidth,
                     frameHeight,
-                    draftLifts[frameIndex]);
+                    lift,
+                    nudge);
         } catch (IOException e) {
             draftCell = new BufferedImage(frameWidth, frameHeight, BufferedImage.TYPE_INT_ARGB);
         }
@@ -309,6 +316,22 @@ public final class ActionFrameSource {
             int cellH,
             int[] frameTimesCs)
             throws IOException {
+        return fromDraftFrames(frames, lifts, null, cellW, cellH, frameTimesCs);
+    }
+
+    /**
+     * Packer draft preview: cells are composited on demand from individual
+     * frames (order / scale / lift / nudge) so a huge strip is never allocated.
+     * {@code frameTimesCs} length is the frame count.
+     */
+    static ActionFrameSource fromDraftFrames(
+            List<BufferedImage> frames,
+            int[] lifts,
+            int[] nudges,
+            int cellW,
+            int cellH,
+            int[] frameTimesCs)
+            throws IOException {
         if (frames == null || frames.isEmpty()) {
             throw new IOException("No frames to pack.");
         }
@@ -317,6 +340,7 @@ public final class ActionFrameSource {
         }
         int n = frames.size();
         int[] resolvedLifts = ImageImport.normalizeLifts(lifts, n);
+        int[] resolvedNudges = ImageImport.normalizeNudges(nudges, n);
         int[] times = frameTimesCs != null && frameTimesCs.length > 0
                 ? frameTimesCs.clone()
                 : new int[] { 100 };
@@ -347,7 +371,8 @@ public final class ActionFrameSource {
                 1f,
                 "",
                 copy,
-                resolvedLifts);
+                resolvedLifts,
+                resolvedNudges);
     }
 
     /**

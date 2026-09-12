@@ -56,39 +56,43 @@ import javax.swing.event.ListSelectionListener;
 /**
  * Modal dialog: review imported frames (PNG stills or coalesced GIF frames),
  * choose a pack scale (200% / 100%…6.25%, or fit-to-built-in), rearrange
- * playback order (move, reverse, clone, delete, or per-frame mirror), set per-frame lift (or
- * apply one value to all frames), and pack. Frames taller than built-in open
+ * playback order (move, reverse, clone, delete, or per-frame mirror), set per-frame lift and
+ * nudge (or apply one value to all frames), and pack. Frames taller than built-in open
  * on Fit. Sheets over {@link ImageImport#SHEET_PIXEL_BUDGET} defer the strip
  * preview and require a Pack confirmation. Lift {@code 0} is the usual
- * bottom-centre alignment; positive lift bakes a hop into a taller cell. Play
- * loop opens a feet-locked loop of the current draft before Pack. Returns
+ * bottom-centre alignment; positive lift bakes a hop into a taller cell.
+ * Nudge {@code 0} keeps the centred placement; positive is right of centre.
+ * Play loop opens a feet-locked loop of the current draft before Pack. Returns
  * {@code null} on cancel.
  */
 public final class FramePackDialog extends JDialog {
 
     private static final int MAX_LIFT = 512;
+    private static final int MAX_NUDGE = 512;
     private static final int THUMB_H = 32;
 
     /**
-     * User choices after Pack. Lift values are in <em>output</em> pixels
-     * (after scale) and follow playback order. {@link #order} is a playback
-     * sequence of source indices ({@code 0..sourceCount-1}); duplicates
-     * (clone) and omissions (delete) are allowed, so its length is the packed
-     * frame count. {@link #flops} is per playback slot (true = horizontal
-     * flip); length matches {@link #order}. {@link #scaleNumerator}/{@link
+     * User choices after Pack. Lift and nudge values are in <em>output</em>
+     * pixels (after scale) and follow playback order. {@link #order} is a
+     * playback sequence of source indices ({@code 0..sourceCount-1});
+     * duplicates (clone) and omissions (delete) are allowed, so its length is
+     * the packed frame count. {@link #flops} is per playback slot (true =
+     * horizontal flip); length matches {@link #order}. {@link #scaleNumerator}/{@link
      * #scaleDivisor} is the resolved ratio actually applied (never a "fit"
      * sentinel).
      */
     public static final class Result {
         public final int[] lifts;
+        public final int[] nudges;
         public final int scaleNumerator;
         public final int scaleDivisor;
         public final int[] order;
         public final boolean[] flops;
 
-        Result(int[] lifts, int scaleNumerator, int scaleDivisor, int[] order,
-                boolean[] flops) {
+        Result(int[] lifts, int[] nudges, int scaleNumerator, int scaleDivisor,
+                int[] order, boolean[] flops) {
             this.lifts = lifts;
+            this.nudges = nudges != null ? nudges : new int[order.length];
             this.scaleNumerator = scaleNumerator;
             this.scaleDivisor = scaleDivisor;
             this.order = order;
@@ -147,6 +151,8 @@ public final class FramePackDialog extends JDialog {
     private final List<String> names;
     /** Lift of the frame at each playback slot (travels with the frame). */
     private int[] lifts;
+    /** Nudge of the frame at each playback slot (travels with the frame). */
+    private int[] nudges;
     /** Source index at each playback slot (duplicates and omissions allowed). */
     private int[] order;
     /** Horizontal flip at each playback slot (independent of shared sources). */
@@ -156,6 +162,11 @@ public final class FramePackDialog extends JDialog {
      * import sequence using these values.
      */
     private final int[] sourceLifts;
+    /**
+     * Last nudge written for each source frame. Reset order restores the
+     * import sequence using these values (mirror sign-flip is not stored).
+     */
+    private final int[] sourceNudges;
     /**
      * Optional per-source-frame timings (centiseconds), e.g. GIF delays. When
      * length matches {@link #frames}, Play loop gathers them with
@@ -169,8 +180,10 @@ public final class FramePackDialog extends JDialog {
     private final CellPreview cellPreview;
     private final StripPreview stripPreview;
     private final JSpinner liftSpinner;
+    private final JSpinner nudgeSpinner;
     private final JSpinner hopPeakSpinner;
     private final SpinnerNumberModel liftModel;
+    private final SpinnerNumberModel nudgeModel;
     private final JComboBox<ScaleItem> scaleCombo;
     private final ScaleItem fitScaleItem;
     private final int fitScaleDivisor;
@@ -204,7 +217,9 @@ public final class FramePackDialog extends JDialog {
                 : null;
         this.names = new ArrayList<String>(frames.size());
         this.lifts = new int[frames.size()];
+        this.nudges = new int[frames.size()];
         this.sourceLifts = new int[frames.size()];
+        this.sourceNudges = new int[frames.size()];
         this.order = new int[frames.size()];
         this.flops = new boolean[frames.size()];
         for (int i = 0; i < frames.size(); i++) {
@@ -275,6 +290,10 @@ public final class FramePackDialog extends JDialog {
         liftModel = new SpinnerNumberModel(0, 0, MAX_LIFT, 1);
         liftSpinner = new JSpinner(liftModel);
         liftSpinner.setToolTipText("Pixels of air under this frame (0 = feet on the ground line).");
+        nudgeModel = new SpinnerNumberModel(0, -MAX_NUDGE, MAX_NUDGE, 1);
+        nudgeSpinner = new JSpinner(nudgeModel);
+        nudgeSpinner.setToolTipText(
+                "Pixels right of centre for this frame (negative = left, 0 = centred).");
         hopPeakSpinner = new JSpinner(new SpinnerNumberModel(16, 1, MAX_LIFT, 1));
         hopPeakSpinner.setToolTipText("Peak height in pixels for the hop-curve preset.");
 
@@ -316,7 +335,7 @@ public final class FramePackDialog extends JDialog {
                         + "Fit picks the largest shrink whose tallest frame is ≤ "
                         + ImageImport.LARGE_CELL_HEIGHT_PX + "px (never 200%). "
                         + "Oversized imports open on Fit automatically. "
-                        + "Lifts are in output pixels after scale.");
+                        + "Lifts and nudges are in output pixels after scale.");
         scaleCombo.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -353,6 +372,21 @@ public final class FramePackDialog extends JDialog {
             }
         });
 
+        nudgeSpinner.addChangeListener(new ChangeListener() {
+            @Override
+            public void stateChanged(ChangeEvent e) {
+                if (updatingSpinner) {
+                    return;
+                }
+                int index = selectedIndex();
+                if (index < 0) {
+                    return;
+                }
+                int value = ((Number) nudgeSpinner.getValue()).intValue();
+                setNudge(index, value);
+            }
+        });
+
         frameList.addListSelectionListener(new ListSelectionListener() {
             @Override
             public void valueChanged(ListSelectionEvent e) {
@@ -362,7 +396,7 @@ public final class FramePackDialog extends JDialog {
             }
         });
 
-        JButton applyAllButton = new JButton("Apply to all");
+        JButton applyAllButton = new JButton("Apply lift to all");
         applyAllButton.setToolTipText(
                 "Set every frame to this lift (same value on all cells).");
         applyAllButton.addActionListener(new ActionListener() {
@@ -382,6 +416,26 @@ public final class FramePackDialog extends JDialog {
             }
         });
 
+        JButton applyNudgeAllButton = new JButton("Apply nudge to all");
+        applyNudgeAllButton.setToolTipText(
+                "Set every frame to this nudge (same offset from centre on all cells).");
+        applyNudgeAllButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                int value = ((Number) nudgeSpinner.getValue()).intValue();
+                setAllNudges(value);
+            }
+        });
+
+        JButton resetNudgesButton = new JButton("Reset nudges");
+        resetNudgesButton.setToolTipText("Set every frame back to 0 (centred).");
+        resetNudgesButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                setAllNudges(0);
+            }
+        });
+
         hopButton = new JButton("Apply hop");
         hopButton.setToolTipText("Parabola: 0 at both ends, peak in the middle. Baked into the sheet.");
         hopButton.setEnabled(frames.size() >= 3);
@@ -398,7 +452,7 @@ public final class FramePackDialog extends JDialog {
 
         JButton playLoopButton = new JButton("Play loop…");
         playLoopButton.setToolTipText(
-                "Animate the current order, scale, and lifts on a loop "
+                "Animate the current order, scale, lifts, and nudges on a loop "
                         + "(feet locked to the ground line). Does not Pack.");
         playLoopButton.addActionListener(new ActionListener() {
             @Override
@@ -415,8 +469,8 @@ public final class FramePackDialog extends JDialog {
                     return;
                 }
                 packed = true;
-                result = new Result(lifts.clone(), scaleNumerator, scaleDivisor,
-                        order.clone(), flops.clone());
+                result = new Result(lifts.clone(), nudges.clone(), scaleNumerator,
+                        scaleDivisor, order.clone(), flops.clone());
                 dispose();
             }
         });
@@ -450,7 +504,7 @@ public final class FramePackDialog extends JDialog {
             }
         });
         reverseButton = new JButton("Reverse");
-        reverseButton.setToolTipText("Play the clip backwards. Lifts stay on their frames.");
+        reverseButton.setToolTipText("Play the clip backwards. Lifts and nudges stay on their frames.");
         reverseButton.setEnabled(frames.size() >= 2);
         reverseButton.addActionListener(new ActionListener() {
             @Override
@@ -461,7 +515,7 @@ public final class FramePackDialog extends JDialog {
         resetOrderButton = new JButton("Reset order");
         resetOrderButton.setToolTipText(
                 "Restore the imported / natural-sorted order (clones removed, deleted frames restored, "
-                        + "mirrors undone). Lifts stay on their source frames.");
+                        + "mirrors undone). Lifts and nudges stay on their source frames.");
         resetOrderButton.setEnabled(false);
         resetOrderButton.addActionListener(new ActionListener() {
             @Override
@@ -558,7 +612,8 @@ public final class FramePackDialog extends JDialog {
 
         JPanel previewPane = new JPanel(new BorderLayout());
         previewPane.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 0));
-        previewPane.add(new JLabel("Selected frame (drag up/down or use the spinner)"), BorderLayout.NORTH);
+        previewPane.add(new JLabel("Selected frame (drag to lift / nudge, or use the spinners)"),
+                BorderLayout.NORTH);
         previewPane.add(cellPreview, BorderLayout.CENTER);
 
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, listPane, previewPane);
@@ -582,6 +637,10 @@ public final class FramePackDialog extends JDialog {
         liftRow.add(liftSpinner);
         liftRow.add(applyAllButton);
         liftRow.add(resetButton);
+        liftRow.add(new JLabel("Nudge:"));
+        liftRow.add(nudgeSpinner);
+        liftRow.add(applyNudgeAllButton);
+        liftRow.add(resetNudgesButton);
         liftRow.add(new JLabel("Hop peak:"));
         liftRow.add(hopPeakSpinner);
         liftRow.add(hopButton);
@@ -651,8 +710,8 @@ public final class FramePackDialog extends JDialog {
 
     /**
      * Opens the pack dialog. Oversized frames (taller than built-in) default
-     * to Fit; otherwise native scale. Returns lifts + scale if the user chose
-     * Pack, or {@code null} if cancelled.
+     * to Fit; otherwise native scale. Returns lifts, nudges, and scale if the
+     * user chose Pack, or {@code null} if cancelled.
      */
     public static Result showDialog(Component parent, String title,
             List<File> files, List<BufferedImage> frames, String notes) {
@@ -797,6 +856,9 @@ public final class FramePackDialog extends JDialog {
         int tmpLift = lifts[a];
         lifts[a] = lifts[b];
         lifts[b] = tmpLift;
+        int tmpNudge = nudges[a];
+        nudges[a] = nudges[b];
+        nudges[b] = tmpNudge;
         boolean tmpFlop = flops[a];
         flops[a] = flops[b];
         flops[b] = tmpFlop;
@@ -835,10 +897,12 @@ public final class FramePackDialog extends JDialog {
         int selectedSrc = sourceIndex(selectedIndex());
         order = new int[n];
         lifts = new int[n];
+        nudges = new int[n];
         flops = new boolean[n];
         for (int i = 0; i < n; i++) {
             order[i] = i;
             lifts[i] = sourceLifts[i];
+            nudges[i] = sourceNudges[i];
         }
         int select = selectedSrc >= 0 ? selectedSrc : 0;
         rebuildPlaybackList(select);
@@ -852,6 +916,7 @@ public final class FramePackDialog extends JDialog {
         }
         order = ImageImport.insertAfter(order, from, order[from]);
         lifts = ImageImport.insertAfter(lifts, from, lifts[from]);
+        nudges = ImageImport.insertAfter(nudges, from, nudges[from]);
         flops = ImageImport.insertAfter(flops, from, flops[from]);
         rebuildPlaybackList(from + 1);
         refreshAll();
@@ -863,6 +928,7 @@ public final class FramePackDialog extends JDialog {
             return;
         }
         flops[from] = !flops[from];
+        nudges[from] = -nudges[from];
         refreshAll();
     }
 
@@ -873,6 +939,7 @@ public final class FramePackDialog extends JDialog {
         }
         order = ImageImport.removeAt(order, from);
         lifts = ImageImport.removeAt(lifts, from);
+        nudges = ImageImport.removeAt(nudges, from);
         flops = ImageImport.removeAt(flops, from);
         int select = from < order.length ? from : order.length - 1;
         rebuildPlaybackList(select);
@@ -911,14 +978,31 @@ public final class FramePackDialog extends JDialog {
     }
 
     private void setLift(int index, int value) {
-        int clamped = Math.max(0, Math.min(MAX_LIFT, value));
-        if (lifts[index] == clamped) {
+        setPlacement(index, value, nudges[index]);
+    }
+
+    /**
+     * Sets lift and nudge together so a 2D drag packs once. Writes each
+     * changed value onto its source frame.
+     */
+    private void setPlacement(int index, int liftValue, int nudgeValue) {
+        int lift = Math.max(0, Math.min(MAX_LIFT, liftValue));
+        int nudge = Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, nudgeValue));
+        boolean liftChanged = lifts[index] != lift;
+        boolean nudgeChanged = nudges[index] != nudge;
+        if (!liftChanged && !nudgeChanged) {
             return;
         }
-        lifts[index] = clamped;
+        lifts[index] = lift;
+        nudges[index] = nudge;
         int src = sourceIndex(index);
         if (src >= 0) {
-            sourceLifts[src] = clamped;
+            if (liftChanged) {
+                sourceLifts[src] = lift;
+            }
+            if (nudgeChanged) {
+                sourceNudges[src] = nudge;
+            }
         }
         refreshAll();
     }
@@ -941,6 +1025,37 @@ public final class FramePackDialog extends JDialog {
         }
     }
 
+    private void setNudge(int index, int value) {
+        int clamped = Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, value));
+        if (nudges[index] == clamped) {
+            return;
+        }
+        nudges[index] = clamped;
+        int src = sourceIndex(index);
+        if (src >= 0) {
+            sourceNudges[src] = clamped;
+        }
+        refreshAll();
+    }
+
+    /** Sets every playback slot to the same clamped nudge, then refreshes. */
+    private void setAllNudges(int value) {
+        int clamped = Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, value));
+        Arrays.fill(nudges, clamped);
+        writeNudgesToSources();
+        refreshAll();
+    }
+
+    /** Copies playback nudges onto their source frames (last slot wins). */
+    private void writeNudgesToSources() {
+        for (int p = 0; p < order.length; p++) {
+            int src = order[p];
+            if (src >= 0 && src < sourceNudges.length) {
+                sourceNudges[src] = nudges[p];
+            }
+        }
+    }
+
     private void syncSelection() {
         int index = selectedIndex();
         if (index < 0) {
@@ -949,6 +1064,7 @@ public final class FramePackDialog extends JDialog {
         updatingSpinner = true;
         try {
             liftSpinner.setValue(Integer.valueOf(lifts[index]));
+            nudgeSpinner.setValue(Integer.valueOf(nudges[index]));
         } finally {
             updatingSpinner = false;
         }
@@ -959,15 +1075,15 @@ public final class FramePackDialog extends JDialog {
 
     /**
      * Opens a looping feet-locked preview of the current draft (order / scale /
-     * lifts). Does not allocate a packed strip and does not commit Pack.
+     * lifts / nudges). Does not allocate a packed strip and does not commit Pack.
      */
     private void openLoopPreview() {
         try {
             List<BufferedImage> toPack = playbackFrames();
-            ImageImport.PackPreview preview = ImageImport.inspectFrames(toPack, lifts);
+            ImageImport.PackPreview preview = ImageImport.inspectFrames(toPack, lifts, nudges);
             int[] timings = playbackTimings(preview.frameCount);
             ActionFrameSource source = ActionFrameSource.fromDraftFrames(
-                    toPack, lifts, preview.cellWidth, preview.cellHeight, timings);
+                    toPack, lifts, nudges, preview.cellWidth, preview.cellHeight, timings);
             FrameLoopPreviewDialog.showDialog(this, source, "Loop Preview");
         } catch (IOException e) {
             JOptionPane.showMessageDialog(
@@ -1002,7 +1118,7 @@ public final class FramePackDialog extends JDialog {
     private boolean confirmPackIfHuge() {
         try {
             List<BufferedImage> toPack = playbackFrames();
-            ImageImport.PackPreview preview = ImageImport.inspectFrames(toPack, lifts);
+            ImageImport.PackPreview preview = ImageImport.inspectFrames(toPack, lifts, nudges);
             int sheetW = preview.sheetWidth();
             int sheetH = preview.cellHeight;
             boolean hugePixels = ImageImport.exceedsSheetPixelBudget(sheetW, sheetH);
@@ -1045,7 +1161,7 @@ public final class FramePackDialog extends JDialog {
     private void refreshAll() {
         try {
             List<BufferedImage> toPack = playbackFrames();
-            ImageImport.PackPreview preview = ImageImport.inspectFrames(toPack, lifts);
+            ImageImport.PackPreview preview = ImageImport.inspectFrames(toPack, lifts, nudges);
             String scaleLabel;
             try {
                 scaleLabel = ImageImport.formatScaleMarker(scaleNumerator, scaleDivisor);
@@ -1086,19 +1202,19 @@ public final class FramePackDialog extends JDialog {
                         ImageImport.SHEET_WIDTH_BUDGET));
                 warningLabel.setVisible(true);
                 stripPreview.setSheet(ImageImport.packSheetImage(
-                        toPack, preview.cellWidth, preview.cellHeight, lifts),
+                        toPack, preview.cellWidth, preview.cellHeight, lifts, nudges),
                         preview.frameCount, preview.cellHeight);
             } else if (ImageImport.isLargeCell(preview.cellHeight)) {
                 warningLabel.setText(ImageImport.largeCellWarning());
                 warningLabel.setVisible(true);
                 stripPreview.setSheet(ImageImport.packSheetImage(
-                        toPack, preview.cellWidth, preview.cellHeight, lifts),
+                        toPack, preview.cellWidth, preview.cellHeight, lifts, nudges),
                         preview.frameCount, preview.cellHeight);
             } else {
                 warningLabel.setText(" ");
                 warningLabel.setVisible(false);
                 stripPreview.setSheet(ImageImport.packSheetImage(
-                        toPack, preview.cellWidth, preview.cellHeight, lifts),
+                        toPack, preview.cellWidth, preview.cellHeight, lifts, nudges),
                         preview.frameCount, preview.cellHeight);
             }
             cellPreview.setCell(preview.cellWidth, preview.cellHeight);
@@ -1127,9 +1243,10 @@ public final class FramePackDialog extends JDialog {
             BufferedImage frame = frameAtPlayback(playback);
             int src = sourceIndex(playback);
             setIcon(new ImageIcon(thumbnail(frame)));
-            setText(String.format("%d. %s  (%d×%d, lift %d%s)",
+            setText(String.format("%d. %s  (%d×%d, lift %d, nudge %d%s)",
                     playback + 1, names.get(src), frame.getWidth(), frame.getHeight(),
-                    lifts[playback], flops[playback] ? ", mirrored" : ""));
+                    lifts[playback], nudges[playback],
+                    flops[playback] ? ", mirrored" : ""));
             return this;
         }
     }
@@ -1146,14 +1263,17 @@ public final class FramePackDialog extends JDialog {
     }
 
     /**
-     * One frame on the computed cell, ground line at the bottom. Drag up to
-     * increase lift; wheel and arrows nudge 1px (Shift: 5).
+     * One frame on the computed cell, ground line at the bottom and centre
+     * line through the cell. Drag up to increase lift, right to increase
+     * nudge; wheel adjusts lift; arrows 1px (Shift: 5).
      */
     private final class CellPreview extends JComponent {
         private int cellW = 1;
         private int cellH = 1;
+        private int dragStartX;
         private int dragStartY;
         private int dragStartLift;
+        private int dragStartNudge;
         private float dragStartScale = 1f;
         private boolean dragging;
 
@@ -1171,8 +1291,10 @@ public final class FramePackDialog extends JDialog {
                         return;
                     }
                     dragging = true;
+                    dragStartX = e.getX();
                     dragStartY = e.getY();
                     dragStartLift = lifts[index];
+                    dragStartNudge = nudges[index];
                     dragStartScale = cellScale();
                 }
 
@@ -1192,8 +1314,10 @@ public final class FramePackDialog extends JDialog {
                         return;
                     }
                     float scale = dragStartScale > 0f ? dragStartScale : 1f;
-                    int delta = Math.round((dragStartY - e.getY()) / scale);
-                    setLift(index, dragStartLift + delta);
+                    int deltaLift = Math.round((dragStartY - e.getY()) / scale);
+                    int deltaNudge = Math.round((e.getX() - dragStartX) / scale);
+                    setPlacement(index, dragStartLift + deltaLift,
+                            dragStartNudge + deltaNudge);
                 }
             });
             addMouseWheelListener(new MouseWheelListener() {
@@ -1214,27 +1338,51 @@ public final class FramePackDialog extends JDialog {
             registerKeyboardAction(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    nudge(1);
+                    nudgeLift(1);
                 }
             }, KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), WHEN_FOCUSED);
             registerKeyboardAction(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    nudge(5);
+                    nudgeLift(5);
                 }
             }, KeyStroke.getKeyStroke(KeyEvent.VK_UP, KeyEvent.SHIFT_DOWN_MASK), WHEN_FOCUSED);
             registerKeyboardAction(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    nudge(-1);
+                    nudgeLift(-1);
                 }
             }, KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), WHEN_FOCUSED);
             registerKeyboardAction(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    nudge(-5);
+                    nudgeLift(-5);
                 }
             }, KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, KeyEvent.SHIFT_DOWN_MASK), WHEN_FOCUSED);
+            registerKeyboardAction(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    nudgeHoriz(1);
+                }
+            }, KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0), WHEN_FOCUSED);
+            registerKeyboardAction(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    nudgeHoriz(5);
+                }
+            }, KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, KeyEvent.SHIFT_DOWN_MASK), WHEN_FOCUSED);
+            registerKeyboardAction(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    nudgeHoriz(-1);
+                }
+            }, KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), WHEN_FOCUSED);
+            registerKeyboardAction(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    nudgeHoriz(-5);
+                }
+            }, KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, KeyEvent.SHIFT_DOWN_MASK), WHEN_FOCUSED);
             registerKeyboardAction(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
@@ -1255,10 +1403,17 @@ public final class FramePackDialog extends JDialog {
             repaint();
         }
 
-        private void nudge(int delta) {
+        private void nudgeLift(int delta) {
             int index = selectedIndex();
             if (index >= 0) {
                 setLift(index, lifts[index] + delta);
+            }
+        }
+
+        private void nudgeHoriz(int delta) {
+            int index = selectedIndex();
+            if (index >= 0) {
+                setNudge(index, nudges[index] + delta);
             }
         }
 
@@ -1293,19 +1448,26 @@ public final class FramePackDialog extends JDialog {
                 g2.drawRect(bounds.x, bounds.y, bounds.width - 1, bounds.height - 1);
 
                 float scale = cellScale();
-                int dx = bounds.x + Math.round(((cellW - frame.getWidth()) / 2f) * scale);
-                int dy = bounds.y + Math.round((cellH - frame.getHeight() - lifts[index]) * scale);
+                int dx = bounds.x + Math.round(
+                        ImageImport.placedX(cellW, frame.getWidth(), nudges[index]) * scale);
+                int dy = bounds.y + Math.round(
+                        ImageImport.placedY(cellH, frame.getHeight(), lifts[index]) * scale);
                 int dw = Math.round(frame.getWidth() * scale);
                 int dh = Math.round(frame.getHeight() * scale);
                 g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                         RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
                 g2.drawImage(frame, dx, dy, dw, dh, null);
 
+                int centreX = bounds.x + bounds.width / 2;
+                g2.setColor(EditorTheme.GUIDE);
+                g2.fillRect(centreX - 1, bounds.y, 2, bounds.height);
                 int groundY = bounds.y + bounds.height - 1;
                 g2.setColor(EditorTheme.GROUND_LINE);
                 g2.fillRect(bounds.x, groundY - 1, bounds.width, 2);
                 g2.setColor(EditorTheme.GROUND_LABEL);
                 g2.drawString("ground", bounds.x + 4, groundY - 4);
+                g2.setColor(EditorTheme.GUIDE_MUTED);
+                g2.drawString("centre", centreX + 4, bounds.y + 12);
             } finally {
                 g2.dispose();
             }

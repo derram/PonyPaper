@@ -1262,7 +1262,7 @@ public class PonyEditorGUI extends JPanel {
                 }
                 notes.append("\n\n").append(ImageImport.packerOrderNotes());
                 notes.append("\n\n").append(ImageImport.packerScaleNotes());
-                notes.append("\n\nLift is pixels of air under a cell (0 = keep the sprite grounded). ");
+                notes.append("\n\n").append(ImageImport.packerPlacementNotes());
 
                 String[] names = new String[frames.size()];
                 for (int i = 0; i < names.length; i++) {
@@ -1544,7 +1544,7 @@ public class PonyEditorGUI extends JPanel {
             notes.append(".");
             notes.append("\n\n").append(ImageImport.packerOrderNotes());
             notes.append("\n\n").append(ImageImport.packerScaleNotes());
-            notes.append("\n\nLift is pixels of air under a frame (0 = on the ground). ");
+            notes.append("\n\n").append(ImageImport.packerPlacementNotes());
 
             String[] names = new String[gif.frames.size()];
             for (int i = 0; i < gif.frames.size(); i++) {
@@ -1579,6 +1579,7 @@ public class PonyEditorGUI extends JPanel {
             List<java.awt.image.BufferedImage> frames = packed.gatherFrames(sourceFrames);
             ImageImport.PackOptions options = new ImageImport.PackOptions();
             options.lifts = packed.lifts;
+            options.nudges = packed.nudges;
             packed.copyScaleTo(options);
             if (sourceTimingsCs != null) {
                 options.timingsCs = ImageImport.gather(sourceTimingsCs, packed.order);
@@ -1645,7 +1646,7 @@ public class PonyEditorGUI extends JPanel {
                 StringBuilder notes = new StringBuilder();
                 notes.append(summarizeFrameFiles(files));
                 if (preview.mixedSizes) {
-                    notes.append("\n\nFrame sizes differ; smaller frames are padded to the cell and can be lifted.");
+                    notes.append("\n\nFrame sizes differ; smaller frames are padded to the cell and can be lifted or nudged.");
                 }
                 if (existingCount == preview.frameCount) {
                     notes.append("\n\nExisting timings (").append(existingCount)
@@ -1657,8 +1658,7 @@ public class PonyEditorGUI extends JPanel {
                 }
                 notes.append("\n\n").append(ImageImport.packerOrderNotes());
                 notes.append("\n\n").append(ImageImport.packerScaleNotes());
-                notes.append("\n\nLift is pixels of air under a frame (0 = on the ground). ")
-                        .append("It is baked into the sheet — leave <anchory> empty so feet stay on the ground line.");
+                notes.append("\n\n").append(ImageImport.packerPlacementNotes());
 
                 int[] keepTimings = existingCount == preview.frameCount
                         ? timingsCsForPack(editor.getActionTimings(currentIndex, direction), frames.size())
@@ -1861,7 +1861,7 @@ public class PonyEditorGUI extends JPanel {
                 }
                 packNotes.append("\n\n").append(ImageImport.packerOrderNotes());
                 packNotes.append("\n\n").append(ImageImport.packerScaleNotes());
-                packNotes.append("\n\nLift is pixels of air under a frame (0 = on the ground).");
+                packNotes.append("\n\n").append(ImageImport.packerPlacementNotes());
 
                 int[] keepTimings = existingCount == frames.size()
                         ? timingsCsForPack(editor.getActionTimings(currentIndex, direction), frames.size())

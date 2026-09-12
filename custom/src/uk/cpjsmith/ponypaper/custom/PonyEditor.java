@@ -1528,7 +1528,7 @@ public class PonyEditor {
             System.out.println("    Run with -gif-to-sheet -help for converter options.");
             System.out.println("-pack-sheet [options] OUTPUT.png FRAME.png...|DIR");
             System.out.println("    Pack PNG frames (or a folder of them) into a left-to-right spritesheet.");
-            System.out.println("    Same ImageImport packer as Import frames (including --lifts / --scale).");
+            System.out.println("    Same ImageImport packer as Import frames (including --lifts / --nudges / --scale).");
             System.out.println("    Run with -pack-sheet -help.");
         } else if ("-gif-to-sheet".equals(args[0])) {
             String[] converterArgs = new String[args.length - 1];

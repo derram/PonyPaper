@@ -112,6 +112,19 @@ public final class FramesToSpritesheet {
                 }
                 continue;
             }
+            if ("--nudges".equals(arg)) {
+                if (i + 1 >= args.length) {
+                    System.err.println("Option " + arg + " requires a comma-separated list.");
+                    return 2;
+                }
+                try {
+                    options.nudges = ImageImport.parseNudges(args[++i]);
+                } catch (IOException e) {
+                    System.err.println("Invalid --nudges: " + e.getMessage());
+                    return 2;
+                }
+                continue;
+            }
             if (arg.startsWith("-")) {
                 System.err.println("Unknown option: " + arg);
                 showUsage();
@@ -163,6 +176,9 @@ public final class FramesToSpritesheet {
                 if (options.lifts != null) {
                     System.err.println("Lifts: " + ImageImport.formatLifts(options.lifts));
                 }
+                if (options.nudges != null) {
+                    System.err.println("Nudges: " + ImageImport.formatNudges(options.nudges));
+                }
                 if (timingsFile != null) {
                     System.err.println("Timings file: " + timingsFile.getPath());
                 }
@@ -198,9 +214,12 @@ public final class FramesToSpritesheet {
         System.out.println("  --half               Same as --scale 50 (Desktop Ponies → built-in size)");
         System.out.println("  --lifts N,N,...      Pixels up from the baseline for each frame (0 = on the ground).");
         System.out.println("                       Length must match the frame count. Omit for all zeros.");
+        System.out.println("  --nudges N,N,...     Pixels right of centre for each frame (negative = left).");
+        System.out.println("                       Length must match the frame count. Omit for all zeros.");
         System.out.println();
         System.out.println("Frames are natural-sorted, packed left-to-right with no gutters.");
         System.out.println("Lift raises a frame in a taller cell (hop / jump). It is baked into the PNG.");
+        System.out.println("Nudge shifts a frame from centre (asymmetric crop / registration). It is baked into the PNG.");
         System.out.println("Frame timings (hundredths of a second, comma-separated) are printed to stdout.");
     }
 }

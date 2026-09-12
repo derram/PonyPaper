@@ -23,7 +23,7 @@ To create or modify your own custom ponies, you will need the **Custom Pony Edit
 ### 1. Sprites
 The app requires a spritesheet (a single PNG with frames arranged left-to-right) for each action. The editor can help you create these from:
 *   **GIF animations**: Automatically coalesced and packed.
-*   **Folders of PNG frames**: Packed into uniform cells with optional "lift" for hop cycles.
+*   **Folders of PNG frames**: Packed into uniform cells with optional "lift" for hop cycles and "nudge" for horizontal registration.
 *   **Finished spritesheets**: Split by the wallpaper using integer division.
 
 ### 2. The Editor

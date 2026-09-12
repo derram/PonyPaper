@@ -25,7 +25,7 @@ Packs individual PNG frames into a single strip.
 java -jar custom/build/libs/customponies.jar \
   -pack-sheet walk_left.png walk_left_frames/
 
-# Options: --timing-cs N, --strict-size, --scale 200|100|50|25|12.5|6.25|fit|2x|double, --lifts N,N,...
+# Options: --timing-cs N, --strict-size, --scale 200|100|50|25|12.5|6.25|fit|2x|double, --lifts N,N,..., --nudges N,N,...
 ```
 
 ### CLI Pony Creation
