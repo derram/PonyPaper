@@ -793,7 +793,7 @@ final class EffectPanel extends JPanel {
 
     /**
      * Splits the previewed strip into cells and opens the pack dialog so the
-     * sheet can be reordered, cloned, deleted, lifted, or scaled (same path as Actions Preview).
+     * sheet can be reordered, cloned, deleted, mirrored, lifted, or scaled (same path as Actions Preview).
      */
     private void openSheetInPacker(String direction, Image image, int frameCount, String timings) {
         try {
@@ -854,7 +854,7 @@ final class EffectPanel extends JPanel {
     private void applyPackedFrames(String direction, List<BufferedImage> sourceFrames,
             int[] sourceTimingsCs, FramePackDialog.Result packed)
             throws IOException, PonyEditor.GenericException {
-        List<BufferedImage> frames = ImageImport.gather(sourceFrames, packed.order);
+        List<BufferedImage> frames = packed.gatherFrames(sourceFrames);
         ImageImport.PackOptions options = new ImageImport.PackOptions();
         options.lifts = packed.lifts;
         packed.copyScaleTo(options);

@@ -65,6 +65,8 @@ public final class ImageImportPackTest {
         failures += run("gatherPacksClonesAndDeletes", ImageImportPackTest::testGatherPacksClonesAndDeletes);
         failures += run("gatherTimingsTravel", ImageImportPackTest::testGatherTimingsTravel);
         failures += run("insertAfterAndRemoveAt", ImageImportPackTest::testInsertAfterAndRemoveAt);
+        failures += run("applyFlops", ImageImportPackTest::testApplyFlops);
+        failures += run("gatherThenFlopOneClone", ImageImportPackTest::testGatherThenFlopOneClone);
         failures += run("splitSheetRoundTrip", ImageImportPackTest::testSplitSheetRoundTrip);
         failures += run("extractFramesUnevenAndTrim", ImageImportPackTest::testExtractFramesUnevenAndTrim);
         failures += run("extractFramesKeepsPropInCell", ImageImportPackTest::testExtractFramesKeepsPropInCell);
@@ -705,6 +707,8 @@ public final class ImageImportPackTest {
                 ImageImport.packerOrderNotes().contains("Clone"));
         assertEq("order notes mention delete", true,
                 ImageImport.packerOrderNotes().contains("Delete"));
+        assertEq("order notes mention mirror", true,
+                ImageImport.packerOrderNotes().contains("Mirror"));
         assertEq("width under", false, ImageImport.exceedsSheetWidthBudget(4096));
         assertEq("width over", true, ImageImport.exceedsSheetWidthBudget(4097));
     }
@@ -894,6 +898,71 @@ public final class ImageImportPackTest {
             throw new AssertionError("expected out-of-range insert to fail");
         } catch (IllegalArgumentException ignored) {
         }
+
+        boolean[] clonedFlags = ImageImport.insertAfter(new boolean[] {false, true, false}, 1, true);
+        assertEq("bool insert length", 4, clonedFlags.length);
+        assertEq("bool insert[1]", true, clonedFlags[1]);
+        assertEq("bool insert[2]", true, clonedFlags[2]);
+        assertEq("bool insert[3]", false, clonedFlags[3]);
+        boolean[] droppedFlags = ImageImport.removeAt(new boolean[] {true, false, true}, 1);
+        assertEq("bool remove length", 2, droppedFlags.length);
+        assertEq("bool remove[0]", true, droppedFlags[0]);
+        assertEq("bool remove[1]", true, droppedFlags[1]);
+        assertEq("anyTrue null", false, ImageImport.anyTrue(null));
+        assertEq("anyTrue none", false, ImageImport.anyTrue(new boolean[] {false, false}));
+        assertEq("anyTrue one", true, ImageImport.anyTrue(new boolean[] {false, true}));
+    }
+
+    private static void testApplyFlops() throws IOException {
+        BufferedImage a = marker(8, 8, 0xffff0000, 0xff00ff00);
+        BufferedImage b = marker(8, 8, 0xff0000ff, 0xffffff00);
+        List<BufferedImage> frames = Arrays.asList(a, b);
+
+        List<BufferedImage> same = ImageImport.applyFlops(frames, null);
+        assertEq("null is same list", true, same == frames);
+        same = ImageImport.applyFlops(frames, new boolean[] {false, false});
+        assertEq("all-false is same list", true, same == frames);
+
+        List<BufferedImage> one = ImageImport.applyFlops(frames, new boolean[] {true, false});
+        assertEq("length", 2, one.size());
+        assertEq("flopped A left", 0xff00ff00, one.get(0).getRGB(0, 0));
+        assertEq("flopped A right", 0xffff0000, one.get(0).getRGB(7, 0));
+        assertEq("B unchanged", true, one.get(1) == b);
+
+        BufferedImage twice = ImageImport.applyFlops(
+                Arrays.asList(ImageImport.flopFrame(a)), new boolean[] {true}).get(0);
+        assertEq("double flop left", 0xffff0000, twice.getRGB(0, 0));
+        assertEq("double flop right", 0xff00ff00, twice.getRGB(7, 0));
+
+        try {
+            ImageImport.applyFlops(frames, new boolean[] {true});
+            throw new AssertionError("expected length mismatch");
+        } catch (IOException e) {
+            if (!e.getMessage().contains("length")) {
+                throw new AssertionError("unexpected message: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void testGatherThenFlopOneClone() throws IOException {
+        BufferedImage a = marker(8, 8, 0xffff0000, 0xff00ff00);
+        BufferedImage b = marker(8, 8, 0xff0000ff, 0xffffff00);
+        List<BufferedImage> gathered = ImageImport.gather(
+                Arrays.asList(a, b), new int[] {0, 1, 0});
+        List<BufferedImage> flopped = ImageImport.applyFlops(
+                gathered, new boolean[] {false, true, true});
+        ImageImport packed = ImageImport.fromFrames(flopped, new ImageImport.PackOptions());
+        BufferedImage sheet = decode(packed.loadedImage);
+        assertEq("sheetW", 24, sheet.getWidth());
+        // Slot 0: original A (red left).
+        assertEq("A left", 0xffff0000, sheet.getRGB(0, 0));
+        assertEq("A right", 0xff00ff00, sheet.getRGB(7, 0));
+        // Slot 1: flopped B (yellow left).
+        assertEq("flop B left", 0xffffff00, sheet.getRGB(8, 0));
+        assertEq("flop B right", 0xff0000ff, sheet.getRGB(15, 0));
+        // Slot 2: flopped A clone (green left); unflopped clone would stay red-left.
+        assertEq("flop A clone left", 0xff00ff00, sheet.getRGB(16, 0));
+        assertEq("flop A clone right", 0xffff0000, sheet.getRGB(23, 0));
     }
 
     private static void testPermutePacksInGivenOrder() throws IOException {

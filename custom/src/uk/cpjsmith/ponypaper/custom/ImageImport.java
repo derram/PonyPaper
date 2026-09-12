@@ -855,12 +855,12 @@ public class ImageImport {
 
     /**
      * Short note for packer dialogs: list order is the packed playback
-     * sequence (move, reverse, clone, or delete).
+     * sequence (move, reverse, clone, delete, or per-frame mirror).
      */
     public static String packerOrderNotes() {
-        return "List order is playback order — Move up/down, Reverse, Clone, or Delete. "
-                + "Alt+↑/↓ moves, Ctrl+D clones, Delete removes. "
-                + "Reset order restores the import.";
+        return "List order is playback order — Move up/down, Reverse, Clone, Delete, or Mirror. "
+                + "Alt+↑/↓ moves, Ctrl+D clones, Ctrl+M flops the selected frame, Delete removes. "
+                + "Reset order restores the import (mirrors undone).";
     }
 
     /**
@@ -1447,6 +1447,84 @@ public class ImageImport {
         int tail = values.length - index - 1;
         if (tail > 0) {
             System.arraycopy(values, index + 1, out, index, tail);
+        }
+        return out;
+    }
+
+    /**
+     * Inserts {@code value} immediately after {@code index}. Used to clone a
+     * per-slot flop flag with the playback sequence.
+     */
+    public static boolean[] insertAfter(boolean[] values, int index, boolean value) {
+        if (values == null || index < 0 || index >= values.length) {
+            throw new IllegalArgumentException("index");
+        }
+        boolean[] out = new boolean[values.length + 1];
+        System.arraycopy(values, 0, out, 0, index + 1);
+        out[index + 1] = value;
+        int tail = values.length - index - 1;
+        if (tail > 0) {
+            System.arraycopy(values, index + 1, out, index + 2, tail);
+        }
+        return out;
+    }
+
+    /**
+     * Removes the slot at {@code index}. The array must keep at least one
+     * element.
+     */
+    public static boolean[] removeAt(boolean[] values, int index) {
+        if (values == null || values.length < 2 || index < 0 || index >= values.length) {
+            throw new IllegalArgumentException("index");
+        }
+        boolean[] out = new boolean[values.length - 1];
+        if (index > 0) {
+            System.arraycopy(values, 0, out, 0, index);
+        }
+        int tail = values.length - index - 1;
+        if (tail > 0) {
+            System.arraycopy(values, index + 1, out, index, tail);
+        }
+        return out;
+    }
+
+    /** True when {@code flags} contains at least one {@code true}. */
+    public static boolean anyTrue(boolean[] flags) {
+        if (flags == null) {
+            return false;
+        }
+        for (int i = 0; i < flags.length; i++) {
+            if (flags[i]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Horizontal-flips frames whose {@code flops} flag is true. {@code null}
+     * or all-false leaves the list unchanged (same instance). Length must
+     * match {@code frames} when {@code flops} is non-null.
+     */
+    public static List<BufferedImage> applyFlops(List<BufferedImage> frames, boolean[] flops)
+            throws IOException {
+        if (frames == null || frames.isEmpty()) {
+            throw new IOException("No frames to flop.");
+        }
+        if (flops == null) {
+            return frames;
+        }
+        if (flops.length != frames.size()) {
+            throw new IOException("Flop flags length " + flops.length
+                    + " does not match " + frames.size() + " frames.");
+        }
+        if (!anyTrue(flops)) {
+            return frames;
+        }
+        List<BufferedImage> out = new ArrayList<BufferedImage>(frames.size());
+        for (int i = 0; i < frames.size(); i++) {
+            BufferedImage frame = frames.get(i);
+            out.add(flops[i] ? flopFrame(frame) : frame);
         }
         return out;
     }

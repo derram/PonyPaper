@@ -1240,7 +1240,7 @@ public class PonyEditorGUI extends JPanel {
         /**
          * Splits the previewed strip into cells (same integer division as the
          * wallpaper) and opens the pack dialog so the sheet can be reordered,
-         * cloned, deleted, lifted, or scaled.
+         * cloned, deleted, mirrored, lifted, or scaled.
          */
         void openSheetInPacker(String direction, Image image, int frameCount, String timings) {
             try {
@@ -1567,16 +1567,16 @@ public class PonyEditorGUI extends JPanel {
         }
 
         /**
-         * Packs {@code sourceFrames} in {@code packed.order}. Per-frame timings
-         * (GIF delays) are gathered with the frames. Reordering, cloning, or
-         * deleting replaces any existing action timings of the same length —
-         * those numbers are playback slots, not images.
+         * Packs {@code sourceFrames} in {@code packed.order}, flopping slots
+         * in {@code packed.flops}. Per-frame timings (GIF delays) are gathered
+         * with the frames. Reordering, cloning, or deleting replaces any
+         * existing action timings of the same length — those numbers are
+         * playback slots, not images. Mirror alone keeps existing timings.
          */
         void applyPackedFrames(String direction, List<java.awt.image.BufferedImage> sourceFrames,
                 int[] sourceTimingsCs, FramePackDialog.Result packed)
                 throws IOException, PonyEditor.GenericException {
-            List<java.awt.image.BufferedImage> frames =
-                    ImageImport.gather(sourceFrames, packed.order);
+            List<java.awt.image.BufferedImage> frames = packed.gatherFrames(sourceFrames);
             ImageImport.PackOptions options = new ImageImport.PackOptions();
             options.lifts = packed.lifts;
             packed.copyScaleTo(options);
