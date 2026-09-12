@@ -690,7 +690,30 @@ final class CustomStorage {
         return written;
     }
 
-    private static void copyFile(File from, File to) throws IOException {
+    static String sha1OfFile(File file) throws IOException {
+        if (file == null || !file.isFile()) {
+            throw new IOException("Missing file");
+        }
+        InputStream in = new FileInputStream(file);
+        try {
+            MessageDigest digester;
+            try {
+                digester = MessageDigest.getInstance("SHA-1");
+            } catch (NoSuchAlgorithmException e) {
+                digester = null;
+            }
+            byte[] buffer = new byte[COPY_BUFFER];
+            int n;
+            while ((n = in.read(buffer)) >= 0) {
+                if (digester != null) digester.update(buffer, 0, n);
+            }
+            return hexDigest(digester);
+        } finally {
+            in.close();
+        }
+    }
+
+    static void copyFile(File from, File to) throws IOException {
         InputStream in = new FileInputStream(from);
         try {
             OutputStream out = new FileOutputStream(to);

@@ -1519,6 +1519,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         }
         if (controller != null
                 && (controller.isSceneLoadInFlight()
+                        || controller.isBackgroundCycleLoadInFlight()
                         || controller.isThermalLimiting()
                         || controller.isHerdDraining())) {
             return false;

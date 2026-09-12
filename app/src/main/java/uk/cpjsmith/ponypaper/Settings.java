@@ -210,7 +210,10 @@ public class Settings extends AppCompatActivity
                     if (key == null
                             || PonySceneController.PREF_BACKGROUND.equals(key)
                             || PonySceneController.PREF_DREAM_BACKGROUND.equals(key)
-                            || PonySceneController.PREF_DREAM_CUSTOM_DISPLAY.equals(key)) {
+                            || PonySceneController.PREF_DREAM_CUSTOM_DISPLAY.equals(key)
+                            || PonySceneController.PREF_DREAM_CYCLE_BACKGROUNDS.equals(key)
+                            || BackgroundAlbum.PREF_JSON.equals(key)
+                            || "pref_select_background".equals(key)) {
                         refreshSharedBackgroundControls();
                     }
                 }
@@ -225,6 +228,7 @@ public class Settings extends AppCompatActivity
         PonySceneController.ensureIdleTimeoutDefault(this);
         SceneMode.migrate(this);
         PrefDefaults.apply(this);
+        BackgroundAlbum.seedFromLive(this);
 
         PreferenceManager.getDefaultSharedPreferences(this)
                 .registerOnSharedPreferenceChangeListener(enableAllListener);
@@ -346,6 +350,16 @@ public class Settings extends AppCompatActivity
             clearBackground.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
                 public boolean onPreferenceClick(Preference preference) {
                     onClearBackgroundClicked();
+                    return true;
+                }
+            });
+        }
+
+        Preference savedBackgrounds = findPreference("pref_saved_backgrounds");
+        if (savedBackgrounds != null) {
+            savedBackgrounds.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                public boolean onPreferenceClick(Preference preference) {
+                    showSavedBackgroundsDialog();
                     return true;
                 }
             });
@@ -1733,6 +1747,138 @@ public class Settings extends AppCompatActivity
         if (pixelation != null) {
             pixelation.setEnabled(imageInUse);
         }
+        refreshBackgroundAlbumControls();
+    }
+
+    private void refreshBackgroundAlbumControls() {
+        int n = BackgroundAlbum.presentCount(this);
+        Preference saved = findPreference("pref_saved_backgrounds");
+        if (saved != null) {
+            if (n <= 0) {
+                saved.setSummary(R.string.pref_saved_backgrounds_summary_empty);
+            } else if (n == 1) {
+                saved.setSummary(R.string.pref_saved_backgrounds_summary_one);
+            } else {
+                saved.setSummary(getString(R.string.pref_saved_backgrounds_summary_count, n));
+            }
+        }
+        boolean canCycle = n >= 2;
+        CheckBoxPreference cycle = (CheckBoxPreference) findPreference(
+                PonySceneController.PREF_DREAM_CYCLE_BACKGROUNDS);
+        if (cycle != null) {
+            cycle.setEnabled(canCycle);
+            if (!canCycle) {
+                cycle.setSummary(R.string.pref_dream_cycle_backgrounds_need_two);
+            } else {
+                cycle.setSummary(R.string.pref_dream_cycle_backgrounds_summary);
+            }
+        }
+        Preference interval = findPreference(PonySceneController.PREF_DREAM_CYCLE_INTERVAL);
+        if (interval != null) {
+            interval.setEnabled(canCycle && cycle != null && cycle.isChecked());
+        }
+    }
+
+    private void showSavedBackgroundsDialog() {
+        final List<BackgroundAlbum.Member> members = BackgroundAlbum.membersForUi(this);
+        if (members.isEmpty()) {
+            showAlertDialog(getString(R.string.pref_saved_backgrounds_empty_title),
+                    getString(R.string.pref_saved_backgrounds_empty_message));
+            return;
+        }
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        String current = BackgroundAlbum.wallpaperHash(prefs);
+        CharSequence[] labels = new CharSequence[members.size()];
+        for (int i = 0; i < members.size(); i++) {
+            boolean wallpaper = members.get(i).hash.equals(current);
+            labels[i] = getString(wallpaper
+                    ? R.string.pref_saved_backgrounds_item_current
+                    : R.string.pref_saved_backgrounds_item, i + 1);
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.pref_saved_backgrounds_dialog);
+        builder.setItems(labels, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                showSavedBackgroundActions(members.get(which).hash);
+            }
+        });
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        builder.create().show();
+    }
+
+    private void showSavedBackgroundActions(final String hash) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.pref_saved_backgrounds_actions_title);
+        CharSequence[] actions = new CharSequence[] {
+                getString(R.string.pref_saved_backgrounds_use),
+                getString(R.string.pref_saved_backgrounds_remove)
+        };
+        builder.setItems(actions, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                if (which == 0) {
+                    applySavedBackground(hash);
+                } else if (which == 1) {
+                    confirmRemoveSavedBackground(hash);
+                }
+            }
+        });
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        builder.create().show();
+    }
+
+    private void applySavedBackground(final String hash) {
+        if (!beginStorageWork()) return;
+        new Thread(new Runnable() {
+            public void run() {
+                String error = null;
+                try {
+                    BackgroundAlbum.applyAsWallpaper(Settings.this, hash);
+                } catch (Exception e) {
+                    error = e.getMessage();
+                }
+                final String fail = error;
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        storageBusy = false;
+                        refreshSharedBackgroundControls();
+                        if (fail != null) {
+                            showAlertDialog(getString(R.string.pref_saved_backgrounds_use_failed),
+                                    fail);
+                        }
+                    }
+                });
+            }
+        }, "ponypaper-apply-bg").start();
+    }
+
+    private void confirmRemoveSavedBackground(final String hash) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.pref_saved_backgrounds_remove_title);
+        builder.setMessage(R.string.pref_saved_backgrounds_remove_message);
+        builder.setPositiveButton(R.string.pref_saved_backgrounds_remove,
+                new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface dialog, int which) {
+                        if (!beginStorageWork()) return;
+                        new Thread(new Runnable() {
+                            public void run() {
+                                final boolean ok = BackgroundAlbum.remove(Settings.this, hash);
+                                runOnUiThread(new Runnable() {
+                                    public void run() {
+                                        storageBusy = false;
+                                        refreshSharedBackgroundControls();
+                                        if (!ok) {
+                                            showAlertDialog(
+                                                    getString(R.string.pref_saved_backgrounds_remove_title),
+                                                    getString(R.string.pref_saved_backgrounds_use_failed));
+                                        }
+                                    }
+                                });
+                            }
+                        }, "ponypaper-remove-bg").start();
+                    }
+                });
+        builder.setNegativeButton(R.string.dialog_cancel, null);
+        builder.create().show();
     }
 
     /**
@@ -1748,7 +1894,16 @@ public class Settings extends AppCompatActivity
             return false;
         }
         if (!new File(filesDir, CustomStorage.BACKGROUND_NAME).exists()) {
-            selectBackground();
+            List<BackgroundAlbum.Member> album = BackgroundAlbum.membersForUi(this);
+            if (!album.isEmpty()) {
+                try {
+                    BackgroundAlbum.applyAsWallpaper(this, album.get(album.size() - 1).hash);
+                } catch (IOException e) {
+                    selectBackground();
+                }
+            } else {
+                selectBackground();
+            }
         }
         return true;
     }
@@ -2480,10 +2635,19 @@ public class Settings extends AppCompatActivity
                     }
                 }
                 if (result.error == null && result.backgroundImported) {
+                    String hash = null;
+                    try {
+                        hash = CustomStorage.sha1OfFile(CustomStorage.localFile(
+                                Settings.this, CustomStorage.BACKGROUND_NAME));
+                    } catch (IOException ignored) {
+                    }
+                    if (hash == null) {
+                        hash = Long.toString(System.currentTimeMillis());
+                    }
                     PreferenceManager.getDefaultSharedPreferences(Settings.this).edit()
-                            .putString("pref_select_background",
-                                    Long.toString(System.currentTimeMillis()))
+                            .putString("pref_select_background", hash)
                             .commit();
+                    BackgroundAlbum.addFromLive(Settings.this, hash);
                 }
                 runOnUiThread(new Runnable() {
                     public void run() {
@@ -2579,6 +2743,7 @@ public class Settings extends AppCompatActivity
             SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(this).edit();
             editor.putString("pref_select_background", hash);
             editor.commit();
+            BackgroundAlbum.addFromLive(this, hash);
             refreshSharedBackgroundControls();
         } catch (IOException e) {
             showAlertDialog("Failed to set background", "An I/O error occurred.");

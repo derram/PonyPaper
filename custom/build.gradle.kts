@@ -45,6 +45,7 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/InactiveRoster.java",
                 "uk/cpjsmith/ponypaper/HerdDrain.java",
                 "uk/cpjsmith/ponypaper/ShuffleMixBag.java",
+                "uk/cpjsmith/ponypaper/BackgroundAlbumLogic.java",
                 "uk/cpjsmith/ponypaper/DragExit.java",
                 "uk/cpjsmith/ponypaper/CustomDefinitionCache.java",
                 "uk/cpjsmith/ponypaper/SecureXml.java",
@@ -228,6 +229,13 @@ tasks.register<JavaExec>("testShuffleMixBag") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.ShuffleMixBagTest")
 }
 
+tasks.register<JavaExec>("testBackgroundAlbum") {
+    group = "verification"
+    description = "Run saved-background album cycle helper checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.BackgroundAlbumLogicTest")
+}
+
 tasks.register<JavaExec>("testDragExit") {
     group = "verification"
     description = "Run drag-to-edge axis and margin checks"
@@ -279,6 +287,7 @@ tasks.named("check") {
     dependsOn("testInactiveRoster")
     dependsOn("testHerdDrain")
     dependsOn("testShuffleMixBag")
+    dependsOn("testBackgroundAlbum")
     dependsOn("testDragExit")
     dependsOn("testEditorCli")
     dependsOn("testEditorWindowFocus")

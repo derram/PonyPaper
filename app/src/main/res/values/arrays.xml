@@ -42,6 +42,18 @@
         <item>60</item>
         <item>0</item>
     </string-array>
+    <string-array name="pref_dream_cycle_interval_entries">
+        <item>@string/pref_dream_cycle_interval_5</item>
+        <item>@string/pref_dream_cycle_interval_10</item>
+        <item>@string/pref_dream_cycle_interval_15</item>
+        <item>@string/pref_dream_cycle_interval_30</item>
+    </string-array>
+    <string-array name="pref_dream_cycle_interval_values">
+        <item>5</item>
+        <item>10</item>
+        <item>15</item>
+        <item>30</item>
+    </string-array>
     <string-array name="pref_debug_render_path_entries">
         <item>@string/pref_debug_render_path_auto</item>
         <item>@string/pref_debug_render_path_hardware</item>

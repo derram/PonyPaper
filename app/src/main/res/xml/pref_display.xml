@@ -52,6 +52,10 @@
             android:key="pref_clear_background"
             android:title="@string/pref_clear_background_title"
             android:summary="@string/pref_clear_background_summary" />
+        <Preference
+            android:key="pref_saved_backgrounds"
+            android:title="@string/pref_saved_backgrounds_title"
+            android:summary="@string/pref_saved_backgrounds_summary_empty" />
         <uk.cpjsmith.ponypaper.NumberPickerPreference
             android:key="pref_pixelation"
             android:title="Background pixelation level"
@@ -169,6 +173,20 @@
             android:title="@string/pref_dream_oled_shift_title"
             android:summary="@string/pref_dream_oled_shift_summary"
             android:defaultValue="true" />
+        <CheckBoxPreference
+            android:key="pref_dream_cycle_backgrounds"
+            android:title="@string/pref_dream_cycle_backgrounds_title"
+            android:summary="@string/pref_dream_cycle_backgrounds_summary"
+            android:defaultValue="false" />
+        <ListPreference
+            android:key="pref_dream_cycle_interval"
+            android:title="@string/pref_dream_cycle_interval_title"
+            android:summary="%s"
+            android:dialogTitle="@string/pref_dream_cycle_interval_dialog"
+            android:entries="@array/pref_dream_cycle_interval_entries"
+            android:entryValues="@array/pref_dream_cycle_interval_values"
+            android:defaultValue="10"
+            android:dependency="pref_dream_cycle_backgrounds" />
         <ListPreference
             android:key="pref_dream_idle_timeout"
             android:title="@string/pref_dream_idle_timeout_title"
