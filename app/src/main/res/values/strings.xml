@@ -148,7 +148,16 @@
     <string name="pref_pony_size_randomized_summary">Randomized by My ??? Pony mode</string>
     <string name="pref_num_ponies_tableau_summary">Tableau scene slots set the pony count</string>
     <string name="dream_mix_tableau_toast">Mixes edit the wander herd only — switch out of Tableau first</string>
-    <string name="pref_select_background_summary">Sets the live wallpaper image and saves a copy for the screen saver album</string>
+    <string name="pref_select_background_summary">Tap to set the live wallpaper image and save a copy. Long-press to add images to the album without changing the wallpaper</string>
+    <string name="pref_select_background_add_album">Add to album</string>
+    <string name="pref_add_album_ok_title">Saved backgrounds</string>
+    <string name="pref_add_album_added_one">Added 1 image to the album. The live wallpaper was not changed.</string>
+    <string name="pref_add_album_added_many">Added %d images to the album. The live wallpaper was not changed.</string>
+    <string name="pref_add_album_already_one">That image is already in the album.</string>
+    <string name="pref_add_album_already">Those images are already in the album.</string>
+    <string name="pref_add_album_partial">Added %1$d. %2$d could not be saved (too large, album full, or unreadable). The live wallpaper was not changed.</string>
+    <string name="pref_add_album_failed_title">Could not add backgrounds</string>
+    <string name="pref_add_album_failed_message">The selected images could not be saved to the album. The live wallpaper was not changed.</string>
     <string name="pref_clear_background_title">Clear background</string>
     <string name="pref_clear_background_summary">Remove the live wallpaper image. Saved backgrounds are kept.</string>
     <string name="pref_clear_background_confirm_title">Clear background?</string>
@@ -161,7 +170,7 @@
     <string name="pref_saved_backgrounds_item">Saved %1$d</string>
     <string name="pref_saved_backgrounds_item_current">Saved %1$d (wallpaper)</string>
     <string name="pref_saved_backgrounds_empty_title">No saved backgrounds</string>
-    <string name="pref_saved_backgrounds_empty_message">Select a background image to save it. Each new pick is added to this album.</string>
+    <string name="pref_saved_backgrounds_empty_message">Select a background image to save it, or long-press Select background to add several without changing the wallpaper.</string>
     <string name="pref_saved_backgrounds_actions_title">Saved background</string>
     <string name="pref_saved_backgrounds_use">Use as wallpaper</string>
     <string name="pref_saved_backgrounds_remove">Remove from album</string>

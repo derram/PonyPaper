@@ -172,6 +172,10 @@ final class CustomStorage {
     }
 
     static String copyStreamToFile(InputStream in, File dest) throws IOException {
+        return copyStreamToFile(in, dest, Long.MAX_VALUE);
+    }
+
+    static String copyStreamToFile(InputStream in, File dest, long maxBytes) throws IOException {
         MessageDigest digester;
         try {
             digester = MessageDigest.getInstance("SHA-1");
@@ -179,16 +183,24 @@ final class CustomStorage {
             digester = null;
         }
 
+        boolean tooLarge = false;
         OutputStream out = new FileOutputStream(dest);
         try {
             byte[] buffer = new byte[COPY_BUFFER];
+            long written = 0;
             int n;
             while ((n = in.read(buffer)) >= 0) {
+                written += n;
+                if (written > maxBytes) {
+                    tooLarge = true;
+                    throw new IOException("Image exceeds size limit");
+                }
                 out.write(buffer, 0, n);
                 if (digester != null) digester.update(buffer, 0, n);
             }
         } finally {
             out.close();
+            if (tooLarge) dest.delete();
         }
         return hexDigest(digester);
     }

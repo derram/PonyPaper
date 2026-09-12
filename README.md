@@ -50,7 +50,7 @@ This repository is a **modernization fork** of the [Smithers888/PonyPaper](https
 
 ### 🌙 Screen Saver
 - **Optional screen saver** — wallpaper and screensaver can be enabled/disabled independently; shares the herd, with optional separate scene mode, Tableau scene, pony count, FPS, and background.
-- **Saved backgrounds** — each selected image is kept in an album; the live wallpaper stays on the last pick. The screen saver can cycle the album (default off) on a 5–30 minute interval, on top of the slow OLED pan.
+- **Saved backgrounds** — each selected image is kept in an album; the live wallpaper stays on the last pick. Long-press Select background to add several images without changing the wallpaper. The screen saver can cycle the album (default off) on a 5–30 minute interval, on top of the slow OLED pan.
 - **Optional screensaver clock** — large digital clock, with optional date, drawn over the herd; 12/24-hour follows the system setting.
 - **Idle timeout** — (default 10 minutes, or never) ends the saver after no touch so the display can sleep.
 

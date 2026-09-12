@@ -119,6 +119,19 @@ public class Settings extends AppCompatActivity
                         }
                     });
 
+    private final ActivityResultLauncher<Intent> addAlbumBackgroundsLauncher =
+            registerForActivityResult(
+                    new ActivityResultContracts.StartActivityForResult(),
+                    new ActivityResultCallback<ActivityResult>() {
+                        @Override
+                        public void onActivityResult(ActivityResult result) {
+                            Intent data = result.getData();
+                            if (result.getResultCode() == RESULT_OK && data != null) {
+                                addAlbumBackgrounds(collectUris(data));
+                            }
+                        }
+                    });
+
     private final ActivityResultLauncher<Intent> selectCustomLauncher =
             registerForActivityResult(
                     new ActivityResultContracts.StartActivityForResult(),
@@ -343,6 +356,15 @@ public class Settings extends AppCompatActivity
                     return true;
                 }
             });
+            if (selectBackground instanceof LongClickPreference) {
+                ((LongClickPreference) selectBackground).setOnLongClickListener(new View.OnLongClickListener() {
+                    @Override
+                    public boolean onLongClick(View v) {
+                        selectAlbumBackgrounds();
+                        return true;
+                    }
+                });
+            }
         }
 
         Preference clearBackground = findPreference("pref_clear_background");
@@ -2120,6 +2142,72 @@ public class Settings extends AppCompatActivity
         intent.setType("image/*");
         selectBackgroundLauncher.launch(
                 Intent.createChooser(intent, "Select Background"));
+    }
+
+    private void selectAlbumBackgrounds() {
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.setType("image/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        addAlbumBackgroundsLauncher.launch(
+                Intent.createChooser(intent, getString(R.string.pref_select_background_add_album)));
+    }
+
+    private void addAlbumBackgrounds(final Uri[] uris) {
+        if (uris == null || uris.length == 0) return;
+        if (!beginStorageWork()) return;
+        new Thread(new Runnable() {
+            public void run() {
+                int added = 0;
+                int already = 0;
+                int failed = 0;
+                for (int i = 0; i < uris.length; i++) {
+                    try {
+                        int result = BackgroundAlbum.addFromUri(Settings.this, uris[i]);
+                        if (result > 0) added++;
+                        else if (result == 0) already++;
+                        else failed++;
+                    } catch (Exception e) {
+                        failed++;
+                    }
+                }
+                final int addedCount = added;
+                final int alreadyCount = already;
+                final int failedCount = failed;
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        storageBusy = false;
+                        refreshSharedBackgroundControls();
+                        showAddAlbumResult(addedCount, alreadyCount, failedCount);
+                    }
+                });
+            }
+        }, "ponypaper-add-album").start();
+    }
+
+    private void showAddAlbumResult(int added, int already, int failed) {
+        if (added > 0) {
+            String msg;
+            if (failed > 0) {
+                msg = getString(R.string.pref_add_album_partial, added, failed);
+            } else if (added == 1) {
+                msg = getString(R.string.pref_add_album_added_one);
+            } else {
+                msg = getString(R.string.pref_add_album_added_many, added);
+            }
+            showAlertDialog(getString(R.string.pref_add_album_ok_title), msg);
+            return;
+        }
+        if (already > 0 && failed == 0) {
+            showAlertDialog(getString(R.string.pref_add_album_ok_title),
+                    already == 1
+                            ? getString(R.string.pref_add_album_already_one)
+                            : getString(R.string.pref_add_album_already));
+            return;
+        }
+        showAlertDialog(getString(R.string.pref_add_album_failed_title),
+                getString(R.string.pref_add_album_failed_message));
     }
 
     private boolean storageBusy;

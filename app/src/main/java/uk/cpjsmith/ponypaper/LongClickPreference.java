@@ -8,7 +8,8 @@ import androidx.preference.PreferenceViewHolder;
 
 /**
  * Preference that supports a long-press action in addition to the normal click.
- * Used for Export library (tap = full backup, long-press = choose categories).
+ * Used for Export library (tap = full backup, long-press = choose categories)
+ * and Select background (tap = set wallpaper, long-press = add to album).
  */
 public class LongClickPreference extends Preference {
 

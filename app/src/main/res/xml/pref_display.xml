@@ -44,7 +44,7 @@
             android:key="pref_background"
             android:title="Use background"
             android:defaultValue="false" />
-        <Preference
+        <uk.cpjsmith.ponypaper.LongClickPreference
             android:key="pref_select_background"
             android:title="Select background"
             android:summary="@string/pref_select_background_summary" />

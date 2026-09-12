@@ -2,8 +2,10 @@ package uk.cpjsmith.ponypaper;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import androidx.preference.PreferenceManager;
 import java.io.File;
+import java.io.InputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -243,6 +245,78 @@ final class BackgroundAlbum {
                 }
             }
             addFromLive(context, hash);
+        }
+    }
+
+    /**
+     * Copy an image URI into the album without touching the live wallpaper
+     * slot or {@code pref_select_background}. Evicts oldest other members when
+     * over cap.
+     *
+     * @return {@code 1} newly stored, {@code 0} already in the album,
+     *         {@code -1} rejected (too large or album full after eviction)
+     */
+    static int addFromUri(Context context, Uri source) throws IOException {
+        synchronized (LOCK) {
+            if (context == null || source == null) {
+                throw new IOException("Could not open selected content");
+            }
+            File dir = albumDir(context);
+            File temp = new File(dir, "ingest.tmp");
+            if (temp.exists() && !temp.delete()) {
+                throw new IOException("Could not prepare album ingest");
+            }
+            InputStream in = context.getContentResolver().openInputStream(source);
+            if (in == null) {
+                throw new IOException("Could not open selected content");
+            }
+            try {
+                String hash;
+                try {
+                    hash = CustomStorage.copyStreamToFile(in, temp,
+                            BackgroundAlbumLogic.MAX_MEMBER_BYTES);
+                } finally {
+                    in.close();
+                }
+                if (!BackgroundAlbumLogic.isSafeHash(hash)) {
+                    throw new IOException("Could not hash image");
+                }
+                File dest = fileForHash(context, hash);
+                SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+                ArrayList<Member> members = new ArrayList<Member>(load(prefs));
+                boolean alreadyMember = false;
+                for (int i = 0; i < members.size(); i++) {
+                    if (hash.equals(members.get(i).hash)) {
+                        alreadyMember = true;
+                        break;
+                    }
+                }
+                if (dest.isFile() && dest.length() > 0) {
+                    if (!alreadyMember) {
+                        ensureMember(members, hash);
+                        save(prefs, members);
+                        return 1;
+                    }
+                    return 0;
+                }
+                evictUntilFit(context, members, temp.length(), hash);
+                long total = albumBytes(context, members);
+                if (members.size() >= BackgroundAlbumLogic.MAX_MEMBERS
+                        || total + temp.length() > BackgroundAlbumLogic.MAX_TOTAL_BYTES) {
+                    return -1;
+                }
+                if (dest.exists() && !dest.delete()) {
+                    throw new IOException("Could not replace album image");
+                }
+                if (!temp.renameTo(dest)) {
+                    CustomStorage.copyFile(temp, dest);
+                }
+                ensureMember(members, hash);
+                save(prefs, members);
+                return 1;
+            } finally {
+                if (temp.exists()) temp.delete();
+            }
         }
     }
 
