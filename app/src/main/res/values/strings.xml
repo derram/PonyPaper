@@ -169,13 +169,15 @@
     <string name="pref_saved_backgrounds_dialog">Saved backgrounds</string>
     <string name="pref_saved_backgrounds_item">Saved %1$d</string>
     <string name="pref_saved_backgrounds_item_current">Saved %1$d (wallpaper)</string>
+    <string name="pref_saved_backgrounds_item_named">%1$s</string>
+    <string name="pref_saved_backgrounds_item_named_current">%1$s (wallpaper)</string>
     <string name="pref_saved_backgrounds_empty_title">No saved backgrounds</string>
     <string name="pref_saved_backgrounds_empty_message">Select a background image to save it, or long-press Select background to add several without changing the wallpaper.</string>
     <string name="pref_saved_backgrounds_actions_title">Saved background</string>
     <string name="pref_saved_backgrounds_use">Use as wallpaper</string>
     <string name="pref_saved_backgrounds_remove">Remove from album</string>
     <string name="pref_saved_backgrounds_remove_title">Remove saved background?</string>
-    <string name="pref_saved_backgrounds_remove_message">This does not change the live wallpaper image unless you clear that separately.</string>
+    <string name="pref_saved_backgrounds_remove_message">This does not change the live wallpaper image unless you clear that separately. If a library folder is linked, the file is also removed from the album folder.</string>
     <string name="pref_saved_backgrounds_use_failed">Could not use that saved background.</string>
     <string name="pref_clear_background_ok_title">Background cleared</string>
     <string name="pref_clear_background_ok_message">The background image was removed.</string>
@@ -347,8 +349,8 @@
     <string name="pref_import_library_title">Import library</string>
     <string name="pref_import_library_summary">Merge from a zip; you choose whether to apply ponies, background, mixes, and scenes</string>
     <string name="pref_library_folder_title">Character library folder</string>
-    <string name="pref_library_folder_summary_unset">Not set. Custom ponies are deleted if you uninstall the app</string>
-    <string name="pref_library_folder_summary_set">%1$s — survives uninstall; tap to sync or change</string>
+    <string name="pref_library_folder_summary_unset">Not set. Custom ponies and the background album are deleted if you uninstall the app</string>
+    <string name="pref_library_folder_summary_set">%1$s — ponies and album folder survive uninstall; tap to sync or change</string>
     <string name="pref_library_folder_summary_lost">Permission lost. Tap to reconnect the same folder</string>
 
     <string name="library_export_empty_title">Nothing to export</string>

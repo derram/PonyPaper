@@ -5,11 +5,14 @@ import android.content.SharedPreferences;
 import android.net.Uri;
 import androidx.preference.PreferenceManager;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -18,10 +21,13 @@ import org.json.JSONObject;
  *
  * <p>The live wallpaper slot remains {@link CustomStorage#BACKGROUND_NAME}.
  * Album files live in {@code backgrounds/<sha1>} and are never written back
- * into that slot by the screensaver cycle. Library zip / SAF still export
- * only the live slot.
+ * into that slot by the screensaver cycle. Library zip export still writes
+ * only the live slot. The linked library tree may hold copies under
+ * {@code album/} for add/remove via the file manager; that folder is not
+ * exported.
  *
- * <p>JSON: {@link #PREF_JSON} {@code {members:[{hash,added}]}} in add order.
+ * <p>JSON: {@link #PREF_JSON} {@code {members:[{hash,added,name}]}} in add
+ * order. {@code name} is the library-folder filename when known.
  */
 final class BackgroundAlbum {
 
@@ -33,10 +39,17 @@ final class BackgroundAlbum {
     static final class Member {
         final String hash;
         final long addedMs;
+        /** Sanitized album-folder filename, or null for older records. */
+        final String name;
 
         Member(String hash, long addedMs) {
+            this(hash, addedMs, null);
+        }
+
+        Member(String hash, long addedMs, String name) {
             this.hash = hash;
             this.addedMs = addedMs;
+            this.name = name;
         }
     }
 
@@ -84,6 +97,7 @@ final class BackgroundAlbum {
         if (prefs == null) return out;
         String raw = prefs.getString(PREF_JSON, null);
         if (raw == null || raw.length() == 0) return out;
+        HashSet<String> seenNames = new HashSet<String>();
         try {
             JSONObject root = new JSONObject(raw);
             JSONArray arr = root.optJSONArray("members");
@@ -94,14 +108,20 @@ final class BackgroundAlbum {
                 String hash = o.optString("hash", "");
                 if (!BackgroundAlbumLogic.isSafeHash(hash)) continue;
                 long added = o.optLong("added", 0L);
-                boolean dup = false;
-                for (int j = 0; j < out.size(); j++) {
-                    if (hash.equals(out.get(j).hash)) {
-                        dup = true;
-                        break;
+                String name = o.optString("name", "");
+                if (name == null || name.length() == 0) {
+                    name = null;
+                } else {
+                    name = BackgroundAlbumLogic.sanitizeAlbumFileName(name);
+                }
+                if (name != null) {
+                    if (seenNames.contains(name.toLowerCase(Locale.US))) {
+                        name = null;
+                    } else {
+                        seenNames.add(name.toLowerCase(Locale.US));
                     }
                 }
-                if (!dup) out.add(new Member(hash, added));
+                out.add(new Member(hash, added, name));
             }
         } catch (Exception ignored) {
         }
@@ -119,6 +139,9 @@ final class BackgroundAlbum {
                     JSONObject o = new JSONObject();
                     o.put("hash", m.hash);
                     o.put("added", m.addedMs);
+                    if (m.name != null && BackgroundAlbumLogic.sanitizeAlbumFileName(m.name) != null) {
+                        o.put("name", m.name);
+                    }
                     arr.put(o);
                 } catch (Exception ignored) {
                 }
@@ -133,16 +156,22 @@ final class BackgroundAlbum {
     }
 
     /**
-     * Hashes whose album files still exist, in JSON order.
+     * Hashes whose album files still exist, in JSON order, unique.
      */
     static ArrayList<String> presentHashes(Context context) {
         ArrayList<String> out = new ArrayList<String>();
         if (context == null) return out;
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         List<Member> members = load(prefs);
+        HashSet<String> seen = new HashSet<String>();
         for (int i = 0; i < members.size(); i++) {
-            File f = fileForHashOrNull(context, members.get(i).hash);
-            if (f != null) out.add(members.get(i).hash);
+            String hash = members.get(i).hash;
+            if (seen.contains(hash)) continue;
+            File f = fileForHashOrNull(context, hash);
+            if (f != null) {
+                seen.add(hash);
+                out.add(hash);
+            }
         }
         return out;
     }
@@ -175,11 +204,20 @@ final class BackgroundAlbum {
 
     /**
      * Copy the live {@code background} file into the album under {@code hash}.
-     * No-op when already present. Evicts oldest other members when over cap.
+     * No-op when already present. Evicts oldest other members when over cap
+     * and no library folder is linked (linked folders must not lose photos).
      *
      * @return true when the hash is in the album afterwards
      */
     static boolean addFromLive(Context context, String hash) {
+        return addFromLive(context, hash, true);
+    }
+
+    private static boolean addFromLive(Context context, String hash, boolean writeThrough) {
+        String libraryName = null;
+        File dest = null;
+        boolean added = false;
+        boolean copiedNew = false;
         synchronized (LOCK) {
             if (context == null || !BackgroundAlbumLogic.isSafeHash(hash)) return false;
             File live;
@@ -193,33 +231,40 @@ final class BackgroundAlbum {
 
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
             ArrayList<Member> members = new ArrayList<Member>(load(prefs));
-            File dest;
             try {
                 dest = fileForHash(context, hash);
             } catch (IOException e) {
                 return false;
             }
             if (dest.isFile() && dest.length() > 0) {
-                ensureMember(members, hash);
+                libraryName = ensureMember(members, hash, nameForFile(members, dest, hash));
                 save(prefs, members);
-                return true;
+                added = true;
+            } else {
+                boolean linked = CustomStorage.hasLibraryFolder(context);
+                if (!linked) {
+                    evictUntilFit(context, members, live.length(), hash);
+                }
+                long total = albumBytes(context, members);
+                if (!BackgroundAlbumLogic.canFit(members.size(), total, live.length())) {
+                    return false;
+                }
+                try {
+                    CustomStorage.copyFile(live, dest);
+                } catch (IOException e) {
+                    dest.delete();
+                    return false;
+                }
+                libraryName = ensureMember(members, hash, nameForFile(members, dest, hash));
+                save(prefs, members);
+                added = true;
+                copiedNew = true;
             }
-            evictUntilFit(context, members, live.length(), hash);
-            long total = albumBytes(context, members);
-            if (members.size() >= BackgroundAlbumLogic.MAX_MEMBERS
-                    || total + live.length() > BackgroundAlbumLogic.MAX_TOTAL_BYTES) {
-                return false;
-            }
-            try {
-                CustomStorage.copyFile(live, dest);
-            } catch (IOException e) {
-                dest.delete();
-                return false;
-            }
-            ensureMember(members, hash);
-            save(prefs, members);
-            return true;
         }
+        if (added && writeThrough && copiedNew && libraryName != null && dest != null) {
+            CustomStorage.writeThroughAlbum(context, dest, libraryName);
+        }
+        return added;
     }
 
     /**
@@ -227,12 +272,13 @@ final class BackgroundAlbum {
      * existing install gets a first saved image without re-picking.
      */
     static void seedFromLive(Context context) {
+        String hash = null;
         synchronized (LOCK) {
             if (context == null) return;
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
             if (!presentHashes(context).isEmpty()) return;
             if (!CustomStorage.hasLocalBackground(context)) return;
-            String hash = wallpaperHash(prefs);
+            hash = wallpaperHash(prefs);
             if (hash == null) {
                 try {
                     File live = CustomStorage.localFile(context, CustomStorage.BACKGROUND_NAME);
@@ -242,21 +288,26 @@ final class BackgroundAlbum {
                 }
                 if (BackgroundAlbumLogic.isSafeHash(hash)) {
                     prefs.edit().putString("pref_select_background", hash).commit();
+                } else {
+                    return;
                 }
             }
-            addFromLive(context, hash);
         }
+        addFromLive(context, hash, false);
     }
 
     /**
      * Copy an image URI into the album without touching the live wallpaper
      * slot or {@code pref_select_background}. Evicts oldest other members when
-     * over cap.
+     * over cap and no library folder is linked.
      *
      * @return {@code 1} newly stored, {@code 0} already in the album,
      *         {@code -1} rejected (too large or album full after eviction)
      */
     static int addFromUri(Context context, Uri source) throws IOException {
+        String libraryName = null;
+        File dest = null;
+        int result = -1;
         synchronized (LOCK) {
             if (context == null || source == null) {
                 throw new IOException("Could not open selected content");
@@ -281,43 +332,50 @@ final class BackgroundAlbum {
                 if (!BackgroundAlbumLogic.isSafeHash(hash)) {
                     throw new IOException("Could not hash image");
                 }
-                File dest = fileForHash(context, hash);
+                dest = fileForHash(context, hash);
                 SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
                 ArrayList<Member> members = new ArrayList<Member>(load(prefs));
-                boolean alreadyMember = false;
-                for (int i = 0; i < members.size(); i++) {
-                    if (hash.equals(members.get(i).hash)) {
-                        alreadyMember = true;
-                        break;
-                    }
-                }
+                boolean alreadyMember = indexByHash(members, hash) >= 0;
+                String suggested = CustomStorage.queryDisplayName(context, source);
+                libraryName = pickName(members, suggested, dest.exists() ? dest : temp, hash);
                 if (dest.isFile() && dest.length() > 0) {
                     if (!alreadyMember) {
-                        ensureMember(members, hash);
+                        ensureMember(members, hash, libraryName);
                         save(prefs, members);
-                        return 1;
+                        result = 1;
+                    } else {
+                        ensureMember(members, hash, libraryName);
+                        save(prefs, members);
+                        result = 0;
                     }
-                    return 0;
+                } else {
+                    boolean linked = CustomStorage.hasLibraryFolder(context);
+                    if (!linked) {
+                        evictUntilFit(context, members, temp.length(), hash);
+                    }
+                    long total = albumBytes(context, members);
+                    if (!BackgroundAlbumLogic.canFit(members.size(), total, temp.length())) {
+                        result = -1;
+                    } else {
+                        if (dest.exists() && !dest.delete()) {
+                            throw new IOException("Could not replace album image");
+                        }
+                        if (!temp.renameTo(dest)) {
+                            CustomStorage.copyFile(temp, dest);
+                        }
+                        ensureMember(members, hash, libraryName);
+                        save(prefs, members);
+                        result = 1;
+                    }
                 }
-                evictUntilFit(context, members, temp.length(), hash);
-                long total = albumBytes(context, members);
-                if (members.size() >= BackgroundAlbumLogic.MAX_MEMBERS
-                        || total + temp.length() > BackgroundAlbumLogic.MAX_TOTAL_BYTES) {
-                    return -1;
-                }
-                if (dest.exists() && !dest.delete()) {
-                    throw new IOException("Could not replace album image");
-                }
-                if (!temp.renameTo(dest)) {
-                    CustomStorage.copyFile(temp, dest);
-                }
-                ensureMember(members, hash);
-                save(prefs, members);
-                return 1;
             } finally {
                 if (temp.exists()) temp.delete();
             }
         }
+        if (result > 0 && libraryName != null && dest != null) {
+            CustomStorage.writeThroughAlbum(context, dest, libraryName);
+        }
+        return result;
     }
 
     /**
@@ -325,43 +383,67 @@ final class BackgroundAlbum {
      * from the album. Writes {@code pref_select_background} so hosts reload.
      */
     static void applyAsWallpaper(Context context, String hash) throws IOException {
+        File live;
         synchronized (LOCK) {
             File src = fileForHash(context, hash);
             if (!src.isFile() || src.length() <= 0) {
                 throw new IOException("That saved background is missing.");
             }
-            File live = CustomStorage.localFile(context, CustomStorage.BACKGROUND_NAME);
+            live = CustomStorage.localFile(context, CustomStorage.BACKGROUND_NAME);
             CustomStorage.copyFile(src, live);
-            CustomStorage.writeThroughToLibrary(context, live);
             PreferenceManager.getDefaultSharedPreferences(context).edit()
                     .putString("pref_select_background", hash)
                     .commit();
         }
+        CustomStorage.writeThroughToLibrary(context, live);
     }
 
     static boolean remove(Context context, String hash) {
+        return remove(context, hash, null);
+    }
+
+    /**
+     * Remove one album member. When {@code name} is set, only that library
+     * filename is dropped; the hash file stays if another member still uses it.
+     * When {@code name} is null, every member with {@code hash} is removed.
+     */
+    static boolean remove(Context context, String hash, String name) {
+        ArrayList<String> libraryNames = new ArrayList<String>();
+        boolean ok;
         synchronized (LOCK) {
             if (context == null || !BackgroundAlbumLogic.isSafeHash(hash)) return false;
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
             ArrayList<Member> members = new ArrayList<Member>(load(prefs));
             boolean found = false;
+            String wantName = name != null
+                    ? BackgroundAlbumLogic.sanitizeAlbumFileName(name) : null;
             for (int i = members.size() - 1; i >= 0; i--) {
-                if (hash.equals(members.get(i).hash)) {
-                    members.remove(i);
-                    found = true;
+                Member m = members.get(i);
+                if (!hash.equals(m.hash)) continue;
+                if (wantName != null && (m.name == null || !wantName.equalsIgnoreCase(m.name))) {
+                    continue;
                 }
+                if (m.name != null) libraryNames.add(m.name);
+                members.remove(i);
+                found = true;
             }
-            try {
-                File f = fileForHash(context, hash);
-                if (f.isFile() && !f.delete()) {
+            if (indexByHash(members, hash) < 0) {
+                try {
+                    File f = fileForHash(context, hash);
+                    if (f.isFile() && !f.delete()) {
+                        return false;
+                    }
+                } catch (IOException e) {
                     return false;
                 }
-            } catch (IOException e) {
-                return false;
             }
             if (found) save(prefs, members);
-            return true;
+            ok = true;
         }
+        for (int i = 0; i < libraryNames.size(); i++) {
+            CustomStorage.deleteAlbumLibraryFile(context, libraryNames.get(i));
+        }
+        return ok;
     }
 
     static List<Member> membersForUi(Context context) {
@@ -376,25 +458,213 @@ final class BackgroundAlbum {
         return out;
     }
 
-    private static void ensureMember(ArrayList<Member> members, String hash) {
-        for (int i = 0; i < members.size(); i++) {
-            if (hash.equals(members.get(i).hash)) return;
+    /**
+     * Install a library-folder image already copied to {@code dest} (hash-named).
+     * Never evicts other members; extras that do not fit are left in the folder.
+     *
+     * @return {@code 1} added or hash/name updated, {@code 0} unchanged,
+     *         {@code -1} skipped (no room for a new name)
+     */
+    static int adoptFromLibrary(Context context, String hash, String name, File dest) {
+        synchronized (LOCK) {
+            if (context == null || !BackgroundAlbumLogic.isSafeHash(hash)) return -1;
+            String destName = BackgroundAlbumLogic.sanitizeAlbumFileName(name);
+            if (destName == null) return -1;
+            if (dest == null || !dest.isFile() || dest.length() <= 0) return -1;
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+            ArrayList<Member> members = new ArrayList<Member>(load(prefs));
+            int named = indexByName(members, destName);
+            if (named >= 0) {
+                Member old = members.get(named);
+                if (hash.equals(old.hash)) return 0;
+                members.set(named, new Member(hash, old.addedMs, destName));
+                if (indexByHash(members, old.hash) < 0) {
+                    File leftover = fileForHashOrNull(context, old.hash);
+                    if (leftover != null) leftover.delete();
+                }
+                save(prefs, members);
+                return 1;
+            }
+            long extra = indexByHash(members, hash) >= 0 ? 0L : dest.length();
+            if (!BackgroundAlbumLogic.canFit(members.size(), albumBytes(context, members), extra)) {
+                return -1;
+            }
+            members.add(new Member(hash, System.currentTimeMillis(), destName));
+            save(prefs, members);
+            return 1;
         }
-        members.add(new Member(hash, System.currentTimeMillis()));
+    }
+
+    /**
+     * Drop the member with this library filename. Deletes the hash file when
+     * unused. Does not touch the library tree (caller already observed the
+     * folder-side delete).
+     */
+    static boolean dropByLibraryName(Context context, String name) {
+        synchronized (LOCK) {
+            String destName = BackgroundAlbumLogic.sanitizeAlbumFileName(name);
+            if (context == null || destName == null) return false;
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+            ArrayList<Member> members = new ArrayList<Member>(load(prefs));
+            int idx = indexByName(members, destName);
+            if (idx < 0) return false;
+            Member gone = members.remove(idx);
+            if (indexByHash(members, gone.hash) < 0) {
+                File f = fileForHashOrNull(context, gone.hash);
+                if (f != null) f.delete();
+            }
+            save(prefs, members);
+            return true;
+        }
+    }
+
+    /**
+     * Give nameless members a stable {@code hash + ext} filename so they can
+     * be pushed into {@code album/}.
+     */
+    static ArrayList<Member> ensureLibraryNames(Context context, List<Member> stored) {
+        ArrayList<Member> members = new ArrayList<Member>(stored);
+        boolean changed = false;
+        HashSet<String> taken = namesOf(members);
+        for (int i = 0; i < members.size(); i++) {
+            Member m = members.get(i);
+            if (m.name != null && BackgroundAlbumLogic.sanitizeAlbumFileName(m.name) != null) {
+                continue;
+            }
+            File f = fileForHashOrNull(context, m.hash);
+            if (f == null) continue;
+            String ext = extensionForFile(f);
+            String desired = m.hash + ext;
+            String unique = BackgroundAlbumLogic.uniqueAlbumFileName(desired, taken);
+            if (unique == null) continue;
+            taken.add(unique);
+            members.set(i, new Member(m.hash, m.addedMs, unique));
+            changed = true;
+        }
+        if (changed) {
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+            save(prefs, members);
+        }
+        return members;
+    }
+
+    static HashSet<String> namesOf(List<Member> members) {
+        HashSet<String> names = new HashSet<String>();
+        if (members == null) return names;
+        for (int i = 0; i < members.size(); i++) {
+            if (members.get(i).name != null) names.add(members.get(i).name);
+        }
+        return names;
+    }
+
+    static int indexByName(List<Member> members, String name) {
+        if (members == null || name == null) return -1;
+        for (int i = 0; i < members.size(); i++) {
+            String n = members.get(i).name;
+            if (n != null && n.equalsIgnoreCase(name)) return i;
+        }
+        return -1;
+    }
+
+    static int indexByHash(List<Member> members, String hash) {
+        if (members == null || hash == null) return -1;
+        for (int i = 0; i < members.size(); i++) {
+            if (hash.equals(members.get(i).hash)) return i;
+        }
+        return -1;
+    }
+
+    /**
+     * If {@code hash} is already a member, keep it and fill in {@code name}
+     * when missing. Otherwise append. Returns the name stored on the member.
+     */
+    private static String ensureMember(ArrayList<Member> members, String hash, String name) {
+        String safeName = BackgroundAlbumLogic.sanitizeAlbumFileName(name);
+        int byHash = indexByHash(members, hash);
+        if (byHash >= 0) {
+            Member old = members.get(byHash);
+            if (old.name == null && safeName != null) {
+                members.set(byHash, new Member(old.hash, old.addedMs, safeName));
+                return safeName;
+            }
+            return old.name != null ? old.name : safeName;
+        }
+        if (safeName != null) {
+            int byName = indexByName(members, safeName);
+            if (byName >= 0) {
+                safeName = BackgroundAlbumLogic.uniqueAlbumFileName(safeName, namesOf(members));
+            }
+        }
+        members.add(new Member(hash, System.currentTimeMillis(), safeName));
+        return safeName;
+    }
+
+    private static String pickName(List<Member> members, String suggested, File bytes, String hash) {
+        HashSet<String> taken = namesOf(members);
+        int existing = indexByHash(members, hash);
+        if (existing >= 0 && members.get(existing).name != null) {
+            return members.get(existing).name;
+        }
+        String fromSuggested = BackgroundAlbumLogic.uniqueAlbumFileName(suggested, taken);
+        if (fromSuggested != null) return fromSuggested;
+        String ext = extensionForFile(bytes);
+        return BackgroundAlbumLogic.uniqueAlbumFileName(hash + ext, taken);
+    }
+
+    private static String nameForFile(List<Member> members, File bytes, String hash) {
+        int existing = indexByHash(members, hash);
+        if (existing >= 0 && members.get(existing).name != null) {
+            return members.get(existing).name;
+        }
+        return pickName(members, null, bytes, hash);
+    }
+
+    static String extensionForFile(File file) {
+        if (file == null || !file.isFile()) return ".jpg";
+        FileInputStream in = null;
+        try {
+            in = new FileInputStream(file);
+            byte[] buf = new byte[16];
+            int n = in.read(buf);
+            if (n <= 0) return ".jpg";
+            if (n < buf.length) {
+                byte[] slim = new byte[n];
+                System.arraycopy(buf, 0, slim, 0, n);
+                buf = slim;
+            }
+            String ext = BackgroundAlbumLogic.imageExtensionFromPrefix(buf);
+            return ext != null ? ext : ".jpg";
+        } catch (IOException e) {
+            return ".jpg";
+        } finally {
+            if (in != null) {
+                try {
+                    in.close();
+                } catch (IOException ignored) {
+                }
+            }
+        }
     }
 
     private static long albumBytes(Context context, List<Member> members) {
         long total = 0;
+        HashSet<String> counted = new HashSet<String>();
         for (int i = 0; i < members.size(); i++) {
+            String hash = members.get(i).hash;
+            if (counted.contains(hash)) continue;
             File f = fileForHashOrNull(context, members.get(i).hash);
-            if (f != null) total += f.length();
+            if (f != null) {
+                counted.add(hash);
+                total += f.length();
+            }
         }
         return total;
     }
 
     /**
      * Drop oldest members that are not {@code keepHash} until {@code extraBytes}
-     * fits under count and size caps.
+     * fits under count and size caps. Must not be used when a library folder is
+     * linked (folder files would come back on the next sync).
      */
     private static void evictUntilFit(Context context, ArrayList<Member> members,
             long extraBytes, String keepHash) {
@@ -402,8 +672,7 @@ final class BackgroundAlbum {
         while (guard-- > 0) {
             int count = members.size();
             long total = albumBytes(context, members);
-            if (count < BackgroundAlbumLogic.MAX_MEMBERS
-                    && total + extraBytes <= BackgroundAlbumLogic.MAX_TOTAL_BYTES) {
+            if (BackgroundAlbumLogic.canFit(count, total, extraBytes)) {
                 return;
             }
             int evict = -1;
@@ -415,8 +684,10 @@ final class BackgroundAlbum {
             }
             if (evict < 0) return;
             Member gone = members.remove(evict);
-            File f = fileForHashOrNull(context, gone.hash);
-            if (f != null) f.delete();
+            if (indexByHash(members, gone.hash) < 0) {
+                File f = fileForHashOrNull(context, gone.hash);
+                if (f != null) f.delete();
+            }
         }
     }
 }

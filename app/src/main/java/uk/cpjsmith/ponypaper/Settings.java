@@ -1813,22 +1813,29 @@ public class Settings extends AppCompatActivity
         CharSequence[] labels = new CharSequence[members.size()];
         for (int i = 0; i < members.size(); i++) {
             boolean wallpaper = members.get(i).hash.equals(current);
-            labels[i] = getString(wallpaper
-                    ? R.string.pref_saved_backgrounds_item_current
-                    : R.string.pref_saved_backgrounds_item, i + 1);
+            String name = members.get(i).name;
+            if (name != null && name.length() > 0) {
+                labels[i] = getString(wallpaper
+                        ? R.string.pref_saved_backgrounds_item_named_current
+                        : R.string.pref_saved_backgrounds_item_named, name);
+            } else {
+                labels[i] = getString(wallpaper
+                        ? R.string.pref_saved_backgrounds_item_current
+                        : R.string.pref_saved_backgrounds_item, i + 1);
+            }
         }
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle(R.string.pref_saved_backgrounds_dialog);
         builder.setItems(labels, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface dialog, int which) {
-                showSavedBackgroundActions(members.get(which).hash);
+                showSavedBackgroundActions(members.get(which));
             }
         });
         builder.setNegativeButton(R.string.dialog_cancel, null);
         builder.create().show();
     }
 
-    private void showSavedBackgroundActions(final String hash) {
+    private void showSavedBackgroundActions(final BackgroundAlbum.Member member) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle(R.string.pref_saved_backgrounds_actions_title);
         CharSequence[] actions = new CharSequence[] {
@@ -1838,9 +1845,9 @@ public class Settings extends AppCompatActivity
         builder.setItems(actions, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface dialog, int which) {
                 if (which == 0) {
-                    applySavedBackground(hash);
+                    applySavedBackground(member.hash);
                 } else if (which == 1) {
-                    confirmRemoveSavedBackground(hash);
+                    confirmRemoveSavedBackground(member.hash, member.name);
                 }
             }
         });
@@ -1873,7 +1880,7 @@ public class Settings extends AppCompatActivity
         }, "ponypaper-apply-bg").start();
     }
 
-    private void confirmRemoveSavedBackground(final String hash) {
+    private void confirmRemoveSavedBackground(final String hash, final String name) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle(R.string.pref_saved_backgrounds_remove_title);
         builder.setMessage(R.string.pref_saved_backgrounds_remove_message);
@@ -1883,7 +1890,7 @@ public class Settings extends AppCompatActivity
                         if (!beginStorageWork()) return;
                         new Thread(new Runnable() {
                             public void run() {
-                                final boolean ok = BackgroundAlbum.remove(Settings.this, hash);
+                                final boolean ok = BackgroundAlbum.remove(Settings.this, hash, name);
                                 runOnUiThread(new Runnable() {
                                     public void run() {
                                         storageBusy = false;

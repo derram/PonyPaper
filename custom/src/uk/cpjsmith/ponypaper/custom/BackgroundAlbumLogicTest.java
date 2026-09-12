@@ -21,6 +21,11 @@ public final class BackgroundAlbumLogicTest {
         failures += run("cycleFileHash", BackgroundAlbumLogicTest::testCycleFileHash);
         failures += run("nextHash", BackgroundAlbumLogicTest::testNextHash);
         failures += run("intervalMs", BackgroundAlbumLogicTest::testIntervalMs);
+        failures += run("canFit", BackgroundAlbumLogicTest::testCanFit);
+        failures += run("albumMarker", BackgroundAlbumLogicTest::testAlbumMarker);
+        failures += run("sanitizeAlbumFileName", BackgroundAlbumLogicTest::testSanitizeAlbumFileName);
+        failures += run("uniqueAlbumFileName", BackgroundAlbumLogicTest::testUniqueAlbumFileName);
+        failures += run("imageMagic", BackgroundAlbumLogicTest::testImageMagic);
         if (failures > 0) {
             System.err.println(failures + " background-album check(s) failed.");
             System.exit(1);
@@ -154,6 +159,115 @@ public final class BackgroundAlbumLogicTest {
         }
         if (BackgroundAlbumLogic.intervalMs("nope") != ten) {
             throw new AssertionError("invalid");
+        }
+    }
+
+    private static void testCanFit() {
+        if (!BackgroundAlbumLogic.canFit(0, 0L, 1L)) {
+            throw new AssertionError("empty album");
+        }
+        if (BackgroundAlbumLogic.canFit(BackgroundAlbumLogic.MAX_MEMBERS, 0L, 1L)) {
+            throw new AssertionError("count cap");
+        }
+        if (BackgroundAlbumLogic.canFit(0, 0L, BackgroundAlbumLogic.MAX_MEMBER_BYTES + 1)) {
+            throw new AssertionError("one file too big");
+        }
+        if (BackgroundAlbumLogic.canFit(1, BackgroundAlbumLogic.MAX_TOTAL_BYTES, 1L)) {
+            throw new AssertionError("total cap");
+        }
+        if (!BackgroundAlbumLogic.canFit(19, 0L, BackgroundAlbumLogic.MAX_MEMBER_BYTES)) {
+            throw new AssertionError("19+64MB should fit");
+        }
+    }
+
+    private static void testAlbumMarker() {
+        if (!BackgroundAlbumLogic.isAlbumMarkerName("album-images-go-here.txt")) {
+            throw new AssertionError("canonical");
+        }
+        if (BackgroundAlbumLogic.albumMarkerRank("album-images-go-here.txt") != 0) {
+            throw new AssertionError("rank txt");
+        }
+        if (BackgroundAlbumLogic.albumMarkerRank("album-images-go-here") != 1) {
+            throw new AssertionError("rank bare");
+        }
+        if (BackgroundAlbumLogic.albumMarkerRank("album-images-go-here (1).txt") != 2) {
+            throw new AssertionError("rank uniquified");
+        }
+        if (BackgroundAlbumLogic.isAlbumMarkerName("sunset.png")) {
+            throw new AssertionError("image is not marker");
+        }
+        if (BackgroundAlbumLogic.isAlbumMarkerName("custom-ponies-go-here.txt")) {
+            throw new AssertionError("pony marker is not album marker");
+        }
+    }
+
+    private static void testSanitizeAlbumFileName() {
+        if (!"sunset.png".equals(BackgroundAlbumLogic.sanitizeAlbumFileName("sunset.png"))) {
+            throw new AssertionError("plain");
+        }
+        if (!"foo_bar.jpg".equals(BackgroundAlbumLogic.sanitizeAlbumFileName("foo bar.jpg"))) {
+            throw new AssertionError("space");
+        }
+        if (!"photo.jpeg".equals(BackgroundAlbumLogic.sanitizeAlbumFileName("dir/photo.JPEG"))) {
+            throw new AssertionError("path and ext case");
+        }
+        if (BackgroundAlbumLogic.sanitizeAlbumFileName("notes.txt") != null) {
+            throw new AssertionError("txt");
+        }
+        if (BackgroundAlbumLogic.sanitizeAlbumFileName("album-images-go-here.txt") != null) {
+            throw new AssertionError("marker");
+        }
+        if (!"x.png".equals(BackgroundAlbumLogic.sanitizeAlbumFileName("../x.png"))) {
+            throw new AssertionError("basename only");
+        }
+        if (BackgroundAlbumLogic.sanitizeAlbumFileName("noext") != null) {
+            throw new AssertionError("no extension");
+        }
+        if (!BackgroundAlbumLogic.isImageFileName("a.webp")) {
+            throw new AssertionError("webp");
+        }
+        if (BackgroundAlbumLogic.isImageFileName("a.xml")) {
+            throw new AssertionError("xml");
+        }
+    }
+
+    private static void testUniqueAlbumFileName() {
+        java.util.HashSet<String> taken = new java.util.HashSet<String>();
+        taken.add("sunset.png");
+        if (!"sunset-2.png".equals(BackgroundAlbumLogic.uniqueAlbumFileName("sunset.png", taken))) {
+            throw new AssertionError("suffix");
+        }
+        taken.add("Sunset-2.PNG");
+        String third = BackgroundAlbumLogic.uniqueAlbumFileName("sunset.png", taken);
+        if (!"sunset-3.png".equals(third)) {
+            throw new AssertionError("case-insensitive taken: " + third);
+        }
+        if (BackgroundAlbumLogic.uniqueAlbumFileName("notes.txt", taken) != null) {
+            throw new AssertionError("non-image");
+        }
+    }
+
+    private static void testImageMagic() {
+        byte[] jpeg = new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0x00};
+        if (!".jpg".equals(BackgroundAlbumLogic.imageExtensionFromPrefix(jpeg))) {
+            throw new AssertionError("jpeg");
+        }
+        byte[] png = new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a};
+        if (!".png".equals(BackgroundAlbumLogic.imageExtensionFromPrefix(png))) {
+            throw new AssertionError("png");
+        }
+        byte[] gif = new byte[] {'G', 'I', 'F', '8', '9', 'a'};
+        if (!".gif".equals(BackgroundAlbumLogic.imageExtensionFromPrefix(gif))) {
+            throw new AssertionError("gif");
+        }
+        if (BackgroundAlbumLogic.imageExtensionFromPrefix(new byte[] {0, 1, 2}) != null) {
+            throw new AssertionError("unknown");
+        }
+        if (!"image/png".equals(BackgroundAlbumLogic.mimeForAlbumFileName("x.png"))) {
+            throw new AssertionError("mime png");
+        }
+        if (!"image/jpeg".equals(BackgroundAlbumLogic.mimeForAlbumFileName("x.JPG"))) {
+            throw new AssertionError("mime jpeg");
         }
     }
 }

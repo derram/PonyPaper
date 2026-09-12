@@ -9,6 +9,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import androidx.preference.PreferenceManager;
 import android.provider.DocumentsContract;
+import android.provider.OpenableColumns;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -36,8 +37,10 @@ import org.w3c.dom.Document;
  * Working copy of custom ponies and the optional background image. Lives in
  * {@link Context#getExternalFilesDir(null)} so the wallpaper can keep using
  * {@link java.io.File} paths. Durable copies are a zip export (custom XML,
- * optional background, saved mixes, and saved scenes) or a user-owned SAF
- * tree (see library-folder methods added alongside this helper).
+ * optional live background, saved mixes, and saved scenes) or a user-owned SAF
+ * tree (see library-folder methods added alongside this helper). The tree may
+ * also contain an {@code album/} subfolder of saved backgrounds; that folder
+ * is never written into a library zip.
  */
 final class CustomStorage {
 
@@ -55,8 +58,18 @@ final class CustomStorage {
     static final String PREF_LIBRARY_SEEN_TREE = "pref_library_seen_tree_uri";
     /** Dest names last seen in that tree. Used to honor folder-side deletes. */
     static final String PREF_LIBRARY_SEEN_NAMES = "pref_library_seen_names";
+    /** Album-folder filenames last seen in the linked tree. */
+    static final String PREF_LIBRARY_SEEN_ALBUM_NAMES = "pref_library_seen_album_names";
     /** Touched so {@link PonySceneController} reloads the herd after file changes. */
     static final String PREF_LIBRARY_GENERATION = "pref_library_generation";
+    private static final String ALBUM_MARKER_BODY =
+            "Drop image files here to add them to the Pony Paper saved-backgrounds album. "
+                    + "Delete a file to remove it from the album.\n\n"
+                    + "This does not change the live wallpaper image (that is the \"background\" file "
+                    + "in the parent folder).\n\n"
+                    + "At most 20 images, 64 MB each, and 200 MB total. Extra files are ignored, "
+                    + "not deleted.\n\n"
+                    + "Album images are not included when you Export library.\n";
 
     private static final Object LIBRARY_LOCK = new Object();
     private static final long MAX_ZIP_ENTRY_BYTES = 64L * 1024 * 1024;
@@ -158,6 +171,26 @@ final class CustomStorage {
      *
      * @return SHA-1 hex of the bytes written (random fallback if SHA-1 is missing)
      */
+    static String queryDisplayName(Context context, Uri uri) {
+        if (context == null || uri == null) return null;
+        Cursor cursor = null;
+        try {
+            cursor = context.getContentResolver().query(uri,
+                    new String[] { OpenableColumns.DISPLAY_NAME }, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (idx >= 0) {
+                    String name = cursor.getString(idx);
+                    if (name != null && name.length() > 0) return name;
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return uri.getLastPathSegment();
+    }
+
     static String copyUriToLocal(Context context, Uri source, String destName) throws IOException {
         File dest = localFile(context, destName);
         InputStream in = context.getContentResolver().openInputStream(source);
@@ -234,6 +267,7 @@ final class CustomStorage {
                     addFileToZip(zip, bg, BACKGROUND_NAME);
                 }
             }
+            // Album copies under backgrounds/ and library album/ are not exported.
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
             if (options.mixes) {
                 List<PonyMixes.Mix> mixes = PonyMixes.loadUserMixes(prefs);
@@ -616,6 +650,7 @@ final class CustomStorage {
     static String zipEntryDestName(String raw) {
         String name = zipEntryBaseName(raw);
         if (name == null || isLibraryMarkerName(name)
+                || BackgroundAlbumLogic.isAlbumMarkerName(name)
                 || MIXES_NAME.equals(name) || SCENES_NAME.equals(name)) {
             return null;
         }
@@ -790,6 +825,7 @@ final class CustomStorage {
                     .putString(PREF_LIBRARY_SEEN_TREE, newUri);
             if (previousSeen == null || !newUri.equals(previousSeen)) {
                 editor.putStringSet(PREF_LIBRARY_SEEN_NAMES, new HashSet<String>());
+                editor.putStringSet(PREF_LIBRARY_SEEN_ALBUM_NAMES, new HashSet<String>());
             }
             editor.commit();
         }
@@ -935,6 +971,8 @@ final class CustomStorage {
                 }
             }
 
+            syncAlbumFolder(context, tree, children, result);
+
             HashSet<String> newSeen = folderDestNames(children);
             for (String name : lastSeen) {
                 if (newSeen.contains(name)) continue;
@@ -953,6 +991,59 @@ final class CustomStorage {
             result.error = e.getMessage();
         }
         return result;
+    }
+
+    /**
+     * Copy an album hash-file into {@code album/} under {@code displayName}.
+     * No-op when no library folder is linked. Must not be called while holding
+     * {@link BackgroundAlbum}'s lock.
+     */
+    static void writeThroughAlbum(Context context, File local, String displayName) {
+        synchronized (LIBRARY_LOCK) {
+            Uri tree = getLibraryTreeUri(context);
+            String destName = BackgroundAlbumLogic.sanitizeAlbumFileName(displayName);
+            if (tree == null || local == null || !local.isFile() || destName == null) return;
+            try {
+                List<LibraryChild> root = listLibraryChildren(context, tree);
+                LibraryChild albumDir = findOrCreateAlbumDir(context, tree, root);
+                if (albumDir == null || albumDir.documentId == null) return;
+                List<LibraryChild> albumChildren =
+                        listLibraryChildren(context, tree, albumDir.documentId, true);
+                writeAlbumMarker(context, albumDir.uri, albumChildren);
+                writeLocalToParent(context, albumDir.uri, albumChildren, local, destName,
+                        BackgroundAlbumLogic.mimeForAlbumFileName(destName));
+                rememberAlbumName(context, destName);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /**
+     * Delete one file from {@code album/} if a library folder is linked.
+     * Must not be called while holding {@link BackgroundAlbum}'s lock.
+     */
+    static void deleteAlbumLibraryFile(Context context, String displayName) {
+        synchronized (LIBRARY_LOCK) {
+            Uri tree = getLibraryTreeUri(context);
+            String destName = BackgroundAlbumLogic.sanitizeAlbumFileName(displayName);
+            if (tree == null || destName == null) return;
+            try {
+                List<LibraryChild> root = listLibraryChildren(context, tree);
+                LibraryChild albumDir = findAlbumDir(root);
+                if (albumDir == null || albumDir.documentId == null) {
+                    forgetAlbumName(context, destName);
+                    return;
+                }
+                List<LibraryChild> albumChildren =
+                        listLibraryChildren(context, tree, albumDir.documentId, true);
+                LibraryChild existing = findChildByDestNameIgnoreCase(albumChildren, destName);
+                if (existing != null) {
+                    deleteLibraryChild(context, albumChildren, existing);
+                }
+                forgetAlbumName(context, destName);
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     /**
@@ -1060,15 +1151,30 @@ final class CustomStorage {
 
     private static final class LibraryChild {
         Uri uri;
+        String documentId;
         String displayName;
         String destName;
         long lastModified;
+        boolean isDir;
     }
 
     private static LibraryChild findChildByDestName(List<LibraryChild> children, String destName) {
+        if (destName == null) return null;
         for (int i = 0; i < children.size(); i++) {
             LibraryChild child = children.get(i);
             if (destName.equals(child.destName)) return child;
+        }
+        return null;
+    }
+
+    private static LibraryChild findChildByDestNameIgnoreCase(List<LibraryChild> children,
+            String destName) {
+        if (destName == null) return null;
+        for (int i = 0; i < children.size(); i++) {
+            LibraryChild child = children.get(i);
+            if (child.destName != null && destName.equalsIgnoreCase(child.destName)) {
+                return child;
+            }
         }
         return null;
     }
@@ -1129,6 +1235,52 @@ final class CustomStorage {
         }
     }
 
+    private static HashSet<String> loadSeenAlbumNames(Context context) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        Set<String> stored = prefs.getStringSet(PREF_LIBRARY_SEEN_ALBUM_NAMES, null);
+        HashSet<String> names = new HashSet<String>();
+        if (stored != null) names.addAll(stored);
+        return names;
+    }
+
+    private static void saveSeenAlbumNames(Context context, Set<String> names) {
+        PreferenceManager.getDefaultSharedPreferences(context).edit()
+                .putStringSet(PREF_LIBRARY_SEEN_ALBUM_NAMES, new HashSet<String>(names))
+                .commit();
+    }
+
+    private static void rememberAlbumName(Context context, String destName) {
+        if (destName == null || destName.length() == 0) return;
+        Uri tree = getLibraryTreeUri(context);
+        if (tree == null) return;
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        String seenTree = prefs.getString(PREF_LIBRARY_SEEN_TREE, "");
+        if (!tree.toString().equals(seenTree)) return;
+        HashSet<String> names = loadSeenAlbumNames(context);
+        if (names.add(destName)) {
+            saveSeenAlbumNames(context, names);
+        }
+    }
+
+    private static void forgetAlbumName(Context context, String destName) {
+        HashSet<String> names = loadSeenAlbumNames(context);
+        if (names.remove(destName)) {
+            saveSeenAlbumNames(context, names);
+        } else {
+            String found = null;
+            for (String n : names) {
+                if (n != null && n.equalsIgnoreCase(destName)) {
+                    found = n;
+                    break;
+                }
+            }
+            if (found != null) {
+                names.remove(found);
+                saveSeenAlbumNames(context, names);
+            }
+        }
+    }
+
     /** Delete a working-copy member and its enable/waifu prefs. File already gone is success. */
     private static boolean deleteLocalMember(Context context, String destName) {
         try {
@@ -1182,9 +1334,14 @@ final class CustomStorage {
 
     private static List<LibraryChild> listLibraryChildren(Context context, Uri treeUri)
             throws SecurityException, IOException {
+        return listLibraryChildren(context, treeUri,
+                DocumentsContract.getTreeDocumentId(treeUri), false);
+    }
+
+    private static List<LibraryChild> listLibraryChildren(Context context, Uri treeUri,
+            String parentDocId, boolean albumListing) throws SecurityException, IOException {
         ContentResolver cr = context.getContentResolver();
-        String treeDocId = DocumentsContract.getTreeDocumentId(treeUri);
-        Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, treeDocId);
+        Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId);
         ArrayList<LibraryChild> out = new ArrayList<LibraryChild>();
         Cursor cursor = null;
         try {
@@ -1202,12 +1359,17 @@ final class CustomStorage {
                 String name = cursor.getString(1);
                 String mime = cursor.getString(2);
                 long modified = cursor.isNull(3) ? 0L : cursor.getLong(3);
-                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) continue;
                 LibraryChild child = new LibraryChild();
+                child.documentId = docId;
                 child.uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId);
                 child.displayName = name;
                 child.lastModified = modified;
-                if (BACKGROUND_NAME.equals(name)) {
+                child.isDir = DocumentsContract.Document.MIME_TYPE_DIR.equals(mime);
+                if (child.isDir) {
+                    child.destName = null;
+                } else if (albumListing) {
+                    child.destName = BackgroundAlbumLogic.sanitizeAlbumFileName(name);
+                } else if (BACKGROUND_NAME.equals(name)) {
                     child.destName = BACKGROUND_NAME;
                 } else if (name != null && name.toLowerCase(Locale.US).endsWith(".xml")) {
                     child.destName = sanitizeCustomPonyFileName(name);
@@ -1220,7 +1382,13 @@ final class CustomStorage {
         return out;
     }
 
-    private static void copyLibraryChildToFile(Context context, Uri docUri, File dest) throws IOException {
+    private static void copyLibraryChildToFile(Context context, Uri docUri, File dest)
+            throws IOException {
+        copyLibraryChildToFile(context, docUri, dest, Long.MAX_VALUE);
+    }
+
+    private static void copyLibraryChildToFile(Context context, Uri docUri, File dest,
+            long maxBytes) throws IOException {
         InputStream in = context.getContentResolver().openInputStream(docUri);
         if (in == null) {
             throw new IOException("Could not open library file");
@@ -1228,16 +1396,7 @@ final class CustomStorage {
         try {
             File tmp = File.createTempFile("pplib", ".tmp", dest.getParentFile());
             try {
-                OutputStream out = new FileOutputStream(tmp);
-                try {
-                    byte[] buffer = new byte[COPY_BUFFER];
-                    int n;
-                    while ((n = in.read(buffer)) >= 0) {
-                        out.write(buffer, 0, n);
-                    }
-                } finally {
-                    out.close();
-                }
+                copyStreamToFile(in, tmp, maxBytes);
                 if (dest.getName().endsWith(".xml") && !isValidCustomPonyFile(tmp)) {
                     tmp.delete();
                     return;
@@ -1260,21 +1419,36 @@ final class CustomStorage {
         if (local == null || !local.isFile()) {
             throw new IOException("Nothing to write to the library folder");
         }
-        ContentResolver cr = context.getContentResolver();
         String destName = local.getName();
-        LibraryChild existing = findChildByDestName(children, destName);
+        String treeDocId = DocumentsContract.getTreeDocumentId(treeUri);
+        Uri parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocId);
+        String mime = destName.endsWith(".xml") ? "text/xml" : "application/octet-stream";
+        writeLocalToParent(context, parent, children, local, destName, mime);
+    }
+
+    private static void writeLocalToParent(Context context, Uri parentDocUri,
+            List<LibraryChild> children, File local, String destName, String mime)
+            throws IOException {
+        if (local == null || !local.isFile()) {
+            throw new IOException("Nothing to write to the library folder");
+        }
+        if (destName == null || destName.length() == 0) {
+            throw new IOException("Nothing to write to the library folder");
+        }
+        ContentResolver cr = context.getContentResolver();
+        LibraryChild existing = findChildByDestNameIgnoreCase(children, destName);
+        if (existing == null) {
+            existing = findChildByDestName(children, destName);
+        }
         if (existing != null) {
-            // Replace rather than truncate: many tree providers reject "wt".
             try {
                 DocumentsContract.deleteDocument(cr, existing.uri);
             } catch (Exception ignored) {
             }
             children.remove(existing);
         }
-        String treeDocId = DocumentsContract.getTreeDocumentId(treeUri);
-        Uri parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocId);
-        String mime = destName.endsWith(".xml") ? "text/xml" : "application/octet-stream";
-        Uri created = DocumentsContract.createDocument(cr, parent, mime, destName);
+        if (mime == null) mime = "application/octet-stream";
+        Uri created = DocumentsContract.createDocument(cr, parentDocUri, mime, destName);
         if (created == null) {
             throw new IOException("Could not create library file");
         }
@@ -1289,10 +1463,266 @@ final class CustomStorage {
         }
         LibraryChild child = new LibraryChild();
         child.uri = created;
+        child.documentId = DocumentsContract.getDocumentId(created);
         child.displayName = destName;
         child.destName = destName;
         child.lastModified = local.lastModified();
+        child.isDir = false;
         children.add(child);
+    }
+
+    private static LibraryChild findAlbumDir(List<LibraryChild> rootChildren) {
+        LibraryChild exact = null;
+        LibraryChild any = null;
+        for (int i = 0; i < rootChildren.size(); i++) {
+            LibraryChild child = rootChildren.get(i);
+            if (!child.isDir || child.displayName == null) continue;
+            String name = child.displayName.trim();
+            if (BackgroundAlbumLogic.ALBUM_DIR_NAME.equals(name)) {
+                exact = child;
+                break;
+            }
+            if (any == null
+                    && BackgroundAlbumLogic.ALBUM_DIR_NAME.equalsIgnoreCase(name)) {
+                any = child;
+            }
+        }
+        return exact != null ? exact : any;
+    }
+
+    private static LibraryChild findOrCreateAlbumDir(Context context, Uri treeUri,
+            List<LibraryChild> rootChildren) {
+        LibraryChild existing = findAlbumDir(rootChildren);
+        if (existing != null) return existing;
+        try {
+            String treeDocId = DocumentsContract.getTreeDocumentId(treeUri);
+            Uri parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocId);
+            Uri created = DocumentsContract.createDocument(context.getContentResolver(), parent,
+                    DocumentsContract.Document.MIME_TYPE_DIR, BackgroundAlbumLogic.ALBUM_DIR_NAME);
+            if (created == null) return null;
+            LibraryChild child = new LibraryChild();
+            child.uri = created;
+            child.documentId = DocumentsContract.getDocumentId(created);
+            child.displayName = BackgroundAlbumLogic.ALBUM_DIR_NAME;
+            child.destName = null;
+            child.isDir = true;
+            child.lastModified = System.currentTimeMillis();
+            rootChildren.add(child);
+            return child;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Two-way sync of {@code album/} against {@link BackgroundAlbum}. Extra
+     * folder files past the cap are left in place. Does not write the live
+     * {@code background} slot.
+     */
+    private static void syncAlbumFolder(Context context, Uri treeUri,
+            List<LibraryChild> rootChildren, SyncResult result) {
+        try {
+            LibraryChild albumDirChild = findOrCreateAlbumDir(context, treeUri, rootChildren);
+            if (albumDirChild == null || albumDirChild.documentId == null) return;
+            List<LibraryChild> albumChildren =
+                    listLibraryChildren(context, treeUri, albumDirChild.documentId, true);
+            writeAlbumMarker(context, albumDirChild.uri, albumChildren);
+
+            Set<String> lastSeen = loadSeenAlbumNames(context);
+            HashSet<String> folderNames = new HashSet<String>();
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+            BackgroundAlbum.ensureLibraryNames(context, BackgroundAlbum.load(prefs));
+
+            File localAlbumDir = BackgroundAlbum.albumDir(context);
+            File temp = new File(localAlbumDir, "lib-ingest.tmp");
+            try {
+                for (int i = 0; i < albumChildren.size(); i++) {
+                    LibraryChild child = albumChildren.get(i);
+                    if (child.isDir) continue;
+                    if (BackgroundAlbumLogic.isAlbumMarkerName(child.displayName)) continue;
+                    String destName = child.destName;
+                    if (destName == null) {
+                        destName = BackgroundAlbumLogic.sanitizeAlbumFileName(child.displayName);
+                    }
+                    if (destName == null) continue;
+                    folderNames.add(destName);
+
+                    List<BackgroundAlbum.Member> members = BackgroundAlbum.load(prefs);
+                    int named = BackgroundAlbum.indexByName(members, destName);
+                    File local = named >= 0
+                            ? BackgroundAlbum.fileForHashOrNull(context, members.get(named).hash)
+                            : null;
+                    boolean missing = local == null;
+                    boolean libraryNewer = !missing && child.lastModified > 0
+                            && child.lastModified > local.lastModified() + 2000L;
+                    if (!missing && !libraryNewer) continue;
+                    if (named < 0 && members.size() >= BackgroundAlbumLogic.MAX_MEMBERS) {
+                        continue;
+                    }
+                    if (temp.exists() && !temp.delete()) continue;
+                    try {
+                        copyLibraryChildToFile(context, child.uri, temp,
+                                BackgroundAlbumLogic.MAX_MEMBER_BYTES);
+                    } catch (IOException e) {
+                        if (temp.exists()) temp.delete();
+                        continue;
+                    }
+                    if (!temp.isFile() || temp.length() <= 0) {
+                        if (temp.exists()) temp.delete();
+                        continue;
+                    }
+                    String hash;
+                    try {
+                        hash = sha1OfFile(temp);
+                    } catch (IOException e) {
+                        temp.delete();
+                        continue;
+                    }
+                    if (!BackgroundAlbumLogic.isSafeHash(hash)) {
+                        temp.delete();
+                        continue;
+                    }
+                    File dest;
+                    try {
+                        dest = BackgroundAlbum.fileForHash(context, hash);
+                    } catch (IOException e) {
+                        temp.delete();
+                        continue;
+                    }
+                    if (!dest.isFile() || dest.length() <= 0) {
+                        if (dest.exists() && !dest.delete()) {
+                            temp.delete();
+                            continue;
+                        }
+                        if (!temp.renameTo(dest)) {
+                            try {
+                                copyFile(temp, dest);
+                            } catch (IOException e) {
+                                dest.delete();
+                                temp.delete();
+                                continue;
+                            }
+                        }
+                    }
+                    if (temp.exists()) temp.delete();
+                    int adopted = BackgroundAlbum.adoptFromLibrary(context, hash, destName, dest);
+                    if (adopted < 0) {
+                        members = BackgroundAlbum.load(prefs);
+                        if (BackgroundAlbum.indexByHash(members, hash) < 0) {
+                            dest.delete();
+                        }
+                    } else if (adopted > 0) {
+                        result.pulled++;
+                    }
+                }
+            } finally {
+                if (temp.exists()) temp.delete();
+            }
+
+            List<BackgroundAlbum.Member> members = BackgroundAlbum.load(prefs);
+            ArrayList<String> toDrop = new ArrayList<String>();
+            for (int i = 0; i < members.size(); i++) {
+                String name = members.get(i).name;
+                if (name == null) continue;
+                if (BackgroundAlbumLogic.containsIgnoreCase(folderNames, name)) continue;
+                if (BackgroundAlbumLogic.containsIgnoreCase(lastSeen, name)) {
+                    toDrop.add(name);
+                }
+            }
+            for (int i = 0; i < toDrop.size(); i++) {
+                if (BackgroundAlbum.dropByLibraryName(context, toDrop.get(i))) {
+                    result.dropped++;
+                }
+            }
+
+            members = BackgroundAlbum.ensureLibraryNames(context, BackgroundAlbum.load(prefs));
+            for (int i = 0; i < members.size(); i++) {
+                BackgroundAlbum.Member member = members.get(i);
+                if (member.name == null) continue;
+                File local = BackgroundAlbum.fileForHashOrNull(context, member.hash);
+                if (local == null) continue;
+                LibraryChild match = findChildByDestNameIgnoreCase(albumChildren, member.name);
+                boolean shouldPush;
+                if (match != null) {
+                    shouldPush = match.lastModified > 0
+                            && local.lastModified() > match.lastModified + 2000L;
+                } else {
+                    shouldPush = !BackgroundAlbumLogic.containsIgnoreCase(lastSeen, member.name);
+                }
+                if (!shouldPush) continue;
+                writeLocalToParent(context, albumDirChild.uri, albumChildren, local, member.name,
+                        BackgroundAlbumLogic.mimeForAlbumFileName(member.name));
+                result.pushed++;
+            }
+
+            HashSet<String> newSeen = new HashSet<String>(folderNames);
+            members = BackgroundAlbum.load(prefs);
+            for (String name : lastSeen) {
+                if (BackgroundAlbumLogic.containsIgnoreCase(newSeen, name)) continue;
+                if (BackgroundAlbum.indexByName(members, name) >= 0) {
+                    newSeen.add(name);
+                }
+            }
+            saveSeenAlbumNames(context, newSeen);
+        } catch (SecurityException e) {
+            throw e;
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * Ensure one visible album marker exists and has the note body when newly
+     * created. Extra SAF {@code (N)} copies are removed.
+     */
+    private static void writeAlbumMarker(Context context, Uri albumDirUri,
+            List<LibraryChild> children) {
+        LibraryChild keep = null;
+        int keepRank = 3;
+        for (int i = 0; i < children.size(); i++) {
+            LibraryChild child = children.get(i);
+            int rank = BackgroundAlbumLogic.albumMarkerRank(child.displayName);
+            if (rank < 0) continue;
+            if (keep == null || rank < keepRank) {
+                keep = child;
+                keepRank = rank;
+            }
+        }
+        ContentResolver cr = context.getContentResolver();
+        if (keep != null) {
+            for (int i = children.size() - 1; i >= 0; i--) {
+                LibraryChild child = children.get(i);
+                if (child == keep) continue;
+                if (BackgroundAlbumLogic.albumMarkerRank(child.displayName) < 0) continue;
+                try {
+                    DocumentsContract.deleteDocument(cr, child.uri);
+                } catch (Exception ignored) {
+                }
+                children.remove(i);
+            }
+            return;
+        }
+        try {
+            Uri created = DocumentsContract.createDocument(cr, albumDirUri,
+                    "text/plain", BackgroundAlbumLogic.ALBUM_MARKER_LIBRARY_NAME);
+            if (created == null) return;
+            OutputStream out = cr.openOutputStream(created);
+            if (out != null) {
+                try {
+                    out.write(ALBUM_MARKER_BODY.getBytes(Charset.forName("UTF-8")));
+                } finally {
+                    out.close();
+                }
+            }
+            LibraryChild child = new LibraryChild();
+            child.uri = created;
+            child.documentId = DocumentsContract.getDocumentId(created);
+            child.displayName = BackgroundAlbumLogic.ALBUM_MARKER_LIBRARY_NAME;
+            child.destName = null;
+            child.lastModified = System.currentTimeMillis();
+            child.isDir = false;
+            children.add(child);
+        } catch (Exception ignored) {
+        }
     }
 
     /**
