@@ -19,6 +19,7 @@ import android.view.Display;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.CompoundButton;
@@ -45,8 +46,11 @@ import java.util.Random;
  * <p>Interactive so hold-to-drag works. Starts dimmed for dock/idle power use.
  * First contact on a dim scene brightens immediately (no gear yet). A confirmed
  * single tap that is not a completed long-press drag shows or hides session
- * chrome (a gear). Double-tap on the scene or Back / Escape after the start
- * grace window gently wake the dream and start {@link UnlockRequestActivity}
+ * chrome (a gear). A horizontal fling on empty scene steps the saved-background
+ * album (left = next, right = previous) when at least two images are present;
+ * extra flings keep only the latest target so disk is not slammed. Double-tap
+ * on the scene or Back / Escape after the start grace window gently wake the
+ * dream and start {@link UnlockRequestActivity}
  * so a secure keyguard can show the unlock method (PIN / pattern / biometrics)
  * without an extra lock-screen swipe. The session sheet’s Reload herd row
  * re-reads custom ponies from disk instead. Chrome and the sheet do not unlock
@@ -179,6 +183,12 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
     /** Full-screen black veil for content enter/exit transitions. */
     private View fadeOverlay;
     private GestureDetector sceneGestureDetector;
+    /** Horizontal fling must exceed this (px/s); {@link ViewConfiguration} × 1.5. */
+    private int albumFlingMinVelocity;
+    /** Horizontal travel must exceed this (px); paging slop or 4× touch slop. */
+    private int albumFlingMinDistance;
+    private float sceneDownX;
+    private float sceneDownY;
     private View chromeRoot;
     private ImageButton gearButton;
     private View sessionSheet;
@@ -355,10 +365,36 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 }
                 return true;
             }
+
+            @Override
+            public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX,
+                    float velocityY) {
+                if (!canDismissFromTouch() || controller == null) return false;
+                if (controller.didDragThisGesture() || lastCompletedGestureWasDrag) {
+                    return false;
+                }
+                if (controller.touchDownHitPony()) return false;
+                float x1 = e1 != null ? e1.getX() : sceneDownX;
+                float y1 = e1 != null ? e1.getY() : sceneDownY;
+                if (e2 == null) return false;
+                float dx = e2.getX() - x1;
+                float dy = e2.getY() - y1;
+                if (Math.abs(dx) < albumFlingMinDistance) return false;
+                if (Math.abs(dx) <= Math.abs(dy)) return false;
+                if (Math.abs(velocityX) < albumFlingMinVelocity) return false;
+                if (Math.abs(velocityX) <= Math.abs(velocityY)) return false;
+                // Swipe left → next, swipe right → previous (gallery convention).
+                controller.requestAlbumStep(velocityX < 0 ? 1 : -1);
+                return true;
+            }
         });
         // Long-press on empty space should still count as a tap; pony grab is
         // handled by the scene controller, not GestureDetector's long-press.
         sceneGestureDetector.setIsLongpressEnabled(false);
+        ViewConfiguration vc = ViewConfiguration.get(this);
+        albumFlingMinVelocity = vc.getScaledMinimumFlingVelocity() * 3 / 2;
+        albumFlingMinDistance = Math.max(vc.getScaledPagingTouchSlop(),
+                vc.getScaledTouchSlop() * 4);
         // Overlay sits above the surface for the whole dream; it owns touch so
         // events still reach the herd while alpha is 0. Session chrome is stacked
         // above this and receives gear / sheet hits first.
@@ -376,6 +412,8 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                 switch (action) {
                     case MotionEvent.ACTION_DOWN:
                         gestureDown = true;
+                        sceneDownX = event.getX();
+                        sceneDownY = event.getY();
                         // Defer re-dim until the finger is up so a long drag cannot dim mid-gesture.
                         cancelReDim();
                         // Real contact counts as activity; ignore orphan UP/CANCEL for idle.

@@ -20,6 +20,8 @@ public final class BackgroundAlbumLogicTest {
         failures += run("startingIndex", BackgroundAlbumLogicTest::testStartingIndex);
         failures += run("cycleFileHash", BackgroundAlbumLogicTest::testCycleFileHash);
         failures += run("nextHash", BackgroundAlbumLogicTest::testNextHash);
+        failures += run("previousHash", BackgroundAlbumLogicTest::testPreviousHash);
+        failures += run("stepFrom", BackgroundAlbumLogicTest::testStepFrom);
         failures += run("intervalMs", BackgroundAlbumLogicTest::testIntervalMs);
         failures += run("canFit", BackgroundAlbumLogicTest::testCanFit);
         failures += run("albumMarker", BackgroundAlbumLogicTest::testAlbumMarker);
@@ -140,6 +142,53 @@ public final class BackgroundAlbumLogicTest {
         }
         if (!a.equals(BackgroundAlbumLogic.nextHash(Collections.singletonList(a), a))) {
             throw new AssertionError("singleton");
+        }
+    }
+
+    private static void testPreviousHash() {
+        String a = hash('a');
+        String b = hash('b');
+        String c = hash('c');
+        List<String> hashes = Arrays.asList(a, b, c);
+        if (!c.equals(BackgroundAlbumLogic.previousHash(hashes, a))) {
+            throw new AssertionError("wrap");
+        }
+        if (!a.equals(BackgroundAlbumLogic.previousHash(hashes, b))) {
+            throw new AssertionError("b -> a");
+        }
+        if (!a.equals(BackgroundAlbumLogic.previousHash(hashes, null))) {
+            throw new AssertionError("missing current");
+        }
+        if (BackgroundAlbumLogic.previousHash(Collections.<String>emptyList(), a) != null) {
+            throw new AssertionError("empty previous");
+        }
+        if (!a.equals(BackgroundAlbumLogic.previousHash(Collections.singletonList(a), a))) {
+            throw new AssertionError("singleton");
+        }
+        if (!c.equals(BackgroundAlbumLogic.stepHash(hashes, a, -1))) {
+            throw new AssertionError("step prev");
+        }
+        if (!b.equals(BackgroundAlbumLogic.stepHash(hashes, a, 1))) {
+            throw new AssertionError("step next");
+        }
+    }
+
+    private static void testStepFrom() {
+        String a = hash('a');
+        String b = hash('b');
+        String c = hash('c');
+        List<String> hashes = Arrays.asList(a, b, c);
+        if (!b.equals(BackgroundAlbumLogic.stepFrom(hashes, a, null, null, 1))) {
+            throw new AssertionError("from displayed");
+        }
+        if (!c.equals(BackgroundAlbumLogic.stepFrom(hashes, a, b, null, 1))) {
+            throw new AssertionError("from loading");
+        }
+        if (!a.equals(BackgroundAlbumLogic.stepFrom(hashes, a, b, c, 1))) {
+            throw new AssertionError("from pending wrap");
+        }
+        if (!a.equals(BackgroundAlbumLogic.stepFrom(hashes, a, b, null, -1))) {
+            throw new AssertionError("reverse loading");
         }
     }
 

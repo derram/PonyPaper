@@ -142,6 +142,12 @@ public class Ponies implements Pony.EffectHost {
      * hosts (e.g. dream/screensaver) that dismiss on tap but keep a drag open.
      */
     private boolean draggedThisGesture = false;
+    /**
+     * True when {@link MotionEvent#ACTION_DOWN} hit a pony, even if the hold
+     * was cancelled by movement. Dream hosts use this so a failed grab does
+     * not become an album-skip fling.
+     */
+    private boolean downHitPony = false;
     private float downX;
     private float downY;
     private float lastX;
@@ -802,6 +808,7 @@ public class Ponies implements Pony.EffectHost {
                 endDrag();
                 cancelPendingDrag();
                 draggedThisGesture = false;
+                downHitPony = false;
                 
                 initialPointerId = event.getPointerId(0);
                 downX = lastX = event.getX();
@@ -811,6 +818,7 @@ public class Ponies implements Pony.EffectHost {
                     if (pony.testHitPoint(downX, downY)) pendingPony = pony;
                 }
                 if (pendingPony != null) {
+                    downHitPony = true;
                     handler.postDelayed(longPressRunnable, LONG_PRESS_MS);
                 }
                 break;
@@ -855,6 +863,14 @@ public class Ponies implements Pony.EffectHost {
      */
     public boolean didDragThisGesture() {
         return draggedThisGesture;
+    }
+
+    /**
+     * Whether this gesture's {@link MotionEvent#ACTION_DOWN} hit a pony.
+     * Cleared on the next down.
+     */
+    public boolean touchDownHitPony() {
+        return downHitPony;
     }
     
     private void cancelPendingDrag() {

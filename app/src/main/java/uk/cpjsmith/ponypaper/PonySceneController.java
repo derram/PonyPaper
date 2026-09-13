@@ -290,6 +290,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /** {@link SystemClock#uptimeMillis()} of the last dream album install. */
     private long lastBackgroundCycleMs = 0;
     private boolean cycleLoadInFlight = false;
+    /** Hash currently decoding onto {@link #background}, or null. */
+    private String loadingAlbumHash = null;
+    /**
+     * Latest manual/timer-coalesced target while a decode or fade is busy.
+     * Only one pending hash; extra swipes overwrite it.
+     */
+    private String pendingAlbumHash = null;
     /** Bumped to discard a stale cycle/reload decode. */
     private int cycleGeneration = 0;
     /** Pixelation / canvas used for the bitmap in {@link #background}. */
@@ -572,6 +579,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         displayedBackgroundHash = null;
         lastBackgroundCycleMs = 0;
         cycleLoadInFlight = false;
+        loadingAlbumHash = null;
+        pendingAlbumHash = null;
         cycleGeneration++;
         cycleHashes = new ArrayList<String>();
         releaseCpuSpriteDemand();
@@ -689,6 +698,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         sceneLoadFailed = false;
         cycleGeneration++;
         cycleLoadInFlight = false;
+        loadingAlbumHash = null;
         herdDrainStartMs = 0;
         clearTableauReveal();
         // Keep outgoing for in-session reloads (stop() clears started first).
@@ -1186,6 +1196,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         final boolean uploadHardware = wantsHardwareCanvasUpload();
         final int gen = ++cycleGeneration;
         cycleLoadInFlight = true;
+        loadingAlbumHash = bgHash;
         SpriteCache.execute(new Runnable() {
             @Override
             public void run() {
@@ -1208,11 +1219,13 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                             return;
                         }
                         cycleLoadInFlight = false;
+                        loadingAlbumHash = null;
                         if (!hardwareCanvasAllowed
                                 || shouldDisableBackgroundImage(getPreferences())) {
                             if (readyBg != null && !readyBg.isRecycled()) {
                                 readyBg.recycle();
                             }
+                            pendingAlbumHash = null;
                             return;
                         }
                         if (!replaceExisting && background != null && !background.isRecycled()) {
@@ -1244,22 +1257,19 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /**
      * Dream-only: after {@link BackgroundAlbum#intervalMs}, decode the next
      * album file onto {@link #background}. Does not rewrite
-     * {@link CustomStorage#BACKGROUND_NAME}.
+     * {@link CustomStorage#BACKGROUND_NAME}. A pending manual skip is started
+     * first so a fling is not overwritten by the timer.
      */
     private void maybeCycleBackground(long now, int canvasW, int canvasH) {
-        if (!isDreamHost() || frozen || thermalEmergency) return;
-        if (sceneLoadInFlight || cycleLoadInFlight) return;
-        if (outgoingBackground != null) return;
-        if (isHerdDraining() || tableauRevealPending) return;
+        if (pendingAlbumHash != null) {
+            tryStartPendingAlbum(canvasW, canvasH);
+            return;
+        }
+        if (!canWalkAlbum(getPreferences(), false)) return;
+        if (albumSwapBusy()) return;
         if (canvasW <= 0 || canvasH <= 0) return;
         SharedPreferences prefs = getPreferences();
-        if (!preferredBackgroundEnabled(prefs) || shouldDisableBackgroundImage(prefs)) {
-            return;
-        }
-        if (!BackgroundAlbumLogic.shouldCycle(BackgroundAlbum.cyclePrefEnabled(prefs),
-                cycleHashes.size())) {
-            return;
-        }
+        if (!BackgroundAlbum.cyclePrefEnabled(prefs)) return;
         if (lastBackgroundCycleMs == 0) {
             lastBackgroundCycleMs = now;
             return;
@@ -1270,13 +1280,104 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             lastBackgroundCycleMs = now;
             return;
         }
-        File file = BackgroundAlbum.fileForHashOrNull(appContext, next);
-        if (file == null) {
-            refreshCycleHashes();
-            lastBackgroundCycleMs = now;
+        startAlbumFileDecode(next, canvasW, canvasH);
+    }
+
+    /**
+     * Screensaver fling: step one album image. Does not require the auto-cycle
+     * preference. Serializes with the timed path; extra flings keep only the
+     * latest target hash so disk is not slammed.
+     *
+     * @param direction negative = previous, positive = next
+     */
+    public void requestAlbumStep(int direction) {
+        if (direction == 0) return;
+        SharedPreferences prefs = getPreferences();
+        if (!canWalkAlbum(prefs, true)) return;
+        int[] size = albumCanvasSize();
+        if (size == null) return;
+        String target = BackgroundAlbumLogic.stepFrom(cycleHashes,
+                displayedBackgroundHash, loadingAlbumHash, pendingAlbumHash, direction);
+        if (target == null) return;
+        if (target.equals(displayedBackgroundHash)) {
+            pendingAlbumHash = null;
+            if (loadingAlbumHash != null && !target.equals(loadingAlbumHash)) {
+                abortAlbumDecode();
+            }
             return;
         }
-        decodeBackgroundFileAsync(file, next, true, canvasW, canvasH);
+        if (target.equals(loadingAlbumHash)) {
+            pendingAlbumHash = null;
+            return;
+        }
+        if (albumSwapBusy()) {
+            pendingAlbumHash = target;
+            return;
+        }
+        startAlbumFileDecode(target, size[0], size[1]);
+    }
+
+    /**
+     * Album walk eligibility. {@code refreshIfShort} re-reads present files
+     * when the cached list has fewer than two members.
+     */
+    private boolean canWalkAlbum(SharedPreferences prefs, boolean refreshIfShort) {
+        if (!isDreamHost() || !started || frozen || thermalEmergency) return false;
+        if (isHerdDraining() || tableauRevealPending) return false;
+        if (!preferredBackgroundEnabled(prefs) || shouldDisableBackgroundImage(prefs)) {
+            return false;
+        }
+        if (refreshIfShort && cycleHashes.size() < 2) {
+            refreshCycleHashes();
+        }
+        return cycleHashes.size() >= 2;
+    }
+
+    private boolean albumSwapBusy() {
+        return sceneLoadInFlight || cycleLoadInFlight || outgoingBackground != null;
+    }
+
+    private int[] albumCanvasSize() {
+        SurfaceHolder holder = surface.getSurfaceHolder();
+        if (holder == null) return null;
+        Rect frame = holder.getSurfaceFrame();
+        if (frame == null || frame.width() <= 0 || frame.height() <= 0) return null;
+        return new int[] { frame.width(), frame.height() };
+    }
+
+    private void tryStartPendingAlbum(int canvasW, int canvasH) {
+        if (pendingAlbumHash == null) return;
+        if (albumSwapBusy()) return;
+        if (canvasW <= 0 || canvasH <= 0) return;
+        if (!canWalkAlbum(getPreferences(), true)) {
+            pendingAlbumHash = null;
+            return;
+        }
+        String hash = pendingAlbumHash;
+        if (hash.equals(displayedBackgroundHash)) {
+            pendingAlbumHash = null;
+            return;
+        }
+        startAlbumFileDecode(hash, canvasW, canvasH);
+    }
+
+    private void startAlbumFileDecode(String hash, int canvasW, int canvasH) {
+        File file = BackgroundAlbum.fileForHashOrNull(appContext, hash);
+        if (file == null) {
+            refreshCycleHashes();
+            pendingAlbumHash = null;
+            return;
+        }
+        pendingAlbumHash = null;
+        decodeBackgroundFileAsync(file, hash, true, canvasW, canvasH);
+    }
+
+    /** Drop an in-flight album decode so a reverse fling can keep the current image. */
+    private void abortAlbumDecode() {
+        if (!cycleLoadInFlight) return;
+        cycleGeneration++;
+        cycleLoadInFlight = false;
+        loadingAlbumHash = null;
     }
 
     /** Largest power-of-two {@link BitmapFactory.Options#inSampleSize} that keeps both sides ≥ target. */
@@ -1695,10 +1796,18 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     /**
      * Whether the current gesture long-press-dragged a pony. Dream hosts use this
-     * to dismiss on tap/swipe while leaving an active drag alone.
+     * to leave an active drag alone (tap chrome, album-skip fling).
      */
     public boolean didDragThisGesture() {
         return ponies != null && ponies.didDragThisGesture();
+    }
+
+    /**
+     * Whether this gesture's down hit a pony. Dream hosts ignore album-skip
+     * flings that started as a grab.
+     */
+    public boolean touchDownHitPony() {
+        return ponies != null && ponies.touchDownHitPony();
     }
 
     private SharedPreferences getPreferences() {
@@ -2231,6 +2340,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         if (BackgroundAlbum.PREF_JSON.equals(key)) {
             refreshCycleHashes();
+            if (pendingAlbumHash != null
+                    && !cycleHashes.contains(pendingAlbumHash)) {
+                pendingAlbumHash = null;
+            }
             return;
         }
         if (key != null && key.startsWith("pref_dream_")) {
@@ -2407,6 +2520,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                     && !prefs.getBoolean(PREF_DREAM_CYCLE_BACKGROUNDS, false)) {
                 cycleGeneration++;
                 cycleLoadInFlight = false;
+                loadingAlbumHash = null;
+                pendingAlbumHash = null;
                 File filesDir = appContext.getExternalFilesDir(null);
                 File live = filesDir != null
                         ? new File(filesDir, CustomStorage.BACKGROUND_NAME) : null;

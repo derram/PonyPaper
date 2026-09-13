@@ -85,19 +85,52 @@ public final class BackgroundAlbumLogic {
      * is missing, returns the first member. Null when the list is empty.
      */
     public static String nextHash(List<String> hashes, String current) {
+        return stepHash(hashes, current, 1);
+    }
+
+    /**
+     * Previous hash before {@code current} in list order, wrapping. If
+     * {@code current} is missing, returns the first member. Null when the list
+     * is empty.
+     */
+    public static String previousHash(List<String> hashes, String current) {
+        return stepHash(hashes, current, -1);
+    }
+
+    /**
+     * Neighbor of {@code current}. {@code direction < 0} is previous, anything
+     * else is next. Same missing-current / empty / singleton rules as
+     * {@link #nextHash}.
+     */
+    public static String stepHash(List<String> hashes, String current, int direction) {
         if (hashes == null || hashes.isEmpty()) return null;
         if (hashes.size() == 1) return hashes.get(0);
-        int i = -1;
-        if (current != null) {
-            for (int n = 0; n < hashes.size(); n++) {
-                if (current.equals(hashes.get(n))) {
-                    i = n;
-                    break;
-                }
-            }
-        }
+        int i = indexOfHash(hashes, current);
         if (i < 0) return hashes.get(0);
-        return hashes.get((i + 1) % hashes.size());
+        int n = hashes.size();
+        if (direction < 0) {
+            return hashes.get((i + n - 1) % n);
+        }
+        return hashes.get((i + 1) % n);
+    }
+
+    /**
+     * Target hash for a manual album step. {@code pending} is the last
+     * coalesced request, {@code loading} the in-flight decode, {@code displayed}
+     * what is on screen. The first non-null in that order is the origin.
+     */
+    public static String stepFrom(List<String> hashes, String displayed,
+            String loading, String pending, int direction) {
+        String from = pending != null ? pending : loading != null ? loading : displayed;
+        return stepHash(hashes, from, direction);
+    }
+
+    private static int indexOfHash(List<String> hashes, String current) {
+        if (current == null) return -1;
+        for (int n = 0; n < hashes.size(); n++) {
+            if (current.equals(hashes.get(n))) return n;
+        }
+        return -1;
     }
 
     /**
