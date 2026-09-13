@@ -1152,21 +1152,21 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Decode the background at fitted size / {@code pixelation}, in RGB_565 on
-     * the CPU. When {@code uploadHardware} is true (HW-canvas hosts on API 26+),
-     * uploads to {@link Bitmap.Config#HARDWARE} and recycles the CPU copy.
-     * Software-only hosts and pre-O keep RGB_565. The frame loop stretches
-     * this bitmap; it is not upsampled back to the surface.
+     * Decode the background at fitted size / {@code pixelation}. Hardware-canvas
+     * hosts decode ARGB_8888 on the CPU, upload {@link Bitmap.Config#HARDWARE},
+     * and recycle the CPU copy. Software-only hosts and pre-O keep RGB_565.
+     * 8888 OOM (decode or downscale) retries the 565 path. The frame loop
+     * stretches this bitmap; it is not upsampled back to the surface.
      */
     private static Bitmap decodeBackgroundFile(File bgFile, int canvasW, int canvasH,
             int pixelation, boolean wantContain, boolean uploadHardware) {
         pixelation = BackgroundPixelation.clamp(pixelation);
-        BitmapFactory.Options bfo = new BitmapFactory.Options();
-        bfo.inScaled = false;
-        bfo.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(bgFile.toString(), bfo);
-        int srcW = bfo.outWidth;
-        int srcH = bfo.outHeight;
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inScaled = false;
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(bgFile.toString(), bounds);
+        int srcW = bounds.outWidth;
+        int srcH = bounds.outHeight;
         int fitW;
         int fitH;
         if (srcW > 0 && srcH > 0 && canvasW > 0 && canvasH > 0) {
@@ -1178,20 +1178,20 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         int targetW = BackgroundPixelation.targetEdge(fitW, pixelation);
         int targetH = BackgroundPixelation.targetEdge(fitH, pixelation);
-
-        bfo.inJustDecodeBounds = false;
-        bfo.inSampleSize = inSampleSizeForTarget(srcW, srcH, targetW, targetH);
-        bfo.inPreferredConfig = Bitmap.Config.RGB_565;
-        Bitmap decoded = BitmapFactory.decodeFile(bgFile.toString(), bfo);
-        if (decoded == null) {
-            return null;
-        }
-        Bitmap working = asRgb565(decoded);
-        // Shrink extra pixels left by power-of-two inSampleSize. Do not upscale:
-        // a full-surface copy would undo pixelation and cost a full blit every frame.
+        int sample = inSampleSizeForTarget(srcW, srcH, targetW, targetH);
         boolean filter = pixelation == 1;
-        working = scaleDownToTarget(working, targetW, targetH, filter);
-        working = asRgb565(working);
+        String path = bgFile.toString();
+
+        Bitmap working = null;
+        if (uploadHardware) {
+            working = decodeBackgroundPixels(path, sample, targetW, targetH, filter, true);
+            if (working == null) {
+                Log.w("PonyPaper", "Background ARGB_8888 decode failed; retrying RGB_565");
+            }
+        }
+        if (working == null) {
+            working = decodeBackgroundPixels(path, sample, targetW, targetH, filter, false);
+        }
         if (working != null && !working.isRecycled()) {
             working.prepareToDraw();
             if (uploadHardware) {
@@ -1200,6 +1200,53 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             }
         }
         return working;
+    }
+
+    /**
+     * Decode and scale to {@code targetW}/{@code targetH}. {@code argb8888} is
+     * the hardware-upload CPU format; false forces RGB_565. Returns null on
+     * OOM, failed decode, or an 8888 downscale that could not reach target
+     * (caller may retry 565).
+     */
+    private static Bitmap decodeBackgroundPixels(String path, int sample,
+            int targetW, int targetH, boolean filter, boolean argb8888) {
+        BitmapFactory.Options bfo = new BitmapFactory.Options();
+        bfo.inScaled = false;
+        bfo.inJustDecodeBounds = false;
+        bfo.inSampleSize = sample;
+        bfo.inPreferredConfig = argb8888
+                ? Bitmap.Config.ARGB_8888 : Bitmap.Config.RGB_565;
+        Bitmap decoded;
+        try {
+            decoded = BitmapFactory.decodeFile(path, bfo);
+        } catch (OutOfMemoryError e) {
+            Log.w("PonyPaper", argb8888
+                    ? "Background ARGB_8888 decode skipped (OOM)"
+                    : "Background RGB_565 decode skipped (OOM)", e);
+            return null;
+        }
+        if (decoded == null) {
+            return null;
+        }
+        Bitmap working = argb8888 ? decoded : asRgb565(decoded);
+        // Shrink extra pixels left by power-of-two inSampleSize. Do not upscale:
+        // a full-surface copy would undo pixelation and cost a full blit every frame.
+        working = scaleDownToTarget(working, targetW, targetH, filter);
+        if (!argb8888) {
+            working = asRgb565(working);
+        } else if (working != null && !working.isRecycled()
+                && (working.getWidth() > targetW || working.getHeight() > targetH)) {
+            Log.w("PonyPaper", "Background ARGB_8888 downscale skipped (OOM)");
+            recycleQuietly(working);
+            return null;
+        }
+        return working;
+    }
+
+    private static void recycleQuietly(Bitmap b) {
+        if (b != null && !b.isRecycled()) {
+            b.recycle();
+        }
     }
 
     /**
