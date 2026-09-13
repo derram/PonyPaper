@@ -185,7 +185,7 @@
     <string name="pref_clear_background_none_title">No background</string>
     <string name="pref_clear_background_none_message">There is no background image to clear.</string>
     <string name="pref_background_colour_title">Base colour</string>
-    <string name="pref_background_colour_summary">Colour shown behind ponies, and while the wallpaper is reloading</string>
+    <string name="pref_background_colour_summary">Colour shown behind ponies, around a fitted image, and while the wallpaper is reloading</string>
     <string name="pref_background_colour_dialog">Base colour</string>
     <string name="pref_background_colour_red">Red</string>
     <string name="pref_background_colour_green">Green</string>
@@ -224,8 +224,14 @@
     <string name="pref_dream_show_clock_summary">Large digital clock over the herd (12/24-hour follows system setting)</string>
     <string name="pref_dream_show_date_title">Show date</string>
     <string name="pref_dream_show_date_summary">Weekday and full date under the time</string>
+    <string name="pref_background_fit_title">Background fit</string>
+    <string name="pref_background_fit_dialog">Background fit</string>
+    <string name="pref_background_fit_cover">Fill screen</string>
+    <string name="pref_background_fit_contain">Show entire image</string>
+    <string name="pref_dream_background_fit_title">Background fit</string>
+    <string name="pref_dream_background_fit_dialog">Screen saver background fit</string>
     <string name="pref_dream_oled_shift_title">Shift background</string>
-    <string name="pref_dream_oled_shift_summary">Slowly pan the image so a still background does not sit on the same pixels during long screen saver sessions</string>
+    <string name="pref_dream_oled_shift_summary">Slowly pan the image so a still background does not sit on the same pixels during long screen saver sessions. Images that already fill the screen are left still</string>
     <string name="pref_dream_cycle_backgrounds_title">Cycle saved backgrounds</string>
     <string name="pref_dream_cycle_backgrounds_summary">Walk the album so a docked screen saver is not one still picture for hours. Swipe left or right to skip, including when this is off</string>
     <string name="pref_dream_cycle_backgrounds_need_two">Save at least two backgrounds to cycle</string>

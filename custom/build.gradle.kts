@@ -47,6 +47,7 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/ShuffleMixBag.java",
                 "uk/cpjsmith/ponypaper/BackgroundAlbumLogic.java",
                 "uk/cpjsmith/ponypaper/BackgroundCrossfade.java",
+                "uk/cpjsmith/ponypaper/BackgroundFit.java",
                 "uk/cpjsmith/ponypaper/DragExit.java",
                 "uk/cpjsmith/ponypaper/CustomDefinitionCache.java",
                 "uk/cpjsmith/ponypaper/SecureXml.java",
@@ -244,6 +245,13 @@ tasks.register<JavaExec>("testBackgroundCrossfade") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.BackgroundCrossfadeTest")
 }
 
+tasks.register<JavaExec>("testBackgroundFit") {
+    group = "verification"
+    description = "Run background cover/contain fit and OLED pan checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.BackgroundFitTest")
+}
+
 tasks.register<JavaExec>("testDragExit") {
     group = "verification"
     description = "Run drag-to-edge axis and margin checks"
@@ -297,6 +305,7 @@ tasks.named("check") {
     dependsOn("testShuffleMixBag")
     dependsOn("testBackgroundAlbum")
     dependsOn("testBackgroundCrossfade")
+    dependsOn("testBackgroundFit")
     dependsOn("testDragExit")
     dependsOn("testEditorCli")
     dependsOn("testEditorWindowFocus")

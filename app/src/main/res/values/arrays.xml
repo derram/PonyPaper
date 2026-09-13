@@ -28,6 +28,14 @@
         <item>125</item>
         <item>150</item>
     </string-array>
+    <string-array name="pref_background_fit_entries">
+        <item>@string/pref_background_fit_cover</item>
+        <item>@string/pref_background_fit_contain</item>
+    </string-array>
+    <string-array name="pref_background_fit_values">
+        <item>cover</item>
+        <item>contain</item>
+    </string-array>
     <string-array name="pref_dream_idle_timeout_entries">
         <item>@string/pref_dream_idle_timeout_5</item>
         <item>@string/pref_dream_idle_timeout_10</item>

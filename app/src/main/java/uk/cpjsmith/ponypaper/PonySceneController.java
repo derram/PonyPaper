@@ -70,8 +70,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /** When true (and the clock is shown), draw the date under the time. */
     static final String PREF_DREAM_SHOW_DATE = "pref_dream_show_date";
     /**
-     * When true (default), the dream slowly pans a cover-fit background so a
-     * still image does not sit on the same pixels for hours.
+     * When true (default), the dream slowly pans a fitted background so a
+     * still image does not sit on the same pixels for hours. Matching-aspect
+     * images are not over-zoomed; contain dests pan inside the bars.
      */
     static final String PREF_DREAM_OLED_SHIFT = "pref_dream_oled_shift";
     /**
@@ -303,12 +304,20 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private int lastBgPixelation = -1;
     private int lastBgCanvasW = 0;
     private int lastBgCanvasH = 0;
+    /** Contain-vs-cover used for the bitmap in {@link #background}. */
+    private boolean lastBgContain = false;
+    /**
+     * Fit pref changed while {@link #sceneLoadInFlight}; re-decode after the
+     * herd install so ponies are not dropped.
+     */
+    private boolean pendingBackgroundFitReload = false;
     private boolean drunkMode = false;
     private final Paint paint = new Paint();
     /** Incoming overlay during {@link #outgoingBackground} fade; alpha only. */
     private final Paint fadePaint = new Paint();
     private final Rect tmpSrc = new Rect();
     private final Rect tmpDst = new Rect();
+    private final BackgroundFit.Dest bgLayout = new BackgroundFit.Dest();
     private final Rect clipRect = new Rect();
     /** When true, the next locked frame must paint even if ponies look unchanged. */
     private boolean forceSceneRedraw = true;
@@ -460,7 +469,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 : context;
         this.handler = handler;
         this.surface = surface;
-        // Nearest-neighbour: bilinear filtering of a large cover background is a
+        // Nearest-neighbour: bilinear filtering of a large fitted background is a
         // major heat source on both software and hardware canvas paths.
         paint.setFilterBitmap(false);
         paint.setDither(false);
@@ -769,6 +778,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             pendingTableauBackground = null;
             replaceBackground(next);
         }
+        if (pendingBackgroundFitReload) {
+            pendingBackgroundFitReload = false;
+            reloadDisplayedBackground();
+        }
     }
 
     boolean isSceneLoadInFlight() {
@@ -821,6 +834,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             lastBgPixelation = -1;
             lastBgCanvasW = 0;
             lastBgCanvasH = 0;
+            lastBgContain = false;
         }
         if (backgroundNode != null && background == null) {
             backgroundNode.discard();
@@ -872,11 +886,12 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * keeps running independently of {@link PonyDreamService}'s mix timer.
      */
     private void rememberDisplayedBackground(String hash, int pixelation, int canvasW,
-            int canvasH, boolean bumpCycleClock) {
+            int canvasH, boolean containFit, boolean bumpCycleClock) {
         displayedBackgroundHash = hash;
         lastBgPixelation = pixelation;
         lastBgCanvasW = canvasW;
         lastBgCanvasH = canvasH;
+        lastBgContain = containFit;
         if (bumpCycleClock || lastBackgroundCycleMs == 0) {
             lastBackgroundCycleMs = SystemClock.uptimeMillis();
         }
@@ -929,6 +944,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         final boolean wantBg = preferredBackgroundEnabled(prefs)
                 && !shouldDisableBackgroundImage(prefs);
         final int pixelation = pixelationFromPrefs(prefs);
+        final boolean containFit = backgroundWantContain(prefs);
         File filesDir = appContext.getExternalFilesDir(null);
         final String[] hashOut = new String[1];
         File resolvedBg = wantBg
@@ -940,6 +956,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 && resolvedBg != null
                 && background != null && !background.isRecycled()
                 && pixelation == lastBgPixelation
+                && containFit == lastBgContain
                 && canvasW == lastBgCanvasW && canvasH == lastBgCanvasH
                 && hashesEqual(bgHash, displayedBackgroundHash);
         final File bgFile = reuseBg ? null : resolvedBg;
@@ -972,7 +989,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 if (bgFile != null && bgFile.exists()) {
                     try {
                         bg = decodeBackgroundFile(bgFile, canvasW, canvasH, pixelation,
-                                uploadHardware);
+                                containFit, uploadHardware);
                     } catch (RuntimeException e) {
                         Log.e("PonyPaper", "Failed to decode background", e);
                         bg = null;
@@ -1017,7 +1034,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                             installBg = background;
                         }
                         installReadyHerd(readyHerd, installBg, buildTableau, bgHash,
-                                pixelation, canvasW, canvasH, false);
+                                pixelation, canvasW, canvasH, containFit, false);
                         if (active && !frozen && !thermalEmergency) {
                             lastFrameUptimeMs = 0;
                             drawFrame();
@@ -1035,10 +1052,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      */
     private void installReadyHerd(Ponies readyHerd, Bitmap readyBg, boolean buildTableau,
             String bgHash, int pixelation, int canvasW, int canvasH,
-            boolean bumpCycleClock) {
+            boolean containFit, boolean bumpCycleClock) {
         ponies = readyHerd;
         if (readyBg != null) {
-            rememberDisplayedBackground(bgHash, pixelation, canvasW, canvasH, bumpCycleClock);
+            rememberDisplayedBackground(bgHash, pixelation, canvasW, canvasH,
+                    containFit, bumpCycleClock);
         }
         if (buildTableau) {
             tableauHerd = true;
@@ -1065,6 +1083,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             replaceBackground(readyBg);
         }
         forceSceneRedraw = true;
+        if (pendingBackgroundFitReload && !hasPendingTableauBackground) {
+            pendingBackgroundFitReload = false;
+            reloadDisplayedBackground();
+        }
     }
 
     private static int pixelationFromPrefs(SharedPreferences prefs) {
@@ -1074,16 +1096,75 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         return pixelation;
     }
 
+    private boolean backgroundWantContain(SharedPreferences prefs) {
+        boolean dream = isDreamHost();
+        String key = dream ? BackgroundFit.PREF_DREAM : BackgroundFit.PREF_WALLPAPER;
+        return BackgroundFit.wantContain(prefs.getString(key, null), dream);
+    }
+
     /**
-     * Decode the background at cover-size / {@code pixelation}, in RGB_565 on
+     * Re-decode the current image at the new fit without dropping the herd.
+     * In-flight scene loads finish first, then this runs.
+     */
+    private void onBackgroundFitPrefChanged() {
+        lastBgPixelation = -1;
+        lastBgCanvasW = 0;
+        lastBgCanvasH = 0;
+        forceSceneRedraw = true;
+        if (!started || frozen) {
+            redrawIfActive();
+            return;
+        }
+        if (sceneLoadInFlight) {
+            pendingBackgroundFitReload = true;
+            return;
+        }
+        reloadDisplayedBackground();
+    }
+
+    /** Replace the displayed bitmap for a fit/pixelation-style change. */
+    private void reloadDisplayedBackground() {
+        if (cycleLoadInFlight) {
+            cycleGeneration++;
+            cycleLoadInFlight = false;
+            loadingAlbumHash = null;
+        }
+        SharedPreferences prefs = getPreferences();
+        if (!preferredBackgroundEnabled(prefs) || shouldDisableBackgroundImage(prefs)) {
+            redrawIfActive();
+            return;
+        }
+        SurfaceHolder holder = surface.getSurfaceHolder();
+        if (holder == null) {
+            redrawIfActive();
+            return;
+        }
+        Rect frame = holder.getSurfaceFrame();
+        if (frame == null || frame.width() <= 0 || frame.height() <= 0) {
+            redrawIfActive();
+            return;
+        }
+        File filesDir = appContext.getExternalFilesDir(null);
+        String[] hashOut = new String[1];
+        File bgFile = resolveDreamOrLiveBackgroundFile(prefs, filesDir, hashOut);
+        if (bgFile == null) {
+            redrawIfActive();
+            return;
+        }
+        decodeBackgroundFileAsync(bgFile, hashOut[0], true, frame.width(), frame.height());
+        redrawIfActive();
+    }
+
+    /**
+     * Decode the background at fitted size / {@code pixelation}, in RGB_565 on
      * the CPU. When {@code uploadHardware} is true (HW-canvas hosts on API 26+),
      * uploads to {@link Bitmap.Config#HARDWARE} and recycles the CPU copy.
-     * Software-only hosts and pre-O keep RGB_565. The frame loop cover-stretches
+     * Software-only hosts and pre-O keep RGB_565. The frame loop stretches
      * this bitmap; it is not upsampled back to the surface, so pixelation
      * remains a memory-bandwidth / heat control.
      */
     private static Bitmap decodeBackgroundFile(File bgFile, int canvasW, int canvasH,
-            int pixelation, boolean uploadHardware) {
+            int pixelation, boolean wantContain, boolean uploadHardware) {
         if (pixelation < MIN_PIXELATION) pixelation = MIN_PIXELATION;
         BitmapFactory.Options bfo = new BitmapFactory.Options();
         bfo.inScaled = false;
@@ -1091,18 +1172,17 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         BitmapFactory.decodeFile(bgFile.toString(), bfo);
         int srcW = bfo.outWidth;
         int srcH = bfo.outHeight;
-        int coverW;
-        int coverH;
+        int fitW;
+        int fitH;
         if (srcW > 0 && srcH > 0 && canvasW > 0 && canvasH > 0) {
-            float coverScale = Math.max((float) canvasW / (float) srcW, (float) canvasH / (float) srcH);
-            coverW = Math.max(1, Math.round(srcW * coverScale));
-            coverH = Math.max(1, Math.round(srcH * coverScale));
+            fitW = BackgroundFit.fittedWidth(srcW, srcH, canvasW, canvasH, wantContain);
+            fitH = BackgroundFit.fittedHeight(srcW, srcH, canvasW, canvasH, wantContain);
         } else {
-            coverW = Math.max(1, canvasW > 0 ? canvasW : srcW);
-            coverH = Math.max(1, canvasH > 0 ? canvasH : srcH);
+            fitW = Math.max(1, canvasW > 0 ? canvasW : srcW);
+            fitH = Math.max(1, canvasH > 0 ? canvasH : srcH);
         }
-        int targetW = Math.max(1, coverW / pixelation);
-        int targetH = Math.max(1, coverH / pixelation);
+        int targetW = Math.max(1, fitW / pixelation);
+        int targetH = Math.max(1, fitH / pixelation);
 
         bfo.inJustDecodeBounds = false;
         bfo.inSampleSize = inSampleSizeForTarget(srcW, srcH, targetW, targetH);
@@ -1193,6 +1273,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (!replaceExisting && background != null && !background.isRecycled()) return;
         final SharedPreferences prefs = getPreferences();
         final int pixelation = pixelationFromPrefs(prefs);
+        final boolean containFit = backgroundWantContain(prefs);
         final boolean uploadHardware = wantsHardwareCanvasUpload();
         final int gen = ++cycleGeneration;
         cycleLoadInFlight = true;
@@ -1203,7 +1284,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 Bitmap bg = null;
                 try {
                     bg = decodeBackgroundFile(bgFile, canvasW, canvasH, pixelation,
-                            uploadHardware);
+                            containFit, uploadHardware);
                 } catch (RuntimeException e) {
                     Log.e("PonyPaper", "Failed to reload background", e);
                     bg = null;
@@ -1243,7 +1324,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                         } else {
                             installCycledBackground(readyBg);
                         }
-                        rememberDisplayedBackground(bgHash, pixelation, canvasW, canvasH, true);
+                        rememberDisplayedBackground(bgHash, pixelation, canvasW, canvasH,
+                                containFit, true);
                         if (active && !frozen && !thermalEmergency && surface.isDrawingEnabled()) {
                             lastFrameUptimeMs = 0;
                             drawFrame();
@@ -1448,41 +1530,18 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Cover-fit destination inside the canvas, panned by home-screen offsets
-     * and optional dream OLED shift. {@code extraScale} {@code > 1} oversizes
-     * the dest so a pixel pan cannot reveal the fill colour.
+     * Fitted dest, then dream-only integer pan when {@code oledShift} is set.
+     * Wallpaper parallax is {@code xOffset}/{@code yOffset} on cover only.
      */
-    private static void coverDestRect(int srcW, int srcH, int canvasW, int canvasH,
-            float xOffset, float yOffset, float extraScale, Rect out) {
-        int dstW;
-        int dstH;
-        if (srcW > 0 && srcH > 0 && canvasW > 0 && canvasH > 0) {
-            float scale = Math.max((float) canvasW / (float) srcW, (float) canvasH / (float) srcH);
-            if (extraScale > 1f) {
-                scale *= extraScale;
-            }
-            dstW = Math.max(1, Math.round(srcW * scale));
-            dstH = Math.max(1, Math.round(srcH * scale));
-        } else {
-            dstW = Math.max(1, canvasW);
-            dstH = Math.max(1, canvasH);
-        }
-        int left = Math.round((canvasW - dstW) * xOffset);
-        int top = Math.round((canvasH - dstH) * yOffset);
-        out.set(left, top, left + dstW, top + dstH);
-    }
-
-    /**
-     * Cover-fit dest, then dream-only integer pan when {@code oledShift} is set.
-     * Wallpaper parallax is {@code xOffset}/{@code yOffset} only.
-     */
-    private static void layoutBackgroundDest(int srcW, int srcH, int canvasW, int canvasH,
-            float xOffset, float yOffset, boolean oledShift, long uptimeMs, Rect out) {
-        float extra = oledShift ? DreamOledShift.coverScale() : 1f;
-        coverDestRect(srcW, srcH, canvasW, canvasH, xOffset, yOffset, extra, out);
+    private void layoutBackgroundDest(int srcW, int srcH, int canvasW, int canvasH,
+            boolean wantContain, float xOffset, float yOffset, boolean oledShift,
+            long uptimeMs, Rect out) {
+        BackgroundFit.layout(srcW, srcH, canvasW, canvasH, wantContain,
+                xOffset, yOffset, bgLayout);
         if (oledShift) {
-            DreamOledShift.apply(canvasW, canvasH, out, uptimeMs);
+            DreamOledShift.apply(canvasW, canvasH, bgLayout, uptimeMs);
         }
+        out.set(bgLayout.left, bgLayout.top, bgLayout.right, bgLayout.bottom);
     }
 
     /** Null when {@code b} cannot be blitted on {@code c} (recycled or HARDWARE-on-software). */
@@ -1493,45 +1552,63 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Fill + cover-fit background. During a cycle fade, {@code fadeFrom} is the
+     * Fill + fitted background. During a cycle fade, {@code fadeFrom} is the
      * opaque outgoing image and {@code drawBg} is src-over at {@code incomingAlpha}.
      * Incoming uses a blit so the RenderNode is not re-recorded every frame.
+     * The base colour is painted whenever a dest does not cover the canvas.
      */
     private void drawBackgroundLayers(Canvas c, Bitmap fadeFrom, Bitmap drawBg,
-            int incomingAlpha, int canvasW, int canvasH, float xOffset, float yOffset,
-            boolean oledShift, long now) {
+            int incomingAlpha, int canvasW, int canvasH, boolean wantContain,
+            float xOffset, float yOffset, boolean oledShift, long now) {
         boolean opaqueFill = paint.getAlpha() == 0xff;
+        boolean needFill = !opaqueFill || drawBg == null;
+        if (!needFill && fadeFrom != null
+                && !backgroundDestFills(fadeFrom, canvasW, canvasH, wantContain,
+                        xOffset, yOffset, oledShift, now)) {
+            needFill = true;
+        }
+        if (!needFill && drawBg != null
+                && !backgroundDestFills(drawBg, canvasW, canvasH, wantContain,
+                        xOffset, yOffset, oledShift, now)) {
+            needFill = true;
+        }
+        if (needFill) {
+            c.drawColor(backgroundColour);
+        }
         if (fadeFrom != null) {
-            if (!opaqueFill) {
-                c.drawColor(backgroundColour);
-            }
-            drawCoverBitmap(c, fadeFrom, paint, true, canvasW, canvasH,
+            drawFittedBitmap(c, fadeFrom, paint, true, canvasW, canvasH, wantContain,
                     xOffset, yOffset, oledShift, now);
             if (drawBg != null && incomingAlpha > 0) {
                 fadePaint.setAlpha(incomingAlpha);
-                drawCoverBitmap(c, drawBg, fadePaint, false, canvasW, canvasH,
-                        xOffset, yOffset, oledShift, now);
+                drawFittedBitmap(c, drawBg, fadePaint, false, canvasW, canvasH,
+                        wantContain, xOffset, yOffset, oledShift, now);
             }
             return;
         }
-        if (drawBg == null || !opaqueFill) {
-            c.drawColor(backgroundColour);
-        }
         if (drawBg != null) {
-            drawCoverBitmap(c, drawBg, paint, true, canvasW, canvasH,
+            drawFittedBitmap(c, drawBg, paint, true, canvasW, canvasH, wantContain,
                     xOffset, yOffset, oledShift, now);
         }
     }
 
-    /**
-     * Cover-fit {@code bmp}. {@code useNode} records the API 29+ RenderNode
-     * (opaque outgoing / steady image). Incoming fade frames pass false.
-     */
-    private void drawCoverBitmap(Canvas c, Bitmap bmp, Paint p, boolean useNode,
-            int canvasW, int canvasH, float xOffset, float yOffset, boolean oledShift,
+    private boolean backgroundDestFills(Bitmap bmp, int canvasW, int canvasH,
+            boolean wantContain, float xOffset, float yOffset, boolean oledShift,
             long now) {
         layoutBackgroundDest(bmp.getWidth(), bmp.getHeight(), canvasW, canvasH,
-                xOffset, yOffset, oledShift, now, tmpDst);
+                wantContain, xOffset, yOffset, oledShift, now, tmpDst);
+        return tmpDst.left <= 0 && tmpDst.top <= 0
+                && tmpDst.right >= canvasW && tmpDst.bottom >= canvasH;
+    }
+
+    /**
+     * Fitted {@code bmp}. {@code useNode} records the API 29+ RenderNode
+     * (opaque outgoing / steady image). Incoming fade frames pass false.
+     */
+    private void drawFittedBitmap(Canvas c, Bitmap bmp, Paint p, boolean useNode,
+            int canvasW, int canvasH, boolean wantContain, float xOffset, float yOffset,
+            boolean oledShift, long now) {
+        layoutBackgroundDest(bmp.getWidth(), bmp.getHeight(), canvasW, canvasH,
+                wantContain, xOffset, yOffset, oledShift, now, tmpDst);
         if (useNode && backgroundNode != null && c.isHardwareAccelerated()) {
             backgroundNode.update(bmp, tmpDst.width(), tmpDst.height(), p);
             backgroundNode.setTranslation(tmpDst.left, tmpDst.top);
@@ -2368,6 +2445,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             redrawIfActive();
             return;
         }
+        if (BackgroundFit.PREF_WALLPAPER.equals(key)) {
+            if (isDreamHost()) return;
+            onBackgroundFitPrefChanged();
+            return;
+        }
         if (PonySize.PREF_KEY.equals(key)) {
             // My ??? Pony ignores Character size; keep rolled sizes until herd rebuild.
             if (ponies != null && !SceneMode.isRandomSize(prefs, isDreamHost())) {
@@ -2510,6 +2592,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (PREF_DREAM_OLED_SHIFT.equals(key)) {
             forceSceneRedraw = true;
             redrawIfActive();
+            return;
+        }
+        if (BackgroundFit.PREF_DREAM.equals(key)) {
+            onBackgroundFitPrefChanged();
             return;
         }
         if (PREF_DREAM_CYCLE_BACKGROUNDS.equals(key)
@@ -2716,11 +2802,12 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         SharedPreferences prefs = getPreferences();
         float xOffset = surface.getBackgroundXOffset();
         float yOffset = surface.getBackgroundYOffset();
+        boolean containFit = backgroundWantContain(prefs);
         boolean oledShift = surface.isDream()
                 && prefs.getBoolean(PREF_DREAM_OLED_SHIFT, true);
         if (background != null && !background.isRecycled() && frameW > 0 && frameH > 0) {
             layoutBackgroundDest(background.getWidth(), background.getHeight(),
-                    frameW, frameH, xOffset, yOffset, oledShift, now, tmpDst);
+                    frameW, frameH, containFit, xOffset, yOffset, oledShift, now, tmpDst);
             if (tmpDst.left != lastBgDestLeft || tmpDst.top != lastBgDestTop) {
                 contentDirty = true;
             }
@@ -2765,7 +2852,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                             now - backgroundFadeStartMs);
                 }
                 drawBackgroundLayers(c, fadeFrom, drawBg, incomingAlpha, canvasW, canvasH,
-                        xOffset, yOffset, oledShift, now);
+                        containFit, xOffset, yOffset, oledShift, now);
 
                 if (drawOutgoingPonies && outgoingPonies != null) {
                     outgoingPonies.draw(c);

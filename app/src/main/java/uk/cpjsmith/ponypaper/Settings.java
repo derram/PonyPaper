@@ -1769,6 +1769,14 @@ public class Settings extends AppCompatActivity
         if (pixelation != null) {
             pixelation.setEnabled(imageInUse);
         }
+        Preference wallpaperFit = findPreference(BackgroundFit.PREF_WALLPAPER);
+        if (wallpaperFit != null) {
+            wallpaperFit.setEnabled(imageInUse);
+        }
+        Preference dreamFit = findPreference(BackgroundFit.PREF_DREAM);
+        if (dreamFit != null) {
+            dreamFit.setEnabled(imageInUse);
+        }
         refreshBackgroundAlbumControls();
     }
 
