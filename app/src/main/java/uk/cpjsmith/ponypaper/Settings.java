@@ -104,6 +104,20 @@ public class Settings extends AppCompatActivity
         }
     };
 
+    /**
+     * Mix apply notifies once per changed checkbox. Rebuild waifu/summaries
+     * once on the next looper pass so a Previous-herd hop does not stall the
+     * dream (this listener stays registered while Settings is paused).
+     */
+    private final Runnable herdUiRefreshRunnable = new Runnable() {
+        @Override
+        public void run() {
+            refreshHerdScreenSummaries();
+            refreshWaifuList(CustomStorage.listCustomXml(Settings.this));
+            refreshEnableAllToggles();
+        }
+    };
+
     private final ActivityResultLauncher<Intent> selectBackgroundLauncher =
             registerForActivityResult(
                     new ActivityResultContracts.StartActivityForResult(),
@@ -209,12 +223,13 @@ public class Settings extends AppCompatActivity
     private final SharedPreferences.OnSharedPreferenceChangeListener enableAllListener =
             new SharedPreferences.OnSharedPreferenceChangeListener() {
                 public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
-                    if (isLiveHerdPreferenceKey(key)) {
-                        PonyMixes.noteManualHerdEdit(sharedPreferences);
-                        refreshHerdScreenSummaries();
-                        refreshWaifuList(CustomStorage.listCustomXml(Settings.this));
+                    if (key == null || isLiveHerdPreferenceKey(key)) {
+                        if (key != null) {
+                            PonyMixes.noteManualHerdEdit(sharedPreferences);
+                        }
+                        settingsHandler.removeCallbacks(herdUiRefreshRunnable);
+                        settingsHandler.post(herdUiRefreshRunnable);
                     }
-                    refreshEnableAllToggles();
                     if (key == null
                             || PonySceneController.PREF_TARGET_FPS.equals(key)
                             || PonySceneController.PREF_DREAM_TARGET_FPS.equals(key)) {
@@ -732,6 +747,7 @@ public class Settings extends AppCompatActivity
     @Override
     protected void onDestroy() {
         settingsHandler.removeCallbacks(dreamAdminRefreshRunnable);
+        settingsHandler.removeCallbacks(herdUiRefreshRunnable);
         unregisterFpsDisplayListener();
         PreferenceManager.getDefaultSharedPreferences(this)
                 .unregisterOnSharedPreferenceChangeListener(enableAllListener);

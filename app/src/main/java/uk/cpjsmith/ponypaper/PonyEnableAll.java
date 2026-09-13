@@ -63,7 +63,7 @@ final class PonyEnableAll {
         PonyMixes.beginProgrammaticHerdChange();
         try {
             SharedPreferences.Editor editor = prefs.edit();
-            writeReplace(editor, keys, enabled);
+            writeReplace(prefs, editor, keys, enabled);
             editor.commit();
         } finally {
             PonyMixes.endProgrammaticHerdChange();
@@ -71,11 +71,23 @@ final class PonyEnableAll {
     }
 
     static void writeReplace(SharedPreferences.Editor editor, List<String> keys, Set<String> enabled) {
+        writeReplace(null, editor, keys, enabled);
+    }
+
+    /**
+     * Set every key in {@code keys} on iff it is in {@code enabled}. When
+     * {@code prefs} is set, unchanged booleans are left out of the editor so a
+     * mix apply does not notify listeners for the whole herd.
+     */
+    static void writeReplace(SharedPreferences prefs, SharedPreferences.Editor editor,
+            List<String> keys, Set<String> enabled) {
         if (editor == null || keys == null) return;
         Set<String> on = enabled != null ? enabled : Collections.<String>emptySet();
         for (int i = 0; i < keys.size(); i++) {
             String key = keys.get(i);
-            editor.putBoolean(key, on.contains(key));
+            boolean want = on.contains(key);
+            if (prefs != null && prefs.getBoolean(key, true) == want) continue;
+            editor.putBoolean(key, want);
         }
     }
 

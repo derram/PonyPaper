@@ -264,9 +264,9 @@ final class PonyMixes {
         try {
             SharedPreferences.Editor editor = prefs.edit();
             writePreviousHerdIfHome(prefs, editor, herdKeys);
-            PonyEnableAll.writeReplace(editor, herdKeys, mix.keys);
-            editor.putString(PREF_WAIFU, resolvedWaifu(mix.waifu, herdKeys));
-            editor.putBoolean(PREF_VIEWING_LOADED_MIX, true);
+            PonyEnableAll.writeReplace(prefs, editor, herdKeys, mix.keys);
+            putWaifuIfChanged(prefs, editor, resolvedWaifu(mix.waifu, herdKeys));
+            putViewingLoadedMixIfChanged(prefs, editor, true);
             editor.commit();
         } finally {
             endProgrammaticHerdChange();
@@ -293,8 +293,8 @@ final class PonyMixes {
         try {
             SharedPreferences.Editor editor = prefs.edit();
             writePreviousHerdIfHome(prefs, editor, herdKeys != null ? herdKeys : builtInKeys);
-            PonyEnableAll.writeReplace(editor, builtInKeys, enabledBuiltIn);
-            editor.putBoolean(PREF_VIEWING_LOADED_MIX, true);
+            PonyEnableAll.writeReplace(prefs, editor, builtInKeys, enabledBuiltIn);
+            putViewingLoadedMixIfChanged(prefs, editor, true);
             editor.commit();
         } finally {
             endProgrammaticHerdChange();
@@ -316,9 +316,9 @@ final class PonyMixes {
         beginProgrammaticHerdChange();
         try {
             SharedPreferences.Editor editor = prefs.edit();
-            PonyEnableAll.writeReplace(editor, herdKeys, prev.keys);
-            editor.putString(PREF_WAIFU, resolvedWaifu(prev.waifu, herdKeys));
-            editor.putBoolean(PREF_VIEWING_LOADED_MIX, false);
+            PonyEnableAll.writeReplace(prefs, editor, herdKeys, prev.keys);
+            putWaifuIfChanged(prefs, editor, resolvedWaifu(prev.waifu, herdKeys));
+            putViewingLoadedMixIfChanged(prefs, editor, false);
             editor.commit();
         } finally {
             endProgrammaticHerdChange();
@@ -526,9 +526,26 @@ final class PonyMixes {
             List<String> herdKeys) {
         if (prefs == null || editor == null || herdKeys == null) return;
         if (prefs.getBoolean(PREF_VIEWING_LOADED_MIX, false)) return;
+        // Already on the snapshot (Previous herd as home): rewriting the JSON
+        // notifies the dream sidecar listener and re-serializes the prefs file.
+        if (sameLiveHerd(prefs, loadPreviousHerd(prefs), herdKeys)) return;
         HashSet<String> on = captureKeys(prefs, herdKeys);
         if (on.isEmpty()) return;
         editor.putString(PREF_PREVIOUS_HERD_JSON, encodePrevious(on, currentWaifu(prefs)));
+    }
+
+    private static void putWaifuIfChanged(SharedPreferences prefs, SharedPreferences.Editor editor,
+            String waifu) {
+        if (editor == null) return;
+        if (prefs != null && currentWaifu(prefs).equals(waifu != null ? waifu : "")) return;
+        editor.putString(PREF_WAIFU, waifu != null ? waifu : "");
+    }
+
+    private static void putViewingLoadedMixIfChanged(SharedPreferences prefs,
+            SharedPreferences.Editor editor, boolean viewing) {
+        if (editor == null) return;
+        if (prefs != null && prefs.getBoolean(PREF_VIEWING_LOADED_MIX, false) == viewing) return;
+        editor.putBoolean(PREF_VIEWING_LOADED_MIX, viewing);
     }
 
     /**

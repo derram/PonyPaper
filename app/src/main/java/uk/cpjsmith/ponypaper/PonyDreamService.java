@@ -175,6 +175,21 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
             updateReloadHerdRow();
         }
     };
+    private final Runnable mixSidecarChangedRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!dreaming || exiting) return;
+            if (!canShuffleUserMixes()) {
+                stopShuffle();
+            } else if (shuffleMixes) {
+                refillShuffleBag(shuffleCandidates());
+            }
+            if (sheetExpanded) {
+                syncChromeWidgets();
+                if (mixListVisible) populateMixItems();
+            }
+        }
+    };
     private final Random shuffleRandom = new Random();
     private final ArrayList<String> shuffleBag = new ArrayList<String>();
     private PonySceneController controller;
@@ -257,15 +272,10 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
                     if (PonyMixes.PREF_MIXES_JSON.equals(key)
                             || PonyMixes.PREF_PREVIOUS_HERD_JSON.equals(key)
                             || PonyMixes.PREF_SHUFFLE_MIX_IDS.equals(key)) {
-                        if (!canShuffleUserMixes()) {
-                            stopShuffle();
-                        } else if (shuffleMixes) {
-                            refillShuffleBag(shuffleCandidates());
-                        }
-                        if (sheetExpanded) {
-                            syncChromeWidgets();
-                            if (mixListVisible) populateMixItems();
-                        }
+                        // Sidecar writes land during mix commit. Listing custom
+                        // files / rebuilding the bag here freezes the frame thread.
+                        handler.removeCallbacks(mixSidecarChangedRunnable);
+                        handler.post(mixSidecarChangedRunnable);
                     }
                     if (SceneMode.PREF_KEY.equals(key)
                             || SceneMode.PREF_DREAM_KEY.equals(key)) {
@@ -538,6 +548,7 @@ public class PonyDreamService extends DreamService implements PonySceneControlle
         cancelMaxIdle();
         cancelShuffle();
         handler.removeCallbacks(reloadHerdUiRunnable);
+        handler.removeCallbacks(mixSidecarChangedRunnable);
         cancelOverlayAnimations();
         getDreamPreferences().unregisterOnSharedPreferenceChangeListener(dreamPrefListener);
         if (controller != null) {
