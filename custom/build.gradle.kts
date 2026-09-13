@@ -48,6 +48,7 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/BackgroundAlbumLogic.java",
                 "uk/cpjsmith/ponypaper/BackgroundCrossfade.java",
                 "uk/cpjsmith/ponypaper/BackgroundFit.java",
+                "uk/cpjsmith/ponypaper/BackgroundPixelation.java",
                 "uk/cpjsmith/ponypaper/DragExit.java",
                 "uk/cpjsmith/ponypaper/CustomDefinitionCache.java",
                 "uk/cpjsmith/ponypaper/SecureXml.java",
@@ -252,6 +253,13 @@ tasks.register<JavaExec>("testBackgroundFit") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.BackgroundFitTest")
 }
 
+tasks.register<JavaExec>("testBackgroundPixelation") {
+    group = "verification"
+    description = "Run background pixelation host-default and target-size checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.BackgroundPixelationTest")
+}
+
 tasks.register<JavaExec>("testDragExit") {
     group = "verification"
     description = "Run drag-to-edge axis and margin checks"
@@ -306,6 +314,7 @@ tasks.named("check") {
     dependsOn("testBackgroundAlbum")
     dependsOn("testBackgroundCrossfade")
     dependsOn("testBackgroundFit")
+    dependsOn("testBackgroundPixelation")
     dependsOn("testDragExit")
     dependsOn("testEditorCli")
     dependsOn("testEditorWindowFocus")

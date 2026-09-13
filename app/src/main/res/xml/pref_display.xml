@@ -58,7 +58,7 @@
             android:summary="@string/pref_saved_backgrounds_summary_empty" />
         <uk.cpjsmith.ponypaper.NumberPickerPreference
             android:key="pref_pixelation"
-            android:title="Background pixelation level"
+            android:title="@string/pref_pixelation_title"
             custom:minValue="1"
             custom:maxValue="24"
             custom:wrap="false"
@@ -184,6 +184,13 @@
             android:entries="@array/pref_background_fit_entries"
             android:entryValues="@array/pref_background_fit_values"
             android:defaultValue="contain" />
+        <uk.cpjsmith.ponypaper.NumberPickerPreference
+            android:key="pref_dream_pixelation"
+            android:title="@string/pref_dream_pixelation_title"
+            custom:minValue="1"
+            custom:maxValue="24"
+            custom:wrap="false"
+            android:defaultValue="1" />
         <CheckBoxPreference
             android:key="pref_dream_oled_shift"
             android:title="@string/pref_dream_oled_shift_title"

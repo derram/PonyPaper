@@ -161,10 +161,6 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     private static final int BATTERY_TEMP_UNKNOWN = Integer.MIN_VALUE;
     /** Solid fill while animation is frozen for thermal emergency. */
     private static final int THERMAL_SAFE_COLOUR = 0xff333333;
-    /** Matches {@code pref_pixelation} default in {@code preferences.xml}. */
-    private static final int DEFAULT_PIXELATION = 4;
-    private static final int MIN_PIXELATION = 1;
-    private static final int MAX_PIXELATION = 24;
 
     /**
      * Provides the surface and host-specific drawing state for the controller.
@@ -1089,11 +1085,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
     }
 
-    private static int pixelationFromPrefs(SharedPreferences prefs) {
-        int pixelation = prefs.getInt("pref_pixelation", DEFAULT_PIXELATION);
-        if (pixelation < MIN_PIXELATION) return MIN_PIXELATION;
-        if (pixelation > MAX_PIXELATION) return MAX_PIXELATION;
-        return pixelation;
+    private int pixelationFromPrefs(SharedPreferences prefs) {
+        boolean dream = isDreamHost();
+        String key = dream ? BackgroundPixelation.PREF_DREAM : BackgroundPixelation.PREF_WALLPAPER;
+        int pixelation = prefs.getInt(key, BackgroundPixelation.defaultLevel(dream));
+        return BackgroundPixelation.clamp(pixelation);
     }
 
     private boolean backgroundWantContain(SharedPreferences prefs) {
@@ -1103,8 +1099,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Re-decode the current image at the new fit without dropping the herd.
-     * In-flight scene loads finish first, then this runs.
+     * Re-decode the current image at the new fit / pixelation without dropping
+     * the herd. In-flight scene loads finish first, then this runs.
      */
     private void onBackgroundFitPrefChanged() {
         lastBgPixelation = -1;
@@ -1160,12 +1156,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * the CPU. When {@code uploadHardware} is true (HW-canvas hosts on API 26+),
      * uploads to {@link Bitmap.Config#HARDWARE} and recycles the CPU copy.
      * Software-only hosts and pre-O keep RGB_565. The frame loop stretches
-     * this bitmap; it is not upsampled back to the surface, so pixelation
-     * remains a memory-bandwidth / heat control.
+     * this bitmap; it is not upsampled back to the surface.
      */
     private static Bitmap decodeBackgroundFile(File bgFile, int canvasW, int canvasH,
             int pixelation, boolean wantContain, boolean uploadHardware) {
-        if (pixelation < MIN_PIXELATION) pixelation = MIN_PIXELATION;
+        pixelation = BackgroundPixelation.clamp(pixelation);
         BitmapFactory.Options bfo = new BitmapFactory.Options();
         bfo.inScaled = false;
         bfo.inJustDecodeBounds = true;
@@ -1181,8 +1176,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             fitW = Math.max(1, canvasW > 0 ? canvasW : srcW);
             fitH = Math.max(1, canvasH > 0 ? canvasH : srcH);
         }
-        int targetW = Math.max(1, fitW / pixelation);
-        int targetH = Math.max(1, fitH / pixelation);
+        int targetW = BackgroundPixelation.targetEdge(fitW, pixelation);
+        int targetH = BackgroundPixelation.targetEdge(fitH, pixelation);
 
         bfo.inJustDecodeBounds = false;
         bfo.inSampleSize = inSampleSizeForTarget(srcW, srcH, targetW, targetH);
@@ -2445,7 +2440,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             redrawIfActive();
             return;
         }
-        if (BackgroundFit.PREF_WALLPAPER.equals(key)) {
+        if (BackgroundFit.PREF_WALLPAPER.equals(key)
+                || BackgroundPixelation.PREF_WALLPAPER.equals(key)) {
             if (isDreamHost()) return;
             onBackgroundFitPrefChanged();
             return;
@@ -2594,7 +2590,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             redrawIfActive();
             return;
         }
-        if (BackgroundFit.PREF_DREAM.equals(key)) {
+        if (BackgroundFit.PREF_DREAM.equals(key)
+                || BackgroundPixelation.PREF_DREAM.equals(key)) {
             onBackgroundFitPrefChanged();
             return;
         }

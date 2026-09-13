@@ -1781,9 +1781,13 @@ public class Settings extends AppCompatActivity
         if (clear != null) {
             clear.setEnabled(CustomStorage.hasLocalBackground(this));
         }
-        Preference pixelation = findPreference("pref_pixelation");
+        Preference pixelation = findPreference(BackgroundPixelation.PREF_WALLPAPER);
         if (pixelation != null) {
             pixelation.setEnabled(imageInUse);
+        }
+        Preference dreamPixelation = findPreference(BackgroundPixelation.PREF_DREAM);
+        if (dreamPixelation != null) {
+            dreamPixelation.setEnabled(imageInUse);
         }
         Preference wallpaperFit = findPreference(BackgroundFit.PREF_WALLPAPER);
         if (wallpaperFit != null) {

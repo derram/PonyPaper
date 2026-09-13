@@ -228,8 +228,10 @@
     <string name="pref_background_fit_dialog">Background fit</string>
     <string name="pref_background_fit_cover">Fill screen</string>
     <string name="pref_background_fit_contain">Show entire image</string>
+    <string name="pref_pixelation_title">Background pixelation level</string>
     <string name="pref_dream_background_fit_title">Background fit</string>
     <string name="pref_dream_background_fit_dialog">Screen saver background fit</string>
+    <string name="pref_dream_pixelation_title">Background pixelation level</string>
     <string name="pref_dream_oled_shift_title">Shift background</string>
     <string name="pref_dream_oled_shift_summary">Slowly pan the image so a still background does not sit on the same pixels during long screen saver sessions. Images that already fill the screen are left still</string>
     <string name="pref_dream_cycle_backgrounds_title">Cycle saved backgrounds</string>
