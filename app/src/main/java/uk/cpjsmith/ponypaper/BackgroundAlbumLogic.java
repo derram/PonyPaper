@@ -47,6 +47,22 @@ public final class BackgroundAlbumLogic {
     }
 
     /**
+     * Dream reads an album member instead of the live wallpaper slot when
+     * auto-cycle is on, or when {@code current} is already an album hash
+     * (manual swipe with cycle off). Mix/herd rebuilds must keep that picture.
+     */
+    public static boolean shouldReadAlbumFile(boolean cyclePrefEnabled,
+            List<String> hashes, String current) {
+        int n = hashes == null ? 0 : hashes.size();
+        if (shouldCycle(cyclePrefEnabled, n)) return true;
+        if (current == null || hashes == null) return false;
+        for (int i = 0; i < n; i++) {
+            if (current.equals(hashes.get(i))) return true;
+        }
+        return false;
+    }
+
+    /**
      * Index of {@code wallpaperHash} in {@code hashes}, or 0 when missing/empty.
      * {@code -1} when the list is empty.
      */

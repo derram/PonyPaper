@@ -17,6 +17,7 @@ public final class BackgroundAlbumLogicTest {
         int failures = 0;
         failures += run("safeHash", BackgroundAlbumLogicTest::testSafeHash);
         failures += run("shouldCycle", BackgroundAlbumLogicTest::testShouldCycle);
+        failures += run("shouldReadAlbumFile", BackgroundAlbumLogicTest::testShouldReadAlbumFile);
         failures += run("startingIndex", BackgroundAlbumLogicTest::testStartingIndex);
         failures += run("cycleFileHash", BackgroundAlbumLogicTest::testCycleFileHash);
         failures += run("nextHash", BackgroundAlbumLogicTest::testNextHash);
@@ -87,6 +88,27 @@ public final class BackgroundAlbumLogicTest {
         }
         if (BackgroundAlbumLogic.shouldCycle(false, 5)) {
             throw new AssertionError("pref off");
+        }
+    }
+
+    private static void testShouldReadAlbumFile() {
+        String a = hash('a');
+        String b = hash('b');
+        List<String> hashes = Arrays.asList(a, b);
+        if (BackgroundAlbumLogic.shouldReadAlbumFile(false, hashes, null)) {
+            throw new AssertionError("cycle off, first show uses live slot");
+        }
+        if (!BackgroundAlbumLogic.shouldReadAlbumFile(false, hashes, b)) {
+            throw new AssertionError("cycle off, keep swiped album member");
+        }
+        if (!BackgroundAlbumLogic.shouldReadAlbumFile(true, hashes, null)) {
+            throw new AssertionError("cycle on, first show uses album");
+        }
+        if (BackgroundAlbumLogic.shouldReadAlbumFile(false, hashes, hash('c'))) {
+            throw new AssertionError("unknown current is not an album file");
+        }
+        if (BackgroundAlbumLogic.shouldReadAlbumFile(true, Collections.singletonList(a), null)) {
+            throw new AssertionError("one image still uses live slot");
         }
     }
 

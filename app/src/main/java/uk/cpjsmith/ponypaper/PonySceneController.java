@@ -1250,16 +1250,20 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Live wallpaper slot, or a dream album file when cycling. Never writes
-     * album bytes into {@link CustomStorage#BACKGROUND_NAME}. {@code hashOut[0]}
-     * is the album/live hash when known.
+     * Live wallpaper slot, or a dream album file when cycling or when a swipe
+     * already put an album member on screen. Mix rebuilds must keep that
+     * picture; the live slot is the home-screen wallpaper and would snap back
+     * if cycle is off. Never writes album bytes into
+     * {@link CustomStorage#BACKGROUND_NAME}. {@code hashOut[0]} is the
+     * album/live hash when known.
      */
     private File resolveDreamOrLiveBackgroundFile(SharedPreferences prefs, File filesDir,
             String[] hashOut) {
         if (hashOut != null && hashOut.length > 0) hashOut[0] = null;
         if (filesDir == null) return null;
-        if (isDreamHost() && BackgroundAlbumLogic.shouldCycle(
-                BackgroundAlbum.cyclePrefEnabled(prefs), cycleHashes.size())) {
+        if (isDreamHost() && BackgroundAlbumLogic.shouldReadAlbumFile(
+                BackgroundAlbum.cyclePrefEnabled(prefs), cycleHashes,
+                displayedBackgroundHash)) {
             String start = BackgroundAlbumLogic.cycleFileHash(cycleHashes,
                     displayedBackgroundHash, BackgroundAlbum.wallpaperHash(prefs));
             File album = BackgroundAlbum.fileForHashOrNull(appContext, start);
