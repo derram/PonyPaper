@@ -2769,6 +2769,7 @@ public class Settings extends AppCompatActivity
                     }
                     PreferenceManager.getDefaultSharedPreferences(Settings.this).edit()
                             .putString("pref_select_background", hash)
+                            .putBoolean(BackgroundAlbum.PREF_DREAM_MANUAL, false)
                             .commit();
                     BackgroundAlbum.addFromLive(Settings.this, hash);
                 }
@@ -2865,6 +2866,7 @@ public class Settings extends AppCompatActivity
             CustomStorage.writeThroughToLibrary(this, CustomStorage.localFile(this, CustomStorage.BACKGROUND_NAME));
             SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(this).edit();
             editor.putString("pref_select_background", hash);
+            editor.putBoolean(BackgroundAlbum.PREF_DREAM_MANUAL, false);
             editor.commit();
             BackgroundAlbum.addFromLive(this, hash);
             refreshSharedBackgroundControls();
@@ -2897,6 +2899,10 @@ public class Settings extends AppCompatActivity
         new Thread(new Runnable() {
             public void run() {
                 final CustomStorage.RemoveResult result = CustomStorage.clearBackground(Settings.this);
+                if (result.error == null) {
+                    BackgroundAlbum.clearDreamManual(
+                            PreferenceManager.getDefaultSharedPreferences(Settings.this));
+                }
                 runOnUiThread(new Runnable() {
                     public void run() {
                         storageBusy = false;

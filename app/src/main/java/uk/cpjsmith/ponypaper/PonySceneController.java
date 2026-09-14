@@ -888,6 +888,12 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      */
     private void rememberDisplayedBackground(String hash, int pixelation, int canvasW,
             int canvasH, boolean containFit, boolean bumpCycleClock) {
+        rememberDisplayedBackground(hash, pixelation, canvasW, canvasH, containFit,
+                bumpCycleClock, false);
+    }
+
+    private void rememberDisplayedBackground(String hash, int pixelation, int canvasW,
+            int canvasH, boolean containFit, boolean bumpCycleClock, boolean albumWalk) {
         String previous = displayedBackgroundHash;
         displayedBackgroundHash = hash;
         lastBgPixelation = pixelation;
@@ -897,7 +903,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (bumpCycleClock || lastBackgroundCycleMs == 0) {
             lastBackgroundCycleMs = SystemClock.elapsedRealtime();
         }
-        persistDreamCycleCursorIfNeeded(hash, previous, bumpCycleClock);
+        persistDreamCycleCursorIfNeeded(hash, previous, bumpCycleClock, albumWalk);
     }
 
     /**
@@ -905,22 +911,30 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      * the first paint of a session when the image is not the already-saved
      * resume target (cold start or one step after a full interval). Resuming
      * the same hash must keep the old elapsed timestamp so remaining wait
-     * survives the next DreamService teardown.
+     * survives the next DreamService teardown. Cycle-off swipes set the
+     * manual pin; live-slot paints do not.
      */
     private void persistDreamCycleCursorIfNeeded(String hash, String previous,
-            boolean bumpCycleClock) {
+            boolean bumpCycleClock, boolean albumWalk) {
         if (!isDreamHost()) return;
         if (!BackgroundAlbumLogic.isSafeHash(hash)) return;
         SharedPreferences prefs = getPreferences();
-        if (!BackgroundAlbum.cyclePrefEnabled(prefs)) return;
+        boolean cycleOn = BackgroundAlbum.cyclePrefEnabled(prefs);
+        if (!cycleOn) {
+            if (BackgroundAlbumLogic.shouldPersistSwipePin(cycleOn, albumWalk,
+                    cycleHashes.contains(hash))) {
+                BackgroundAlbum.saveCycleCursor(prefs, hash, true);
+            }
+            return;
+        }
         if (previous != null && previous.equals(hash) && !bumpCycleClock) return;
         if (bumpCycleClock) {
-            BackgroundAlbum.saveCycleCursor(prefs, hash);
+            BackgroundAlbum.saveCycleCursor(prefs, hash, false);
             return;
         }
         if (previous != null) return;
         if (hash.equals(BackgroundAlbum.lastCycleHash(prefs))) return;
-        BackgroundAlbum.saveCycleCursor(prefs, hash);
+        BackgroundAlbum.saveCycleCursor(prefs, hash, false);
     }
 
     /**
@@ -1300,10 +1314,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Live wallpaper slot, or a dream album file when cycling or when a swipe
-     * already put an album member on screen. Mix rebuilds must keep that
-     * picture; the live slot is the home-screen wallpaper and would snap back
-     * if cycle is off. Never writes album bytes into
+     * Live wallpaper slot, or a dream album file when cycling, when a swipe
+     * already put an album member on screen, or when a cycle-off swipe pin
+     * is still present. Mix rebuilds must keep that picture; the live slot
+     * is the home-screen wallpaper and would snap back if cycle is off and
+     * nothing is pinned. Never writes album bytes into
      * {@link CustomStorage#BACKGROUND_NAME}. {@code hashOut[0]} is the
      * album/live hash when known.
      */
@@ -1311,13 +1326,15 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             String[] hashOut) {
         if (hashOut != null && hashOut.length > 0) hashOut[0] = null;
         if (filesDir == null) return null;
+        boolean cycleOn = BackgroundAlbum.cyclePrefEnabled(prefs);
         if (isDreamHost() && BackgroundAlbumLogic.shouldReadAlbumFile(
-                BackgroundAlbum.cyclePrefEnabled(prefs), cycleHashes,
-                displayedBackgroundHash)) {
-            boolean elapsed = BackgroundAlbumLogic.intervalElapsed(
-                    SystemClock.elapsedRealtime(),
-                    BackgroundAlbum.lastShownElapsed(prefs),
-                    BackgroundAlbum.intervalMs(prefs));
+                cycleOn, cycleHashes, displayedBackgroundHash,
+                BackgroundAlbum.lastCycleHash(prefs), BackgroundAlbum.dreamManual(prefs))) {
+            boolean elapsed = BackgroundAlbumLogic.resumeShouldStep(cycleOn,
+                    BackgroundAlbumLogic.intervalElapsed(
+                            SystemClock.elapsedRealtime(),
+                            BackgroundAlbum.lastShownElapsed(prefs),
+                            BackgroundAlbum.intervalMs(prefs)));
             String start = BackgroundAlbumLogic.resumeFileHash(cycleHashes,
                     displayedBackgroundHash, BackgroundAlbum.lastCycleHash(prefs),
                     BackgroundAlbum.wallpaperHash(prefs), elapsed);
@@ -1369,6 +1386,12 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
      */
     private void decodeBackgroundFileAsync(final File bgFile, final String bgHash,
             final boolean replaceExisting, final int canvasW, final int canvasH) {
+        decodeBackgroundFileAsync(bgFile, bgHash, replaceExisting, canvasW, canvasH, false);
+    }
+
+    private void decodeBackgroundFileAsync(final File bgFile, final String bgHash,
+            final boolean replaceExisting, final int canvasW, final int canvasH,
+            final boolean albumWalk) {
         if (bgFile == null || !bgFile.isFile() || canvasW <= 0 || canvasH <= 0) return;
         if (cycleLoadInFlight || sceneLoadInFlight) return;
         if (!replaceExisting && background != null && !background.isRecycled()) return;
@@ -1426,7 +1449,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                             installCycledBackground(readyBg);
                         }
                         rememberDisplayedBackground(bgHash, pixelation, canvasW, canvasH,
-                                containFit, true);
+                                containFit, true, albumWalk);
                         if (active && !frozen && !thermalEmergency && surface.isDrawingEnabled()) {
                             lastFrameUptimeMs = 0;
                             drawFrame();
@@ -1553,7 +1576,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             return;
         }
         pendingAlbumHash = null;
-        decodeBackgroundFileAsync(file, hash, true, canvasW, canvasH);
+        decodeBackgroundFileAsync(file, hash, true, canvasW, canvasH, true);
     }
 
     /** Drop an in-flight album decode so a reverse fling can keep the current image. */
@@ -2526,7 +2549,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             return;
         }
         if (BackgroundAlbum.PREF_CYCLE_LAST_HASH.equals(key)
-                || BackgroundAlbum.PREF_CYCLE_LAST_SHOWN_ELAPSED.equals(key)) {
+                || BackgroundAlbum.PREF_CYCLE_LAST_SHOWN_ELAPSED.equals(key)
+                || BackgroundAlbum.PREF_DREAM_MANUAL.equals(key)) {
             return;
         }
         if (key != null && key.startsWith("pref_dream_")) {
@@ -2712,6 +2736,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             lastBackgroundCycleMs = SystemClock.elapsedRealtime();
             if (PREF_DREAM_CYCLE_BACKGROUNDS.equals(key)
                     && !prefs.getBoolean(PREF_DREAM_CYCLE_BACKGROUNDS, false)) {
+                BackgroundAlbum.clearDreamManual(prefs);
                 cycleGeneration++;
                 cycleLoadInFlight = false;
                 loadingAlbumHash = null;
@@ -2752,7 +2777,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
                 || PonyScenes.PREF_ACTIVE_ID.equals(key)
                 || BackgroundAlbum.PREF_JSON.equals(key)
                 || BackgroundAlbum.PREF_CYCLE_LAST_HASH.equals(key)
-                || BackgroundAlbum.PREF_CYCLE_LAST_SHOWN_ELAPSED.equals(key);
+                || BackgroundAlbum.PREF_CYCLE_LAST_SHOWN_ELAPSED.equals(key)
+                || BackgroundAlbum.PREF_DREAM_MANUAL.equals(key);
     }
 
     private void applyTargetFpsAndRedraw(SharedPreferences prefs) {

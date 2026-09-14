@@ -53,13 +53,40 @@ public final class BackgroundAlbumLogic {
      */
     public static boolean shouldReadAlbumFile(boolean cyclePrefEnabled,
             List<String> hashes, String current) {
+        return shouldReadAlbumFile(cyclePrefEnabled, hashes, current, null, false);
+    }
+
+    /**
+     * Same as {@link #shouldReadAlbumFile(boolean, List, String)} with a
+     * cycle-off swipe pin. {@code resumePinned} plus a still-present
+     * {@code lastHash} restores the last swipe across sessions. A leftover
+     * auto-cycle cursor without the pin does not: turning cycle off snaps to
+     * the live slot.
+     */
+    public static boolean shouldReadAlbumFile(boolean cyclePrefEnabled,
+            List<String> hashes, String current, String lastHash, boolean resumePinned) {
         int n = hashes == null ? 0 : hashes.size();
         if (shouldCycle(cyclePrefEnabled, n)) return true;
-        if (current == null || hashes == null) return false;
-        for (int i = 0; i < n; i++) {
-            if (current.equals(hashes.get(i))) return true;
-        }
-        return false;
+        if (indexOfHash(hashes, current) >= 0) return true;
+        return !cyclePrefEnabled && resumePinned && indexOfHash(hashes, lastHash) >= 0;
+    }
+
+    /**
+     * Auto-cycle resume may step when the interval has elapsed. A cycle-off
+     * swipe pin must not.
+     */
+    public static boolean resumeShouldStep(boolean cycleEnabled, boolean intervalElapsed) {
+        return cycleEnabled && intervalElapsed;
+    }
+
+    /**
+     * Persist {@code lastCycleHash} as a cycle-off swipe pin only for an
+     * album-walk install. The live-slot paint (turning cycle off) must not
+     * overwrite the auto-cycle cursor.
+     */
+    public static boolean shouldPersistSwipePin(boolean cycleEnabled, boolean albumWalk,
+            boolean hashInAlbum) {
+        return !cycleEnabled && albumWalk && hashInAlbum;
     }
 
     /**

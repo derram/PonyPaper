@@ -31,8 +31,9 @@ import org.json.JSONObject;
  * order. {@code name} is the library-folder filename when known.
  *
  * <p>Screensaver cycle cursor: {@link #PREF_CYCLE_LAST_HASH} and
- * {@link #PREF_CYCLE_LAST_SHOWN_ELAPSED}. Not user-facing; the live wallpaper
- * slot is never updated by the cycle.
+ * {@link #PREF_CYCLE_LAST_SHOWN_ELAPSED}. {@link #PREF_DREAM_MANUAL} pins that
+ * hash for the next cycle-off session after a swipe. Not user-facing; the live
+ * wallpaper slot is never updated by the cycle.
  */
 final class BackgroundAlbum {
 
@@ -45,6 +46,11 @@ final class BackgroundAlbum {
      */
     static final String PREF_CYCLE_LAST_SHOWN_ELAPSED =
             "pref_backgrounds_cycle_last_shown_elapsed";
+    /**
+     * When true, a cycle-off dream session resumes {@link #PREF_CYCLE_LAST_HASH}
+     * instead of the live wallpaper slot. Hidden; not a settings key.
+     */
+    static final String PREF_DREAM_MANUAL = "pref_backgrounds_dream_manual";
     static final String DIR_NAME = "backgrounds";
 
     private static final Object LOCK = new Object();
@@ -227,16 +233,41 @@ final class BackgroundAlbum {
         return v > 0L ? v : 0L;
     }
 
+    static boolean dreamManual(SharedPreferences prefs) {
+        return prefs != null && prefs.getBoolean(PREF_DREAM_MANUAL, false);
+    }
+
     /**
-     * Persist the dream cycle cursor. {@link SharedPreferences.Editor#apply()}
-     * is enough: this is not read back by Settings before the next screen.
+     * Persist the dream album cursor and clear the cycle-off swipe pin.
+     * {@link SharedPreferences.Editor#apply()} is enough: this is not read
+     * back by Settings before the next screen.
      */
     static void saveCycleCursor(SharedPreferences prefs, String hash) {
+        saveCycleCursor(prefs, hash, false);
+    }
+
+    /**
+     * Persist the dream album cursor. {@code manual} is the cycle-off swipe
+     * pin: the next session with cycling off resumes this hash instead of the
+     * live slot. Cycling-on writes pass false.
+     */
+    static void saveCycleCursor(SharedPreferences prefs, String hash, boolean manual) {
         if (prefs == null || !BackgroundAlbumLogic.isSafeHash(hash)) return;
         prefs.edit()
                 .putString(PREF_CYCLE_LAST_HASH, hash)
                 .putLong(PREF_CYCLE_LAST_SHOWN_ELAPSED, SystemClock.elapsedRealtime())
+                .putBoolean(PREF_DREAM_MANUAL, manual)
                 .apply();
+    }
+
+    /**
+     * Drop the cycle-off swipe pin without touching the auto-cycle cursor.
+     * Used when cycling is turned off or the user picks a new wallpaper.
+     */
+    static void clearDreamManual(SharedPreferences prefs) {
+        if (prefs == null) return;
+        if (!prefs.getBoolean(PREF_DREAM_MANUAL, false)) return;
+        prefs.edit().putBoolean(PREF_DREAM_MANUAL, false).apply();
     }
 
     /**
@@ -430,6 +461,7 @@ final class BackgroundAlbum {
             CustomStorage.copyFile(src, live);
             PreferenceManager.getDefaultSharedPreferences(context).edit()
                     .putString("pref_select_background", hash)
+                    .putBoolean(PREF_DREAM_MANUAL, false)
                     .commit();
         }
         CustomStorage.writeThroughToLibrary(context, live);

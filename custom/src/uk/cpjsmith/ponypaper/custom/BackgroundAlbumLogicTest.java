@@ -18,6 +18,8 @@ public final class BackgroundAlbumLogicTest {
         failures += run("safeHash", BackgroundAlbumLogicTest::testSafeHash);
         failures += run("shouldCycle", BackgroundAlbumLogicTest::testShouldCycle);
         failures += run("shouldReadAlbumFile", BackgroundAlbumLogicTest::testShouldReadAlbumFile);
+        failures += run("resumeShouldStep", BackgroundAlbumLogicTest::testResumeShouldStep);
+        failures += run("shouldPersistSwipePin", BackgroundAlbumLogicTest::testShouldPersistSwipePin);
         failures += run("startingIndex", BackgroundAlbumLogicTest::testStartingIndex);
         failures += run("cycleFileHash", BackgroundAlbumLogicTest::testCycleFileHash);
         failures += run("resumeFileHash", BackgroundAlbumLogicTest::testResumeFileHash);
@@ -112,6 +114,52 @@ public final class BackgroundAlbumLogicTest {
         }
         if (BackgroundAlbumLogic.shouldReadAlbumFile(true, Collections.singletonList(a), null)) {
             throw new AssertionError("one image still uses live slot");
+        }
+        if (!BackgroundAlbumLogic.shouldReadAlbumFile(false, hashes, null, b, true)) {
+            throw new AssertionError("cycle off, pinned swipe");
+        }
+        if (BackgroundAlbumLogic.shouldReadAlbumFile(false, hashes, null, b, false)) {
+            throw new AssertionError("cycle off, leftover cycle cursor is not a pin");
+        }
+        if (BackgroundAlbumLogic.shouldReadAlbumFile(false, hashes, null, hash('c'), true)) {
+            throw new AssertionError("pinned hash missing from album");
+        }
+        if (!BackgroundAlbumLogic.shouldReadAlbumFile(false, hashes, b, a, false)) {
+            throw new AssertionError("in-session swipe still wins without pin");
+        }
+        if (BackgroundAlbumLogic.shouldReadAlbumFile(true, Collections.singletonList(a),
+                null, a, true)) {
+            throw new AssertionError("cycle on, one image ignores pin");
+        }
+    }
+
+    private static void testResumeShouldStep() {
+        if (!BackgroundAlbumLogic.resumeShouldStep(true, true)) {
+            throw new AssertionError("cycle on elapsed");
+        }
+        if (BackgroundAlbumLogic.resumeShouldStep(true, false)) {
+            throw new AssertionError("cycle on remaining");
+        }
+        if (BackgroundAlbumLogic.resumeShouldStep(false, true)) {
+            throw new AssertionError("cycle off must not step");
+        }
+        if (BackgroundAlbumLogic.resumeShouldStep(false, false)) {
+            throw new AssertionError("cycle off remaining");
+        }
+    }
+
+    private static void testShouldPersistSwipePin() {
+        if (!BackgroundAlbumLogic.shouldPersistSwipePin(false, true, true)) {
+            throw new AssertionError("cycle off album walk");
+        }
+        if (BackgroundAlbumLogic.shouldPersistSwipePin(false, false, true)) {
+            throw new AssertionError("live-slot paint is not a pin");
+        }
+        if (BackgroundAlbumLogic.shouldPersistSwipePin(false, true, false)) {
+            throw new AssertionError("hash not in album");
+        }
+        if (BackgroundAlbumLogic.shouldPersistSwipePin(true, true, true)) {
+            throw new AssertionError("cycle on uses the cycle cursor, not the pin");
         }
     }
 
