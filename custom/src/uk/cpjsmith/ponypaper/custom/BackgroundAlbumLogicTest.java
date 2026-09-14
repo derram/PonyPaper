@@ -20,6 +20,9 @@ public final class BackgroundAlbumLogicTest {
         failures += run("shouldReadAlbumFile", BackgroundAlbumLogicTest::testShouldReadAlbumFile);
         failures += run("startingIndex", BackgroundAlbumLogicTest::testStartingIndex);
         failures += run("cycleFileHash", BackgroundAlbumLogicTest::testCycleFileHash);
+        failures += run("resumeFileHash", BackgroundAlbumLogicTest::testResumeFileHash);
+        failures += run("intervalElapsed", BackgroundAlbumLogicTest::testIntervalElapsed);
+        failures += run("seedCycleElapsedMs", BackgroundAlbumLogicTest::testSeedCycleElapsedMs);
         failures += run("nextHash", BackgroundAlbumLogicTest::testNextHash);
         failures += run("previousHash", BackgroundAlbumLogicTest::testPreviousHash);
         failures += run("stepFrom", BackgroundAlbumLogicTest::testStepFrom);
@@ -142,6 +145,85 @@ public final class BackgroundAlbumLogicTest {
         }
         if (!a.equals(BackgroundAlbumLogic.cycleFileHash(hashes, hash('c'), a))) {
             throw new AssertionError("stale current falls back");
+        }
+        if (!b.equals(BackgroundAlbumLogic.cycleFileHash(hashes, null, b, a))) {
+            throw new AssertionError("persisted cursor beats wallpaper");
+        }
+        if (!a.equals(BackgroundAlbumLogic.cycleFileHash(hashes, a, b, hash('c')))) {
+            throw new AssertionError("in-session current beats cursor");
+        }
+        if (!a.equals(BackgroundAlbumLogic.cycleFileHash(hashes, null, hash('c'), a))) {
+            throw new AssertionError("stale cursor falls to wallpaper");
+        }
+        if (BackgroundAlbumLogic.cycleFileHash(null, a, b, a) != null) {
+            throw new AssertionError("null list");
+        }
+    }
+
+    private static void testResumeFileHash() {
+        String a = hash('a');
+        String b = hash('b');
+        String c = hash('c');
+        List<String> hashes = Arrays.asList(a, b, c);
+        if (!a.equals(BackgroundAlbumLogic.resumeFileHash(hashes, null, a, b, false))) {
+            throw new AssertionError("resume same image");
+        }
+        if (!b.equals(BackgroundAlbumLogic.resumeFileHash(hashes, null, a, c, true))) {
+            throw new AssertionError("elapsed steps once");
+        }
+        if (!a.equals(BackgroundAlbumLogic.resumeFileHash(hashes, null, c, b, true))) {
+            throw new AssertionError("elapsed wrap is one step");
+        }
+        if (!a.equals(BackgroundAlbumLogic.resumeFileHash(hashes, a, c, b, true))) {
+            throw new AssertionError("in-session current ignores elapsed");
+        }
+        if (!a.equals(BackgroundAlbumLogic.resumeFileHash(hashes, null, hash('d'), a, true))) {
+            throw new AssertionError("missing cursor falls to wallpaper");
+        }
+        if (!a.equals(BackgroundAlbumLogic.resumeFileHash(
+                Collections.singletonList(a), null, a, null, true))) {
+            throw new AssertionError("singleton elapsed stays");
+        }
+        if (BackgroundAlbumLogic.resumeFileHash(
+                Collections.<String>emptyList(), null, a, a, true) != null) {
+            throw new AssertionError("empty");
+        }
+    }
+
+    private static void testIntervalElapsed() {
+        long interval = 10L * 60L * 1000L;
+        if (BackgroundAlbumLogic.intervalElapsed(1000L, 0L, interval)) {
+            throw new AssertionError("unset last-shown");
+        }
+        if (BackgroundAlbumLogic.intervalElapsed(1000L, 2000L, interval)) {
+            throw new AssertionError("reboot last-shown in the future");
+        }
+        if (BackgroundAlbumLogic.intervalElapsed(1000L, 500L, 0L)) {
+            throw new AssertionError("no interval");
+        }
+        if (BackgroundAlbumLogic.intervalElapsed(interval, 1L, interval)) {
+            throw new AssertionError("still remaining");
+        }
+        if (!BackgroundAlbumLogic.intervalElapsed(interval + 1L, 1L, interval)) {
+            throw new AssertionError("exactly elapsed");
+        }
+        if (!BackgroundAlbumLogic.intervalElapsed(interval * 3L, 1L, interval)) {
+            throw new AssertionError("long gap is still elapsed");
+        }
+    }
+
+    private static void testSeedCycleElapsedMs() {
+        if (BackgroundAlbumLogic.seedCycleElapsedMs(50_000L, 40_000L, false) != 0L) {
+            throw new AssertionError("stepped-forward image starts unset");
+        }
+        if (BackgroundAlbumLogic.seedCycleElapsedMs(50_000L, 0L, true) != 0L) {
+            throw new AssertionError("missing last-shown");
+        }
+        if (BackgroundAlbumLogic.seedCycleElapsedMs(1_000L, 9_000L, true) != 0L) {
+            throw new AssertionError("reboot");
+        }
+        if (BackgroundAlbumLogic.seedCycleElapsedMs(80_000L, 40_000L, true) != 40_000L) {
+            throw new AssertionError("resume same keeps last-shown");
         }
     }
 

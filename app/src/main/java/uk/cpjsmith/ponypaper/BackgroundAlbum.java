@@ -3,6 +3,7 @@ package uk.cpjsmith.ponypaper;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.SystemClock;
 import androidx.preference.PreferenceManager;
 import java.io.File;
 import java.io.FileInputStream;
@@ -28,10 +29,22 @@ import org.json.JSONObject;
  *
  * <p>JSON: {@link #PREF_JSON} {@code {members:[{hash,added,name}]}} in add
  * order. {@code name} is the library-folder filename when known.
+ *
+ * <p>Screensaver cycle cursor: {@link #PREF_CYCLE_LAST_HASH} and
+ * {@link #PREF_CYCLE_LAST_SHOWN_ELAPSED}. Not user-facing; the live wallpaper
+ * slot is never updated by the cycle.
  */
 final class BackgroundAlbum {
 
     static final String PREF_JSON = "pref_backgrounds_json";
+    /** Last album hash shown by the dream cycle. Hidden; not a settings key. */
+    static final String PREF_CYCLE_LAST_HASH = "pref_backgrounds_cycle_last_hash";
+    /**
+     * {@link SystemClock#elapsedRealtime()} when {@link #PREF_CYCLE_LAST_HASH}
+     * was last installed on the dream. Hidden; not a settings key.
+     */
+    static final String PREF_CYCLE_LAST_SHOWN_ELAPSED =
+            "pref_backgrounds_cycle_last_shown_elapsed";
     static final String DIR_NAME = "backgrounds";
 
     private static final Object LOCK = new Object();
@@ -200,6 +213,30 @@ final class BackgroundAlbum {
         if (prefs == null) return null;
         String hash = prefs.getString("pref_select_background", null);
         return BackgroundAlbumLogic.isSafeHash(hash) ? hash : null;
+    }
+
+    static String lastCycleHash(SharedPreferences prefs) {
+        if (prefs == null) return null;
+        String hash = prefs.getString(PREF_CYCLE_LAST_HASH, null);
+        return BackgroundAlbumLogic.isSafeHash(hash) ? hash : null;
+    }
+
+    static long lastShownElapsed(SharedPreferences prefs) {
+        if (prefs == null) return 0L;
+        long v = prefs.getLong(PREF_CYCLE_LAST_SHOWN_ELAPSED, 0L);
+        return v > 0L ? v : 0L;
+    }
+
+    /**
+     * Persist the dream cycle cursor. {@link SharedPreferences.Editor#apply()}
+     * is enough: this is not read back by Settings before the next screen.
+     */
+    static void saveCycleCursor(SharedPreferences prefs, String hash) {
+        if (prefs == null || !BackgroundAlbumLogic.isSafeHash(hash)) return;
+        prefs.edit()
+                .putString(PREF_CYCLE_LAST_HASH, hash)
+                .putLong(PREF_CYCLE_LAST_SHOWN_ELAPSED, SystemClock.elapsedRealtime())
+                .apply();
     }
 
     /**

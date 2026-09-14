@@ -88,12 +88,62 @@ public final class BackgroundAlbumLogic {
      */
     public static String cycleFileHash(List<String> hashes, String current,
             String wallpaperHash) {
-        if (current != null && hashes != null) {
-            for (int i = 0; i < hashes.size(); i++) {
-                if (current.equals(hashes.get(i))) return current;
-            }
-        }
+        return cycleFileHash(hashes, current, null, wallpaperHash);
+    }
+
+    /**
+     * Same as {@link #cycleFileHash(List, String, String)} with a persisted
+     * screensaver cursor between {@code current} and {@code wallpaperHash}.
+     * Missing or unknown {@code lastCycleHash} is ignored.
+     */
+    public static String cycleFileHash(List<String> hashes, String current,
+            String lastCycleHash, String wallpaperHash) {
+        if (indexOfHash(hashes, current) >= 0) return current;
+        if (indexOfHash(hashes, lastCycleHash) >= 0) return lastCycleHash;
         return startingHash(hashes, wallpaperHash);
+    }
+
+    /**
+     * First paint of a new dream session. In-session {@code current} is kept
+     * even when the interval has elapsed (the timer path advances). Otherwise
+     * one step forward from a still-present {@code lastCycleHash} when
+     * {@code intervalElapsed}, never several. Falls through to
+     * {@link #cycleFileHash(List, String, String, String)}.
+     */
+    public static String resumeFileHash(List<String> hashes, String current,
+            String lastCycleHash, String wallpaperHash, boolean intervalElapsed) {
+        if (indexOfHash(hashes, current) >= 0) return current;
+        if (intervalElapsed && indexOfHash(hashes, lastCycleHash) >= 0) {
+            String next = nextHash(hashes, lastCycleHash);
+            if (next != null) return next;
+        }
+        return cycleFileHash(hashes, current, lastCycleHash, wallpaperHash);
+    }
+
+    /**
+     * True when a persisted {@code lastShownElapsed} is old enough that the
+     * next dream session should step one album image. {@code 0} or a value
+     * after {@code nowElapsedRealtime} (reboot) is not elapsed.
+     */
+    public static boolean intervalElapsed(long nowElapsedRealtime, long lastShownElapsed,
+            long intervalMs) {
+        if (lastShownElapsed <= 0L || intervalMs <= 0L) return false;
+        if (lastShownElapsed > nowElapsedRealtime) return false;
+        return nowElapsedRealtime - lastShownElapsed >= intervalMs;
+    }
+
+    /**
+     * In-session cycle clock seed on the elapsedRealtime basis. {@code 0} means
+     * unset: the first tick starts a full interval. When resuming the same
+     * image, returns {@code lastShownElapsed} so remaining wait is preserved.
+     * Reboot ({@code lastShownElapsed > nowElapsed}) and a stepped-forward
+     * image both return 0.
+     */
+    public static long seedCycleElapsedMs(long nowElapsed, long lastShownElapsed,
+            boolean resumeSameImage) {
+        if (!resumeSameImage) return 0L;
+        if (lastShownElapsed <= 0L || lastShownElapsed > nowElapsed) return 0L;
+        return lastShownElapsed;
     }
 
     /**
@@ -142,7 +192,7 @@ public final class BackgroundAlbumLogic {
     }
 
     private static int indexOfHash(List<String> hashes, String current) {
-        if (current == null) return -1;
+        if (hashes == null || current == null) return -1;
         for (int n = 0; n < hashes.size(); n++) {
             if (current.equals(hashes.get(n))) return n;
         }
