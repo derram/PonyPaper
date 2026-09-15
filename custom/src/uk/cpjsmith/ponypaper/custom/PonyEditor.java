@@ -10,6 +10,7 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 import org.w3c.dom.Document;
 import org.xml.sax.SAXException;
+import uk.cpjsmith.ponypaper.EffectLayer;
 import uk.cpjsmith.ponypaper.EffectPlacement;
 import uk.cpjsmith.ponypaper.PonyDefinition;
 import uk.cpjsmith.ponypaper.WanderTarget;
@@ -1171,8 +1172,8 @@ public class PonyEditor {
 
     /**
      * Creates a new effect with the given name. Defaults: duration 0, no repeat,
-     * follow false, placement/centering Center, empty images. Trigger action is
-     * left empty until {@link #setEffectAction} is called.
+     * follow false, layer front, placement/centering Center, empty images.
+     * Trigger action is left empty until {@link #setEffectAction} is called.
      *
      * @return index of the new effect
      */
@@ -1308,6 +1309,19 @@ public class PonyEditor {
     public void setEffectNoLoop(int index, boolean noLoop) {
         checkEffectIndex(index);
         ponyDefinition.effects[index].noLoop = noLoop;
+    }
+
+    public String getEffectLayer(int index) {
+        checkEffectIndex(index);
+        return EffectLayer.normalize(ponyDefinition.effects[index].layer);
+    }
+
+    public void setEffectLayer(int index, String layer) {
+        checkEffectIndex(index);
+        if (!EffectLayer.isKnownToken(layer)) {
+            throw new IllegalArgumentException("layer must be front or back");
+        }
+        ponyDefinition.effects[index].layer = EffectLayer.normalize(layer);
     }
 
     public String getEffectPlacementMode(int index) {

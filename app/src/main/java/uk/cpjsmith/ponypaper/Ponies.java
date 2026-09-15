@@ -480,11 +480,11 @@ public class Ponies implements Pony.EffectHost {
     }
 
     void draw(Canvas c) {
-        // Herd stays Y-sorted. Each pony is a group: sprite, then follow
-        // effects, then planted effects that still overlap the parent so
-        // character VFX sit on top of the body. Planted effects that no
-        // longer overlap Y-sort with the herd as world props; ponies in
-        // front still cover the whole group.
+        // Herd stays Y-sorted. Each pony is a group: back-layer follow and
+        // overlapping planted, then the sprite, then front-layer follow and
+        // overlapping planted. Planted effects that no longer overlap
+        // Y-sort with the herd as world props; ponies in front still cover
+        // the whole group.
         plantedDrawList.clear();
         for (int i = 0; i < effectInstances.size(); i++) {
             EffectInstance effect = effectInstances.get(i);
@@ -517,20 +517,32 @@ public class Ponies implements Pony.EffectHost {
                 plantIndex = nextLoosePlanted(plantIndex + 1, nPlant);
             } else {
                 Pony pony = activePonies[ponyIndex];
+                drawFollowEffects(c, pony, true);
+                drawGroupedPlanted(c, pony, true, nPlant);
                 pony.drawOn(c, spriteSrc, spriteDst);
-                for (int e = 0; e < effectInstances.size(); e++) {
-                    EffectInstance effect = effectInstances.get(e);
-                    if (effect.def.follow && effect.parent == pony) {
-                        effect.drawOn(c, spriteSrc, spriteDst);
-                    }
-                }
-                for (int i = 0; i < nPlant; i++) {
-                    if (plantedGroupedScratch[i]
-                            && plantedDrawList.get(i).parent == pony) {
-                        plantedDrawList.get(i).drawOn(c, spriteSrc, spriteDst);
-                    }
-                }
+                drawFollowEffects(c, pony, false);
+                drawGroupedPlanted(c, pony, false, nPlant);
                 ponyIndex++;
+            }
+        }
+    }
+
+    private void drawFollowEffects(Canvas c, Pony pony, boolean behindParent) {
+        for (int e = 0; e < effectInstances.size(); e++) {
+            EffectInstance effect = effectInstances.get(e);
+            if (effect.def.follow && effect.parent == pony
+                    && effect.def.behindParent == behindParent) {
+                effect.drawOn(c, spriteSrc, spriteDst);
+            }
+        }
+    }
+
+    private void drawGroupedPlanted(Canvas c, Pony pony, boolean behindParent, int nPlant) {
+        for (int i = 0; i < nPlant; i++) {
+            if (plantedGroupedScratch[i]
+                    && plantedDrawList.get(i).parent == pony
+                    && plantedDrawList.get(i).def.behindParent == behindParent) {
+                plantedDrawList.get(i).drawOn(c, spriteSrc, spriteDst);
             }
         }
     }

@@ -34,6 +34,8 @@ final class PonyEffectDef {
     final float repeatDelayMs;
     final boolean follow;
     final boolean noLoop;
+    /** When true, grouped instances paint before the parent sprite. */
+    final boolean behindParent;
     /** When true, rotate placement cells with travel (see {@link EffectPlacement}). */
     final boolean motionPlacement;
 
@@ -66,6 +68,7 @@ final class PonyEffectDef {
         this.repeatDelayMs = Math.max(0f, def.repeatDelay) * 1000f;
         this.follow = def.follow;
         this.noLoop = def.noLoop;
+        this.behindParent = EffectLayer.isBack(def.layer);
         this.motionPlacement = EffectPlacement.isMotionMode(def.placementMode);
         this.placementLeft = cellIndex(def.placement.get("left"));
         this.placementRight = cellIndex(def.placement.get("right"));

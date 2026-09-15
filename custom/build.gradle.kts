@@ -35,6 +35,7 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/custom/**",
                 "uk/cpjsmith/ponypaper/PonyDefinition.java",
                 "uk/cpjsmith/ponypaper/EffectPlacement.java",
+                "uk/cpjsmith/ponypaper/EffectLayer.java",
                 "uk/cpjsmith/ponypaper/WanderTarget.java",
                 "uk/cpjsmith/ponypaper/WaitExpiry.java",
                 "uk/cpjsmith/ponypaper/SceneExit.java",

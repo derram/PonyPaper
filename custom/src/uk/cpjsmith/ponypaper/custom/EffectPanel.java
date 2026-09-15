@@ -41,6 +41,7 @@ import javax.swing.filechooser.FileFilter;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.TitledBorder;
+import uk.cpjsmith.ponypaper.EffectLayer;
 import uk.cpjsmith.ponypaper.EffectPlacement;
 import uk.cpjsmith.ponypaper.PonyDefinition;
 import uk.cpjsmith.ponypaper.WanderTarget;
@@ -67,9 +68,14 @@ final class EffectPanel extends JPanel {
     private final JTextField triggerField = new JTextField();
     private final JTextField durationField = new JTextField();
     private final JTextField repeatField = new JTextField();
+    private static final String LAYER_FRONT_LABEL = "In front of pony";
+    private static final String LAYER_BACK_LABEL = "Behind pony";
+
     private final JCheckBox followCheck = new JCheckBox("Follow pony");
     private final JCheckBox noLoopCheck = new JCheckBox("Prevent animation loop");
     private final JCheckBox motionPlacementCheck = new JCheckBox("Motion-relative placement");
+    private final JComboBox<String> layerCombo = new JComboBox<String>(
+            new String[] { LAYER_FRONT_LABEL, LAYER_BACK_LABEL });
     private final JComboBox<String> placementLeft = new JComboBox<String>(placementTokens());
     private final JComboBox<String> centeringLeft = new JComboBox<String>(centeringTokens());
     private final JComboBox<String> placementRight = new JComboBox<String>(placementTokens());
@@ -169,6 +175,9 @@ final class EffectPanel extends JPanel {
         motionPlacementCheck.setToolTipText(
                 "Rotate Left/Right/Top/Bottom attach points with travel so diagonal "
                         + "movers keep trails in their wake. Off = Desktop Ponies bounds attach.");
+        layerCombo.setToolTipText(
+                "Follow and overlapping planted effects. Loose planted props still "
+                        + "Y-sort with the herd.");
         followCheck.addItemListener(new ItemListener() {
             @Override
             public void itemStateChanged(ItemEvent e) {
@@ -202,10 +211,23 @@ final class EffectPanel extends JPanel {
                 host.markDirty();
             }
         });
+        layerCombo.addItemListener(new ItemListener() {
+            @Override
+            public void itemStateChanged(ItemEvent e) {
+                if (suppressListeners || currentIndex < 0
+                        || e.getStateChange() != ItemEvent.SELECTED) {
+                    return;
+                }
+                host.editor().setEffectLayer(currentIndex, selectedLayerToken());
+                host.markDirty();
+            }
+        });
         JPanel checks = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
         checks.add(followCheck);
         checks.add(noLoopCheck);
         checks.add(motionPlacementCheck);
+        checks.add(new JLabel("Layer:"));
+        checks.add(layerCombo);
         c = fullWidth(row++);
         c.insets = new Insets(2, 0, 2, 0);
         c.anchor = GridBagConstraints.WEST;
@@ -390,6 +412,7 @@ final class EffectPanel extends JPanel {
                 followCheck.setSelected(false);
                 noLoopCheck.setSelected(false);
                 motionPlacementCheck.setSelected(false);
+                layerCombo.setSelectedItem(LAYER_FRONT_LABEL);
                 placementLeft.setSelectedItem("Center");
                 centeringLeft.setSelectedItem("Center");
                 placementRight.setSelectedItem("Center");
@@ -409,6 +432,8 @@ final class EffectPanel extends JPanel {
             noLoopCheck.setSelected(editor.getEffectNoLoop(index));
             motionPlacementCheck.setSelected(EffectPlacement.isMotionMode(
                     editor.getEffectPlacementMode(index)));
+            layerCombo.setSelectedItem(EffectLayer.isBack(editor.getEffectLayer(index))
+                    ? LAYER_BACK_LABEL : LAYER_FRONT_LABEL);
             placementLeft.setSelectedItem(editor.getEffectPlacement(index, "left"));
             centeringLeft.setSelectedItem(editor.getEffectCentering(index, "left"));
             placementRight.setSelectedItem(editor.getEffectPlacement(index, "right"));
@@ -430,6 +455,7 @@ final class EffectPanel extends JPanel {
         followCheck.setEnabled(enabled);
         noLoopCheck.setEnabled(enabled);
         motionPlacementCheck.setEnabled(enabled);
+        layerCombo.setEnabled(enabled);
         placementLeft.setEnabled(enabled);
         centeringLeft.setEnabled(enabled);
         placementRight.setEnabled(enabled);
@@ -441,6 +467,11 @@ final class EffectPanel extends JPanel {
         timingsRightField.setEnabled(enabled);
         timingsRightMinus.setEnabled(enabled);
         timingsRightPlus.setEnabled(enabled);
+    }
+
+    private String selectedLayerToken() {
+        return LAYER_BACK_LABEL.equals(layerCombo.getSelectedItem())
+                ? EffectLayer.BACK : EffectLayer.FRONT;
     }
 
     private void commitFloat(JTextField field, boolean duration) {

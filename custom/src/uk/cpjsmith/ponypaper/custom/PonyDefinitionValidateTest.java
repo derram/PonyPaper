@@ -2,6 +2,7 @@ package uk.cpjsmith.ponypaper.custom;
 
 import java.util.ArrayList;
 import java.util.List;
+import uk.cpjsmith.ponypaper.EffectLayer;
 import uk.cpjsmith.ponypaper.PonyDefinition;
 
 /**
@@ -62,6 +63,12 @@ public final class PonyDefinitionValidateTest {
                 PonyDefinitionValidateTest::testPlacementTokenNormalize);
         failures += run("effectRoundTripXml",
                 PonyDefinitionValidateTest::testEffectRoundTripXml);
+        failures += run("effectLayerRoundTripXml",
+                PonyDefinitionValidateTest::testEffectLayerRoundTripXml);
+        failures += run("effectUnknownLayerInvalid",
+                PonyDefinitionValidateTest::testEffectUnknownLayerInvalid);
+        failures += run("effectLayerNormalize",
+                PonyDefinitionValidateTest::testEffectLayerNormalize);
         failures += run("wanderMovementRoundTripXml",
                 PonyDefinitionValidateTest::testWanderMovementRoundTripXml);
         failures += run("unknownMovementInvalid",
@@ -377,6 +384,7 @@ public final class PonyDefinitionValidateTest {
         PonyDefinition.Effect e = effect("Hurdle", "trot", false);
         e.duration = 0.6f;
         e.repeatDelay = 1.32f;
+        e.layer = EffectLayer.BACK;
         e.placementMode = "motion";
         e.placement.put("right", "Right");
         e.centering.put("right", "Top_Left");
@@ -393,7 +401,8 @@ public final class PonyDefinitionValidateTest {
         def.writeDefinition(new java.io.PrintWriter(sw));
         String xml = sw.toString();
         if (!xml.contains("<effect name=\"Hurdle\">") || !xml.contains("<repeatdelay>1.32</repeatdelay>")
-                || !xml.contains("<placementmode>motion</placementmode>")) {
+                || !xml.contains("<placementmode>motion</placementmode>")
+                || !xml.contains("<layer>back</layer>")) {
             throw new AssertionError("writeDefinition missing effect fields: " + xml);
         }
 
@@ -411,6 +420,9 @@ public final class PonyDefinitionValidateTest {
         }
         if (Math.abs(got.duration - 0.6f) > 0.001f || Math.abs(got.repeatDelay - 1.32f) > 0.001f) {
             throw new AssertionError("effect timing mismatch");
+        }
+        if (!EffectLayer.BACK.equals(got.layer)) {
+            throw new AssertionError("effect layer mismatch");
         }
         if (!"motion".equals(got.placementMode)) {
             throw new AssertionError("effect placementMode mismatch");
@@ -700,6 +712,99 @@ public final class PonyDefinitionValidateTest {
         }
         if (!"Center".equals(loaded.effects[0].placement.get("left"))) {
             throw new AssertionError("placement should still be per-facing");
+        }
+        if (effectXml.contains("<layer>")) {
+            throw new AssertionError("default front layer should be omitted: " + effectXml);
+        }
+        if (!EffectLayer.FRONT.equals(loaded.effects[0].layer)) {
+            throw new AssertionError("omitted layer should load as front");
+        }
+    }
+
+    private static void testEffectLayerRoundTripXml() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        PonyDefinition.Effect e = effect("Bags", "stand", true);
+        e.layer = EffectLayer.BACK;
+        def.effects = new PonyDefinition.Effect[] { e };
+        def.validate();
+        String xml = writeXml(def);
+        if (!xml.contains("<layer>back</layer>")) {
+            throw new AssertionError("back layer should be written: " + xml);
+        }
+        if (xml.contains("<layer>front</layer>")) {
+            throw new AssertionError("front layer should not be written: " + xml);
+        }
+        PonyDefinition loaded = parseXml(xml);
+        loaded.validate();
+        if (!EffectLayer.BACK.equals(loaded.effects[0].layer)) {
+            throw new AssertionError("back layer should reload");
+        }
+
+        loaded.effects[0].layer = EffectLayer.FRONT;
+        loaded.validate();
+        String frontXml = writeXml(loaded);
+        if (frontXml.contains("<layer>")) {
+            throw new AssertionError("front layer should be omitted: " + frontXml);
+        }
+    }
+
+    private static void testEffectLayerNormalize() {
+        if (!EffectLayer.FRONT.equals(EffectLayer.normalize(null))
+                || !EffectLayer.FRONT.equals(EffectLayer.normalize(""))
+                || !EffectLayer.FRONT.equals(EffectLayer.normalize("front"))
+                || !EffectLayer.BACK.equals(EffectLayer.normalize(" BACK "))) {
+            throw new AssertionError("normalize mismatch");
+        }
+        if (EffectLayer.isBack("front") || !EffectLayer.isBack("back")) {
+            throw new AssertionError("isBack mismatch");
+        }
+        if (!EffectLayer.isKnownToken(null) || !EffectLayer.isKnownToken("Front")
+                || EffectLayer.isKnownToken("side")) {
+            throw new AssertionError("isKnownToken mismatch");
+        }
+    }
+
+    private static void testEffectUnknownLayerInvalid() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        PonyDefinition.Effect e = effect("Sparkle", "stand", false);
+        e.layer = "side";
+        def.effects = new PonyDefinition.Effect[] { e };
+        assertInvalid(def, "layer must be front or back");
+
+        try {
+            parseXml(ponyXml(
+                    "    <action name=\"stand\">\n"
+                    + "      <image>x</image><timings>10</timings>\n"
+                    + "      <nextactions type=\"waiting\">stand</nextactions>\n"
+                    + "      <nextactions type=\"moving\">trot</nextactions>\n"
+                    + "    </action>\n"
+                    + "    <action name=\"trot\">\n"
+                    + "      <image>x</image><timings>10</timings>\n"
+                    + "      <nextactions type=\"waiting\">stand</nextactions>\n"
+                    + "      <nextactions type=\"moving\">trot</nextactions>\n"
+                    + "    </action>\n"
+                    + "    <effect name=\"Sparkle\">\n"
+                    + "      <action>trot</action>\n"
+                    + "      <duration>1</duration>\n"
+                    + "      <layer>side</layer>\n"
+                    + "      <image>x</image><timings>10</timings>\n"
+                    + "    </effect>\n"));
+            throw new AssertionError("expected XML layer to fail");
+        } catch (PonyDefinition.InvalidPonyException ex) {
+            boolean found = false;
+            for (int i = 0; i < ex.errors.size(); i++) {
+                if (ex.errors.get(i).contains("<layer>")) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                throw new AssertionError("expected <layer> error, got " + ex.errors);
+            }
         }
     }
 

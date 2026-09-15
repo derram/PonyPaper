@@ -965,6 +965,12 @@ public class PonyDefinition {
          */
         public boolean noLoop;
         /**
+         * Parent-relative draw order: {@link EffectLayer#FRONT} (default) or
+         * {@link EffectLayer#BACK}. Applies to follow effects and planted
+         * effects that still overlap the parent.
+         */
+        public String layer;
+        /**
          * How placement cells attach: {@link EffectPlacement#MODE_BOUNDS}
          * (default, Desktop Ponies AABB) or {@link EffectPlacement#MODE_MOTION}
          * (rotate side cells with travel so diagonals stay in the wake).
@@ -997,6 +1003,7 @@ public class PonyDefinition {
             repeatDelay = 0.0f;
             follow = false;
             noLoop = false;
+            layer = EffectLayer.FRONT;
             placementMode = EffectPlacement.MODE_BOUNDS;
             placement.put("left", "Center");
             placement.put("right", "Center");
@@ -1021,6 +1028,7 @@ public class PonyDefinition {
             Float parsedRepeat = null;
             Boolean parsedFollow = null;
             Boolean parsedNoLoop = null;
+            String parsedLayer = null;
             String parsedPlacementMode = null;
             String bareImage = null;
             String bareTimings = null;
@@ -1044,6 +1052,8 @@ public class PonyDefinition {
                         } else if (nodeName.equals("noloop")) {
                             parsedNoLoop = addBoolean((Element)node, "noloop",
                                     parsedNoLoop, errors);
+                        } else if (nodeName.equals("layer")) {
+                            parsedLayer = addLayer((Element)node, parsedLayer, errors);
                         } else if (nodeName.equals("placementmode")) {
                             parsedPlacementMode = addPlacementMode((Element)node,
                                     parsedPlacementMode, errors);
@@ -1087,6 +1097,7 @@ public class PonyDefinition {
             repeatDelay = parsedRepeat != null ? parsedRepeat.floatValue() : 0.0f;
             follow = parsedFollow != null ? parsedFollow.booleanValue() : false;
             noLoop = parsedNoLoop != null ? parsedNoLoop.booleanValue() : false;
+            layer = parsedLayer != null ? parsedLayer : EffectLayer.FRONT;
             placementMode = parsedPlacementMode != null
                     ? parsedPlacementMode : EffectPlacement.MODE_BOUNDS;
 
@@ -1184,6 +1195,23 @@ public class PonyDefinition {
             }
             errors.add("<" + tag + "> must be true or false.");
             return null;
+        }
+
+        private String addLayer(Element element, String existing, List<String> errors) {
+            if (existing != null) {
+                errors.add("Too many <layer> elements.");
+                return existing;
+            }
+            String text = getContent(element, errors);
+            if (text == null) {
+                return null;
+            }
+            String trimmed = text.replaceAll("\\s+", "").toLowerCase();
+            if (!trimmed.equals(EffectLayer.FRONT) && !trimmed.equals(EffectLayer.BACK)) {
+                errors.add("<layer> must be front or back.");
+                return null;
+            }
+            return EffectLayer.normalize(trimmed);
         }
 
         private String addPlacementMode(Element element, String existing, List<String> errors) {
@@ -1892,6 +1920,11 @@ public class PonyDefinition {
             }
 
             effect.placementMode = EffectPlacement.normalizeMode(effect.placementMode);
+            if (!EffectLayer.isKnownToken(effect.layer)) {
+                errors.add(label + " layer must be front or back.");
+            } else {
+                effect.layer = EffectLayer.normalize(effect.layer);
+            }
 
             validateEffectFacing(effect, "left", label, errors);
             validateEffectFacing(effect, "right", label, errors);
@@ -2361,6 +2394,9 @@ public class PonyDefinition {
         }
         if (effect.noLoop) {
             writer.println("        <noloop>true</noloop>");
+        }
+        if (EffectLayer.isBack(effect.layer)) {
+            writer.println("        <layer>back</layer>");
         }
         if (EffectPlacement.isMotionMode(effect.placementMode)) {
             writer.println("        <placementmode>motion</placementmode>");

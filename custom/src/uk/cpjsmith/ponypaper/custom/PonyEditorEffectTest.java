@@ -1,5 +1,7 @@
 package uk.cpjsmith.ponypaper.custom;
 
+import uk.cpjsmith.ponypaper.EffectLayer;
+
 /**
  * Checks effect CRUD and action rename/delete scrubbing for effect triggers.
  * Run via {@code ./gradlew :custom:testEditorEffects}.
@@ -49,6 +51,7 @@ public final class PonyEditorEffectTest {
         editor.setEffectAction(i, "stand");
         editor.setEffectDuration(i, 2.5f);
         editor.setEffectFollow(i, true);
+        editor.setEffectLayer(i, EffectLayer.BACK);
         editor.setEffectPlacementMode(i, "motion");
         editor.setEffectPlacement(i, "right", "Top");
         if (editor.getEffectCount() != 1) {
@@ -60,6 +63,9 @@ public final class PonyEditorEffectTest {
         }
         if (!"stand".equals(editor.getEffectAction(0)) || !editor.getEffectFollow(0)) {
             throw new AssertionError("fields not preserved");
+        }
+        if (!EffectLayer.BACK.equals(editor.getEffectLayer(0))) {
+            throw new AssertionError("layer not preserved");
         }
         if (!"motion".equals(editor.getEffectPlacementMode(0))) {
             throw new AssertionError("placementMode not preserved");

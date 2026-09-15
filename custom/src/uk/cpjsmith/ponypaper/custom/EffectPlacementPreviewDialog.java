@@ -41,6 +41,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
+import uk.cpjsmith.ponypaper.EffectLayer;
 import uk.cpjsmith.ponypaper.EffectPlacement;
 import uk.cpjsmith.ponypaper.PonyDefinition;
 
@@ -775,7 +776,9 @@ public final class EffectPlacementPreviewDialog extends JDialog {
                 travel[0],
                 travel[1],
                 currentFacing());
-        String follow = editor.getEffectFollow(effectIndex) ? "follow" : "planted";
+        String follow = (editor.getEffectFollow(effectIndex) ? "follow" : "planted")
+                + ", " + (EffectLayer.isBack(editor.getEffectLayer(effectIndex))
+                ? EffectLayer.BACK : EffectLayer.FRONT);
         float duration = editor.getEffectDuration(effectIndex);
         String dur = duration <= 0f ? "until action ends" : duration + "s";
         String playState = playing ? "playing" : "paused";
@@ -973,38 +976,47 @@ public final class EffectPlacementPreviewDialog extends JDialog {
 
                 int ponyFrame = ponySource.frameIndexAt((int) ponyTimeCs);
                 Rectangle ponyDst = ponySource.destinationRect(feetX, feetY, scale);
+                EffectPlacementMath.Origin origin = effectSource != null
+                        ? currentOrigin(ponyDst, scale) : null;
+                Rectangle effectDst = null;
+                if (origin != null) {
+                    effectDst = origin.effectDestRect(
+                            effectSource.frameWidth * scale,
+                            effectSource.frameHeight * scale);
+                }
+                boolean behind = EffectLayer.isBack(editor.getEffectLayer(effectIndex));
+                if (behind && effectSource != null && effectDst != null) {
+                    int effectFrame = effectSource.frameIndexAt(effectTimeCs);
+                    drawEffectFrame(g2, effectSource, effectFrame, effectDst);
+                }
                 drawPonyFrame(g2, ponySource, ponyFrame, ponyDst);
 
                 g2.setColor(BOUNDS_STROKE);
                 g2.setStroke(new BasicStroke(1f));
                 g2.drawRect(ponyDst.x, ponyDst.y, ponyDst.width - 1, ponyDst.height - 1);
 
-                if (effectSource != null) {
-                    EffectPlacementMath.Origin origin = currentOrigin(ponyDst, scale);
-                    if (origin != null) {
+                if (effectSource != null && origin != null && effectDst != null) {
+                    if (!behind) {
                         int effectFrame = effectSource.frameIndexAt(effectTimeCs);
-                        Rectangle effectDst = origin.effectDestRect(
-                                effectSource.frameWidth * scale,
-                                effectSource.frameHeight * scale);
                         drawEffectFrame(g2, effectSource, effectFrame, effectDst);
-
-                        g2.setColor(BOUNDS_STROKE);
-                        g2.drawRect(
-                                effectDst.x, effectDst.y,
-                                effectDst.width - 1, effectDst.height - 1);
-
-                        paintMarker(
-                                g2,
-                                Math.round(origin.attachX),
-                                Math.round(origin.attachY),
-                                ATTACH_RING,
-                                ATTACH_CORE);
-                        float[] cw = EffectPlacementMath.cellWeights(
-                                EffectPlacementMath.cellIndex(getDraftCentering(currentDirection())));
-                        int cx = Math.round(effectDst.x + effectDst.width * cw[0]);
-                        int cy = Math.round(effectDst.y + effectDst.height * cw[1]);
-                        paintMarker(g2, cx, cy, CENTER_RING, CENTER_CORE);
                     }
+
+                    g2.setColor(BOUNDS_STROKE);
+                    g2.drawRect(
+                            effectDst.x, effectDst.y,
+                            effectDst.width - 1, effectDst.height - 1);
+
+                    paintMarker(
+                            g2,
+                            Math.round(origin.attachX),
+                            Math.round(origin.attachY),
+                            ATTACH_RING,
+                            ATTACH_CORE);
+                    float[] cw = EffectPlacementMath.cellWeights(
+                            EffectPlacementMath.cellIndex(getDraftCentering(currentDirection())));
+                    int cx = Math.round(effectDst.x + effectDst.width * cw[0]);
+                    int cy = Math.round(effectDst.y + effectDst.height * cw[1]);
+                    paintMarker(g2, cx, cy, CENTER_RING, CENTER_CORE);
                 }
 
                 paintFeet(g2, Math.round(feetX), Math.round(feetY));

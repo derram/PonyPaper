@@ -200,13 +200,14 @@ Effects are Desktop Ponies–compatible prop/VFX sprites spawned when a named ac
 | `duration` | Seconds to keep the instance. `0` = until the triggering action ends. Timed effects may outlive the action (e.g. a tree after a short buck) |
 | `repeatdelay` | Seconds between additional spawns while the trigger action is still current. `0` / omitted = spawn once |
 | `follow` | `true` = re-attach each frame; `false` = plant at spawn and stay |
+| `layer` | `front` (default) = paint after the parent sprite; `back` = paint before it. Applies to follow effects and planted effects that still overlap the parent. Written only when `back`. |
 | `noloop` | `true` = play the sheet once even if it would loop |
 | `placementmode` | `bounds` (default) = Desktop Ponies AABB attach. `motion` = rotate Left/Right/Top/Bottom cells with travel so diagonal movers keep side attaches in the wake / lead. Idle and pure-horizontal travel match `bounds`. Written only when `motion`. |
 | `placement` | Point on the **pony** image (`Top_Left` … `Bottom_Right`, or `Any` / `Any-Not_Center`) |
 | `centering` | Point on the **effect** image (same 9-cell set; not `Any`) |
 
-Defaults when omitted: `duration=0`, `repeatdelay=0`, `follow=false`, `noloop=false`, `placementmode=bounds`, placement/centering `Center`. Duration and repeat delay must be in `[0, 300]`. Images and timings use the same Base64 strip + centisecond format as actions.
+Defaults when omitted: `duration=0`, `repeatdelay=0`, `follow=false`, `noloop=false`, `layer=front`, `placementmode=bounds`, placement/centering `Center`. Duration and repeat delay must be in `[0, 300]`. Images and timings use the same Base64 strip + centisecond format as actions.
 
-Runtime note: effect instances are scene-owned (they do not consume pony herd slots). Action change stops repeats and expires `duration=0` instances; pony leave/reset expires all of that pony’s effects. Draw order keeps the herd Y-sorted. Each pony is a group: the sprite, then its follow effects, then planted effects that still overlap that pony (character VFX on top of the body). Planted effects that no longer overlap Y-sort with the herd as world props; ponies in front still cover the group.
+Runtime note: effect instances are scene-owned (they do not consume pony herd slots). Action change stops repeats and expires `duration=0` instances; pony leave/reset expires all of that pony’s effects. Draw order keeps the herd Y-sorted. Each pony is a group: back-layer follow and overlapping planted effects, then the sprite, then front-layer follow and overlapping planted (character VFX). Planted effects that no longer overlap Y-sort with the herd as world props; ponies in front still cover the group.
 
 **Desktop Ponies import:** `Effect,*Name*,*Behavior*,*Right*,*Left*,*Duration*,*RepeatDelay*,*PlaceR*,*CenterR*,*PlaceL*,*CenterL*,*Follow*[,*NoLoop*]` lines map onto `<effect>` entries. Placement tokens are normalized to the canonical set above. Behaviors that are `Skip=True` are still imported when an Effect names them as its trigger. Behavior Allowed Moves map onto action `<movement>` (`Horizontal_Only` → `horizontal`, `Vertical_Only` → `vertical`, `All` / diagonals / `Horizontal_Vertical` → `any`); pony `<wander>` stays at the default `horizontal` (set it by hand for vertical-preferring OCs).
