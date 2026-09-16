@@ -1248,7 +1248,7 @@ public class AllPonies {
     }
 
     /**
-     * Builds runtime effect defs keyed to every gait variant of the named
+     * Builds runtime effect defs keyed to every gait variant of each named
      * trigger action. Invalid/missing triggers are skipped (validate should
      * already have rejected them for custom XML).
      */
@@ -1260,15 +1260,28 @@ public class AllPonies {
         ArrayList<PonyEffectDef> list = new ArrayList<PonyEffectDef>();
         for (int i = 0; i < definition.effects.length; i++) {
             PonyDefinition.Effect effect = definition.effects[i];
-            if (effect == null || effect.action == null) {
+            if (effect == null || effect.actions == null || effect.actions.length == 0) {
                 continue;
             }
-            PonyAction[] bag = bags.get(effect.action);
-            if (bag == null || bag.length == 0) {
+            ArrayList<PonyAction> triggers = new ArrayList<PonyAction>();
+            for (int t = 0; t < effect.actions.length; t++) {
+                PonyAction[] bag = bags.get(effect.actions[t]);
+                if (bag == null) {
+                    continue;
+                }
+                for (int b = 0; b < bag.length; b++) {
+                    PonyAction action = bag[b];
+                    if (action != null && !triggers.contains(action)) {
+                        triggers.add(action);
+                    }
+                }
+            }
+            if (triggers.isEmpty()) {
                 continue;
             }
             try {
-                list.add(new PonyEffectDef(effect, bag));
+                list.add(new PonyEffectDef(effect,
+                        triggers.toArray(new PonyAction[triggers.size()])));
             } catch (RuntimeException e) {
                 // Skip corrupt effect art rather than failing the whole pony.
                 android.util.Log.w("PonyPaper", "Skipping effect \"" + effect.name + "\": " + e.getMessage());

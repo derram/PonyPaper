@@ -7,7 +7,8 @@ import java.util.Random;
 
 /**
  * Runtime definition of a Desktop Ponies–style effect: left/right sheets plus
- * placement, lifetime, and which {@link PonyAction} instances trigger it.
+ * placement, lifetime, and which {@link PonyAction} instances trigger it
+ * (every gait variant of each named trigger).
  * Sheets load through {@link SpriteCache} like custom actions.
  */
 final class PonyEffectDef {

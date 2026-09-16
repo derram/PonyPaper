@@ -274,6 +274,87 @@ public class PonyDefinition {
     }
 
     /**
+     * Parses a comma-separated effect trigger field (editor). Empty slots are
+     * skipped; later duplicates are dropped. Weights ({@code name:N}) are not
+     * used — each token is a raw action name.
+     */
+    public static String[] parseEffectTriggers(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return new String[0];
+        }
+        String[] parts = value.split(",");
+        List<String> out = new ArrayList<String>();
+        for (int i = 0; i < parts.length; i++) {
+            String name = parts[i].trim();
+            if (name.isEmpty()) {
+                continue;
+            }
+            if (!out.contains(name)) {
+                out.add(name);
+            }
+        }
+        return out.toArray(new String[out.size()]);
+    }
+
+    /**
+     * Formats trigger names for the editor field ({@code name, name}).
+     */
+    public static String formatEffectTriggers(String[] names) {
+        if (names == null || names.length == 0) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < names.length; i++) {
+            if (names[i] == null || names[i].isEmpty()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(names[i]);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Replaces {@code oldName} with {@code newName} in a trigger list, dropping
+     * a rename that would duplicate an existing trigger.
+     */
+    public static String[] renameEffectTrigger(String[] names, String oldName, String newName) {
+        if (names == null || names.length == 0 || oldName == null) {
+            return names != null ? names : new String[0];
+        }
+        List<String> out = new ArrayList<String>();
+        for (int i = 0; i < names.length; i++) {
+            String name = oldName.equals(names[i]) ? newName : names[i];
+            if (name == null || name.isEmpty()) {
+                continue;
+            }
+            if (!out.contains(name)) {
+                out.add(name);
+            }
+        }
+        return out.toArray(new String[out.size()]);
+    }
+
+    /**
+     * Keeps trigger names that are still defined actions.
+     */
+    public static String[] filterEffectTriggers(String[] names, java.util.Set<String> present) {
+        if (names == null || names.length == 0) {
+            return new String[0];
+        }
+        List<String> out = new ArrayList<String>();
+        for (int i = 0; i < names.length; i++) {
+            String name = names[i];
+            if (name != null && present != null && present.contains(name) && !out.contains(name)) {
+                out.add(name);
+            }
+        }
+        return out.toArray(new String[out.size()]);
+    }
+
+    /**
      * Unique real action names from a next/start/drag list (drops empty and
      * {@code none}/{@code -} tokens; strips {@code :N} weights).
      */
@@ -945,8 +1026,12 @@ public class PonyDefinition {
      */
     public static class Effect {
         public String name;
-        /** Name of the {@link Action} that triggers this effect when it starts. */
-        public String action;
+        /**
+         * Names of {@link Action}s that trigger this effect when they start.
+         * Authoring order; the first name is the placement-preview default.
+         * Never {@code null} after parse or {@link #Effect()}.
+         */
+        public String[] actions;
         /**
          * Lifetime in seconds. {@code 0} means until the triggering action
          * ends (or the pony leaves). Timed effects may outlive the action.
@@ -998,7 +1083,7 @@ public class PonyDefinition {
 
         public Effect() {
             name = "";
-            action = "";
+            actions = new String[0];
             duration = 0.0f;
             repeatDelay = 0.0f;
             follow = false;
@@ -1023,7 +1108,7 @@ public class PonyDefinition {
                 errors.add("An <effect> must have a name.");
             }
 
-            String parsedAction = null;
+            List<String> parsedActions = new ArrayList<String>();
             Float parsedDuration = null;
             Float parsedRepeat = null;
             Boolean parsedFollow = null;
@@ -1039,7 +1124,7 @@ public class PonyDefinition {
                     {
                         String nodeName = node.getNodeName();
                         if (nodeName.equals("action")) {
-                            parsedAction = addActionName((Element)node, parsedAction, errors);
+                            addTriggerName((Element)node, parsedActions, errors);
                         } else if (nodeName.equals("duration")) {
                             parsedDuration = addSeconds((Element)node, "duration",
                                     parsedDuration, errors);
@@ -1087,12 +1172,12 @@ public class PonyDefinition {
                 }
             }
 
-            if (parsedAction == null || parsedAction.isEmpty()) {
+            if (parsedActions.isEmpty()) {
                 errors.add("Effect " + (name.isEmpty() ? "(unnamed)" : name)
                         + " needs an <action> naming the trigger action.");
             }
 
-            action = parsedAction != null ? parsedAction : "";
+            actions = parsedActions.toArray(new String[parsedActions.size()]);
             duration = parsedDuration != null ? parsedDuration.floatValue() : 0.0f;
             repeatDelay = parsedRepeat != null ? parsedRepeat.floatValue() : 0.0f;
             follow = parsedFollow != null ? parsedFollow.booleanValue() : false;
@@ -1135,21 +1220,29 @@ public class PonyDefinition {
             }
         }
 
-        private String addActionName(Element element, String existing, List<String> errors) {
-            if (existing != null) {
-                errors.add("Too many <action> elements in <effect>.");
-                return existing;
-            }
+        private void addTriggerName(Element element, List<String> dest, List<String> errors) {
             String text = getContent(element, errors);
             if (text == null) {
-                return null;
+                return;
             }
             text = text.replaceAll("\\s+", "");
             if (text.isEmpty()) {
                 errors.add("<action> must name a trigger action.");
-                return null;
+                return;
             }
-            return text;
+            if (text.indexOf(',') >= 0) {
+                errors.add("<action> must name a single trigger (use multiple <action> elements).");
+                return;
+            }
+            if (text.indexOf(':') >= 0) {
+                errors.add("<action> must not contain ':'.");
+                return;
+            }
+            if (dest.contains(text)) {
+                errors.add("Duplicate trigger action \"" + text + "\".");
+                return;
+            }
+            dest.add(text);
         }
 
         private Float addSeconds(Element element, String tag, Float existing,
@@ -1267,8 +1360,8 @@ public class PonyDefinition {
     
     public Action[] actions;
     /**
-     * Optional effect definitions (may be empty). Triggered when the named
-     * {@link Effect#action} starts at runtime.
+     * Optional effect definitions (may be empty). Triggered when any named
+     * {@link Effect#actions} starts at runtime.
      */
     public Effect[] effects;
     public String startActions;
@@ -1902,10 +1995,23 @@ public class PonyDefinition {
                 errors.add(label + " name must not contain ':'.");
             }
 
-            if (effect.action == null || effect.action.isEmpty()) {
+            if (effect.actions == null) {
+                effect.actions = new String[0];
+            }
+            if (effect.actions.length == 0) {
                 errors.add(label + " needs a trigger <action>.");
-            } else if (!hasAction(effect.action)) {
-                errors.add(label + " trigger action \"" + effect.action + "\" not defined.");
+            } else {
+                java.util.HashSet<String> seen = new java.util.HashSet<String>();
+                for (int t = 0; t < effect.actions.length; t++) {
+                    String trigger = effect.actions[t];
+                    if (trigger == null || trigger.isEmpty()) {
+                        errors.add(label + " needs a trigger <action>.");
+                    } else if (!hasAction(trigger)) {
+                        errors.add(label + " trigger action \"" + trigger + "\" not defined.");
+                    } else if (!seen.add(trigger)) {
+                        errors.add(label + " duplicate trigger action \"" + trigger + "\".");
+                    }
+                }
             }
 
             if (Float.isNaN(effect.duration) || effect.duration < 0f
@@ -2375,9 +2481,12 @@ public class PonyDefinition {
         writeAttribute(writer, "name", effect.name != null ? effect.name : "");
         writer.println(">");
 
-        writer.print("        <action>");
-        writeCharacters(writer, effect.action != null ? effect.action : "");
-        writer.println("</action>");
+        String[] triggers = effect.actions != null ? effect.actions : new String[0];
+        for (int i = 0; i < triggers.length; i++) {
+            writer.print("        <action>");
+            writeCharacters(writer, triggers[i] != null ? triggers[i] : "");
+            writer.println("</action>");
+        }
 
         writer.print("        <duration>");
         writeCharacters(writer, formatSpeed(effect.duration));

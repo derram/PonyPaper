@@ -312,8 +312,8 @@ public class PonyEditor {
     /**
      * Drops any action names from next/start/crossing lists that are not present
      * in the current action set (e.g. after a delete or a partial import). Also
-     * clears {@code spritesfrom} when the owner was removed, and removes effects
-     * whose trigger action no longer exists.
+     * clears {@code spritesfrom} when the owner was removed, and drops missing
+     * names from effect trigger lists (removing the effect when none remain).
      */
     private void scrubMissingActionReferences() {
         java.util.Set<String> present = new java.util.HashSet<String>();
@@ -335,7 +335,7 @@ public class PonyEditor {
         scrubMissingEffectTriggers(present);
     }
 
-    /** Removes effects whose trigger action is not in {@code present}. */
+    /** Drops missing trigger names; removes effects that have none left. */
     private void scrubMissingEffectTriggers(java.util.Set<String> present) {
         ensureEffectsArray();
         PonyDefinition.Effect[] old = ponyDefinition.effects;
@@ -345,10 +345,12 @@ public class PonyEditor {
         java.util.ArrayList<PonyDefinition.Effect> keep =
                 new java.util.ArrayList<PonyDefinition.Effect>();
         for (int i = 0; i < old.length; i++) {
-            String trigger = old[i].action;
-            if (trigger != null && present.contains(trigger)) {
-                keep.add(old[i]);
+            String[] next = PonyDefinition.filterEffectTriggers(old[i].actions, present);
+            if (next.length == 0) {
+                continue;
             }
+            old[i].actions = next;
+            keep.add(old[i]);
         }
         if (keep.size() != old.length) {
             ponyDefinition.effects = keep.toArray(new PonyDefinition.Effect[keep.size()]);
@@ -404,9 +406,8 @@ public class PonyEditor {
         setDefaultDrag(renameInActionList(getDefaultDrag(), oldName, newName));
         ensureEffectsArray();
         for (int i = 0; i < ponyDefinition.effects.length; i++) {
-            if (oldName.equals(ponyDefinition.effects[i].action)) {
-                ponyDefinition.effects[i].action = newName;
-            }
+            ponyDefinition.effects[i].actions = PonyDefinition.renameEffectTrigger(
+                    ponyDefinition.effects[i].actions, oldName, newName);
         }
     }
 
@@ -1243,23 +1244,32 @@ public class PonyEditor {
         }
     }
 
-    /** Trigger action name for this effect (may be empty until set). */
+    /**
+     * Comma-separated trigger action names for this effect (may be empty until
+     * set). First name is the placement-preview default.
+     */
     public String getEffectAction(int index) {
         checkEffectIndex(index);
-        String a = ponyDefinition.effects[index].action;
-        return a != null ? a : "";
+        return PonyDefinition.formatEffectTriggers(ponyDefinition.effects[index].actions);
     }
 
     /**
-     * Sets the trigger action name. Empty is allowed while editing; {@link #validate()}
-     * requires a defined action before the pony is usable.
+     * Trigger action names in authoring order. Empty array until set.
+     */
+    public String[] getEffectActions(int index) {
+        checkEffectIndex(index);
+        String[] names = ponyDefinition.effects[index].actions;
+        return names != null ? names : new String[0];
+    }
+
+    /**
+     * Sets trigger action names from a comma-separated field. Empty is allowed
+     * while editing; {@link #validate()} requires at least one defined action.
+     * Duplicate tokens are dropped.
      */
     public void setEffectAction(int index, String actionName) {
         checkEffectIndex(index);
-        if (actionName == null) {
-            actionName = "";
-        }
-        ponyDefinition.effects[index].action = actionName.trim();
+        ponyDefinition.effects[index].actions = PonyDefinition.parseEffectTriggers(actionName);
     }
 
     public float getEffectDuration(int index) {

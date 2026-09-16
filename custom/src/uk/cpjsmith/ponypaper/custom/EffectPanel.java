@@ -47,7 +47,7 @@ import uk.cpjsmith.ponypaper.PonyDefinition;
 import uk.cpjsmith.ponypaper.WanderTarget;
 
 /**
- * Detail form for one Desktop Ponies–style effect: trigger, lifetime, placement,
+ * Detail form for one Desktop Ponies–style effect: triggers, lifetime, placement,
  * and left/right spritesheets. Owned by {@link PonyEditorGUI}'s Effects tab.
  * When pony Wander is Vertical, effect labels show Back/Front (XML stays left/right).
  * Action sheet remapping is per-action movement; effects stay pony-Wander-based.
@@ -112,14 +112,14 @@ final class EffectPanel extends JPanel {
 
         VerticalScrollForm form = new VerticalScrollForm(new GridBagLayout());
         int row = 0;
-        row = addLabeled(form, row, "Trigger action:", triggerField,
-                "Action that starts this effect. Tab completes the name.");
+        row = addLabeled(form, row, "Trigger actions:", triggerField,
+                "Comma-separated actions that start this effect. Tab completes each name.");
         ActionNameCompleter.install(triggerField, new ActionNameCompleter.CandidateSource() {
             @Override
             public List<String> getCandidates() {
                 return ActionNameCompleter.candidatesFromEditor(host.editor(), false);
             }
-        }, false);
+        }, true);
         triggerField.getDocument().addDocumentListener(new SimpleDoc() {
             @Override
             void changed() {

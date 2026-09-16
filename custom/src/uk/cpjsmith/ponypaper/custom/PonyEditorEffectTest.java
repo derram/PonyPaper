@@ -15,6 +15,8 @@ public final class PonyEditorEffectTest {
         failures += run("addAndRenameEffect", PonyEditorEffectTest::testAddAndRenameEffect);
         failures += run("renameActionRewritesTrigger", PonyEditorEffectTest::testRenameActionRewritesTrigger);
         failures += run("deleteActionRemovesOrphanEffect", PonyEditorEffectTest::testDeleteActionRemovesOrphanEffect);
+        failures += run("multiTriggerRenameAndDelete", PonyEditorEffectTest::testMultiTriggerRenameAndDelete);
+        failures += run("deleteOneTriggerKeepsEffect", PonyEditorEffectTest::testDeleteOneTriggerKeepsEffect);
         failures += run("duplicateEffectNameRejected", PonyEditorEffectTest::testDuplicateEffectNameRejected);
         failures += run("copyActionSpriteSharesFacings",
                 PonyEditorEffectTest::testCopyActionSpriteSharesFacings);
@@ -105,6 +107,48 @@ public final class PonyEditorEffectTest {
         if (!"Keep".equals(editor.getEffectName(0))
                 || !"trot".equals(editor.getEffectAction(0))) {
             throw new AssertionError("kept wrong effect");
+        }
+    }
+
+    private static void testMultiTriggerRenameAndDelete() {
+        PonyEditor editor = new PonyEditor();
+        editor.addAction("stand");
+        editor.addAction("trot");
+        editor.setStartActions("trot");
+        editor.setDefaultDrag("trot");
+        int e = editor.addEffect("Sparkle");
+        editor.setEffectAction(e, "stand, trot, stand");
+        if (!"stand, trot".equals(editor.getEffectAction(0))) {
+            throw new AssertionError("expected collapsed triggers, got "
+                    + editor.getEffectAction(0));
+        }
+        editor.setActionName(0, "idle");
+        if (!"idle, trot".equals(editor.getEffectAction(0))) {
+            throw new AssertionError("expected idle, trot after rename, got "
+                    + editor.getEffectAction(0));
+        }
+    }
+
+    private static void testDeleteOneTriggerKeepsEffect() {
+        PonyEditor editor = new PonyEditor();
+        editor.addAction("stand");
+        editor.addAction("trot");
+        editor.setStartActions("trot");
+        editor.setDefaultDrag("trot");
+        editor.addEffect("Sparkle");
+        editor.setEffectAction(0, "stand, trot");
+        editor.removeAction(0); // stand
+        if (editor.getEffectCount() != 1) {
+            throw new AssertionError("effect should remain with remaining trigger");
+        }
+        if (!"trot".equals(editor.getEffectAction(0))) {
+            throw new AssertionError("expected remaining trigger trot, got "
+                    + editor.getEffectAction(0));
+        }
+        editor.removeAction(0); // last action (trot) — editor may require actions?
+        if (editor.getEffectCount() != 0) {
+            throw new AssertionError("expected effect removed when last trigger gone, count="
+                    + editor.getEffectCount());
         }
     }
 

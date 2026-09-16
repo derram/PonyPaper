@@ -54,7 +54,7 @@ The center of the editor has **Actions** and **Effects** tabs. Effects are Deskt
 On the **Effects** tab:
 
 * **New / Rename / Delete** manage the effect list (double-click renames).
-* **Trigger action**: which action starts the effect (Tab completes action names).
+* **Trigger actions**: comma-separated actions that start the effect (Tab completes each name). One effect can list several clips (for example `Buck, Gallop`). `<gaits>` variants of a listed action still share it automatically; a separate `spritesfrom` alias must be listed if it should fire too. **Check placement…** uses the first name.
 * **Duration** (seconds): `0` = until that action ends; timed effects may outlive the action (e.g. a tree after a short buck).
 * **Repeat delay**: `0` = spawn once; otherwise re-spawn while the trigger action is still current.
 * **Follow pony**: glue to the character each frame; unchecked plants the sprite in the world.
@@ -65,7 +65,7 @@ On the **Effects** tab:
 * **Check placement…**: Opens a composite preview of the effect on its trigger action (feet-locked stage, like **Check…** for anchors). Change facing, **Travel** (Idle / compass directions including diagonals), play/step both sheets, and edit placement/centering via combos or the 3×3 grids. Travel only remaps cells when **Motion-relative placement** is on. **Apply** writes both facings back to the form; Cancel discards. For `Any` / `Any-Not_Center`, **Re-roll Any** picks a preview cell without changing the token — click a fixed cell to replace Any.
 * **Left/right sprite** (Back/Front when pony Wander is Vertical): same Import image / Import frames / Copy / Mirror / Preview / Export tools as actions. **Copy** shares the sheet both ways without flopping; matching sheets collapse to one pane. Placement/centering stay per-facing even when the art is shared. Apparent motion (falling apples, shaking trees) belongs in the spritesheet — there is no velocity/physics. Under Both wander, effect chrome stays Left/Right even when some actions use Vertical wander.
 
-Renaming an action rewrites matching effect triggers. Deleting an action removes effects that pointed only at that action. The wallpaper loads and draws effects for custom characters automatically. Follow effects and overlapping planted effects use **Layer** (in front of or behind that pony). Planted effects left behind in the world Y-sort with the herd.
+Renaming an action rewrites matching effect trigger names. Deleting an action drops that name from trigger lists and removes effects that have none left. The wallpaper loads and draws effects for custom characters automatically. Follow effects and overlapping planted effects use **Layer** (in front of or behind that pony). Planted effects left behind in the world Y-sort with the herd.
 
 ### Pony-level wander
 

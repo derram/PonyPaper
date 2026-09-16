@@ -834,7 +834,8 @@ public final class EffectPlacementPreviewDialog extends JDialog {
             return null;
         }
 
-        String triggerName = editor.getEffectAction(effectIndex);
+        String[] triggerNames = editor.getEffectActions(effectIndex);
+        String triggerName = triggerNames.length > 0 ? triggerNames[0] : "";
         int triggerIndex = editor.findAction(triggerName);
         if (triggerIndex < 0) {
             JOptionPane.showMessageDialog(

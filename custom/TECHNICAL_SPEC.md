@@ -178,6 +178,7 @@ Effects are Desktop Ponies–compatible prop/VFX sprites spawned when a named ac
 ```xml
 <effect name="Hurdle">
   <action>Hurdle</action>
+  <action>Buck</action>
   <duration>0.6</duration>
   <repeatdelay>1.32</repeatdelay>
   <follow>false</follow>
@@ -196,7 +197,7 @@ Effects are Desktop Ponies–compatible prop/VFX sprites spawned when a named ac
 
 | Field | Meaning |
 |-------|---------|
-| `action` | Trigger: when this action becomes current, the effect starts |
+| `action` | Trigger: when this action becomes current, the effect starts. Repeat the tag for additional named actions (not a `name:N` list). Each listed action’s `<gaits>` bag is included. A `spritesfrom` alias is not an implicit trigger of its owner — list it if it should fire. Switching between two triggers of the same effect still restarts `duration=0` instances (same as gait-bag handoff). |
 | `duration` | Seconds to keep the instance. `0` = until the triggering action ends. Timed effects may outlive the action (e.g. a tree after a short buck) |
 | `repeatdelay` | Seconds between additional spawns while the trigger action is still current. `0` / omitted = spawn once |
 | `follow` | `true` = re-attach each frame; `false` = plant at spawn and stay |

@@ -55,6 +55,14 @@ public final class PonyDefinitionValidateTest {
                 PonyDefinitionValidateTest::testEffectWithValidTriggerPasses);
         failures += run("effectUnknownTriggerInvalid",
                 PonyDefinitionValidateTest::testEffectUnknownTriggerInvalid);
+        failures += run("effectMultiTriggerPasses",
+                PonyDefinitionValidateTest::testEffectMultiTriggerPasses);
+        failures += run("effectDuplicateTriggerInvalid",
+                PonyDefinitionValidateTest::testEffectDuplicateTriggerInvalid);
+        failures += run("effectCommaInActionTagInvalid",
+                PonyDefinitionValidateTest::testEffectCommaInActionTagInvalid);
+        failures += run("effectTriggerParseFormat",
+                PonyDefinitionValidateTest::testEffectTriggerParseFormat);
         failures += run("effectUnknownPlacementInvalid",
                 PonyDefinitionValidateTest::testEffectUnknownPlacementInvalid);
         failures += run("effectAnyCenteringInvalid",
@@ -345,6 +353,92 @@ public final class PonyDefinitionValidateTest {
         assertInvalid(def, "trigger action \"missing\" not defined");
     }
 
+    private static void testEffectMultiTriggerPasses() throws Exception {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        PonyDefinition.Effect e = effect("Sparkle", "stand", false);
+        e.actions = new String[] { "stand", "trot" };
+        def.effects = new PonyDefinition.Effect[] { e };
+        def.validate();
+        String xml = writeXml(def);
+        if (!xml.contains("<action>stand</action>") || !xml.contains("<action>trot</action>")) {
+            throw new AssertionError("expected two <action> tags: " + xml);
+        }
+        PonyDefinition loaded = parseXml(xml);
+        loaded.validate();
+        String[] got = loaded.effects[0].actions;
+        if (got == null || got.length != 2
+                || !"stand".equals(got[0]) || !"trot".equals(got[1])) {
+            throw new AssertionError("multi-trigger round trip failed");
+        }
+    }
+
+    private static void testEffectDuplicateTriggerInvalid() {
+        PonyDefinition def = pony(
+                action("stand", true, "stand", "trot"),
+                action("trot", true, "stand", "trot"));
+        PonyDefinition.Effect e = effect("Sparkle", "stand", false);
+        e.actions = new String[] { "stand", "stand" };
+        def.effects = new PonyDefinition.Effect[] { e };
+        assertInvalid(def, "duplicate trigger action \"stand\"");
+    }
+
+    private static void testEffectCommaInActionTagInvalid() throws Exception {
+        String xml = ponyXml(
+                "    <action name=\"stand\">\n"
+                + "      <image>x</image>\n"
+                + "      <timings>10</timings>\n"
+                + "      <nextactions type=\"waiting\">stand</nextactions>\n"
+                + "      <nextactions type=\"moving\">trot</nextactions>\n"
+                + "    </action>\n"
+                + "    <action name=\"trot\">\n"
+                + "      <image>x</image>\n"
+                + "      <timings>10</timings>\n"
+                + "      <nextactions type=\"waiting\">stand</nextactions>\n"
+                + "      <nextactions type=\"moving\">trot</nextactions>\n"
+                + "    </action>\n"
+                + "    <effect name=\"Sparkle\">\n"
+                + "      <action>stand,trot</action>\n"
+                + "      <duration>1</duration>\n"
+                + "      <image>x</image>\n"
+                + "      <timings>10</timings>\n"
+                + "    </effect>\n");
+        try {
+            parseXml(xml);
+            throw new AssertionError("expected parse to reject comma inside <action>");
+        } catch (PonyDefinition.InvalidPonyException e) {
+            List<String> errors = e.errors != null ? e.errors : new ArrayList<String>();
+            for (int i = 0; i < errors.size(); i++) {
+                if (errors.get(i).contains("single trigger")) {
+                    return;
+                }
+            }
+            throw new AssertionError("expected single-trigger error but got " + errors);
+        }
+    }
+
+    private static void testEffectTriggerParseFormat() {
+        String[] parsed = PonyDefinition.parseEffectTriggers(" stand, trot, stand , ");
+        if (parsed.length != 2 || !"stand".equals(parsed[0]) || !"trot".equals(parsed[1])) {
+            throw new AssertionError("parse should drop empties and duplicates");
+        }
+        if (!"stand, trot".equals(PonyDefinition.formatEffectTriggers(parsed))) {
+            throw new AssertionError("format mismatch");
+        }
+        String[] renamed = PonyDefinition.renameEffectTrigger(parsed, "stand", "trot");
+        if (renamed.length != 1 || !"trot".equals(renamed[0])) {
+            throw new AssertionError("rename should dedupe");
+        }
+        java.util.HashSet<String> present = new java.util.HashSet<String>();
+        present.add("trot");
+        String[] filtered = PonyDefinition.filterEffectTriggers(
+                new String[] { "stand", "trot" }, present);
+        if (filtered.length != 1 || !"trot".equals(filtered[0])) {
+            throw new AssertionError("filter should drop missing names");
+        }
+    }
+
     private static void testEffectUnknownPlacementInvalid() {
         PonyDefinition def = pony(
                 action("stand", true, "stand", "trot"),
@@ -415,7 +509,8 @@ public final class PonyDefinitionValidateTest {
             throw new AssertionError("expected 1 effect after reload");
         }
         PonyDefinition.Effect got = loaded.effects[0];
-        if (!"Hurdle".equals(got.name) || !"trot".equals(got.action)) {
+        if (!"Hurdle".equals(got.name) || got.actions == null || got.actions.length != 1
+                || !"trot".equals(got.actions[0])) {
             throw new AssertionError("effect identity mismatch");
         }
         if (Math.abs(got.duration - 0.6f) > 0.001f || Math.abs(got.repeatDelay - 1.32f) > 0.001f) {
@@ -950,7 +1045,7 @@ public final class PonyDefinitionValidateTest {
     private static PonyDefinition.Effect effect(String name, String trigger, boolean follow) {
         PonyDefinition.Effect e = new PonyDefinition.Effect();
         e.name = name;
-        e.action = trigger;
+        e.actions = trigger != null ? new String[] { trigger } : new String[0];
         e.duration = 1.0f;
         e.follow = follow;
         e.images.put("left", "x");
