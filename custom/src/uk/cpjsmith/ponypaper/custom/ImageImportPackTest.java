@@ -11,7 +11,7 @@ import java.util.List;
 import javax.imageio.ImageIO;
 
 /**
- * In-process checks for the still-frame packer and per-cell flop.
+ * In-process checks for the still-frame packer and per-cell flop/flip.
  * Run via {@code ./gradlew :custom:testPacker} or {@code java … ImageImportPackTest}.
  */
 public final class ImageImportPackTest {
@@ -25,6 +25,7 @@ public final class ImageImportPackTest {
         failures += run("packTimings", ImageImportPackTest::testPackTimings);
         failures += run("rejectMixedSizes", ImageImportPackTest::testRejectMixedSizes);
         failures += run("flopEachFrameNotWholeSheet", ImageImportPackTest::testFlopEachFrameNotWholeSheet);
+        failures += run("flipEachFrameNotWholeSheet", ImageImportPackTest::testFlipEachFrameNotWholeSheet);
         failures += run("mirrorPreservesOrderAndTimings", ImageImportPackTest::testMirrorPreservesOrderAndTimings);
         failures += run("listFrameFilesNaturalOrder", ImageImportPackTest::testListFrameFilesNaturalOrder);
         failures += run("collectFrameFilesRejectsMix", ImageImportPackTest::testCollectFrameFilesRejectsMix);
@@ -188,6 +189,32 @@ public final class ImageImportPackTest {
         int firstCellLeft = sheet.getRGB(0, 0);
         if (firstCellLeft == 0xffffff00) {
             throw new AssertionError("frame order reversed (whole-sheet flop)");
+        }
+    }
+
+    private static void testFlipEachFrameNotWholeSheet() throws IOException {
+        BufferedImage a = markerTB(8, 8, 0xffff0000, 0xff00ff00);
+        BufferedImage b = markerTB(8, 8, 0xff0000ff, 0xffffff00);
+        ImageImport packed = ImageImport.fromFrames(Arrays.asList(a, b), new ImageImport.PackOptions());
+        ImageImport mirrored = ImageImport.mirrorSheet(packed.loadedImage, 2, packed.timings, true);
+        BufferedImage sheet = decode(mirrored.loadedImage);
+        assertEq("flip sheetW", 16, sheet.getWidth());
+        assertEq("flip sheetH", 8, sheet.getHeight());
+
+        // Frame 0 still first: flip(A) has red at bottom-left, green at top-left.
+        assertEq("flip A top-left", 0xff00ff00, sheet.getRGB(0, 0));
+        assertEq("flip A bottom-left", 0xffff0000, sheet.getRGB(0, 7));
+        // Frame 1 still second: flip(B).
+        assertEq("flip B top-left", 0xffffff00, sheet.getRGB(8, 0));
+        assertEq("flip B bottom-left", 0xff0000ff, sheet.getRGB(8, 7));
+
+        // Horizontal flop would move the top-left pixel to top-right of the cell.
+        if (sheet.getRGB(7, 0) == 0xffff0000) {
+            throw new AssertionError("vertical mirror flopped instead of flipping");
+        }
+        // Whole-sheet flip would put flip(B) in the first cell.
+        if (sheet.getRGB(0, 0) == 0xffffff00) {
+            throw new AssertionError("frame order reversed (whole-sheet flip)");
         }
     }
 
@@ -1379,6 +1406,14 @@ public final class ImageImportPackTest {
         BufferedImage img = solid(w, h, 0x00000000);
         img.setRGB(0, 0, leftArgb);
         img.setRGB(w - 1, 0, rightArgb);
+        return img;
+    }
+
+    /** Unique pixels at top-left and bottom-left so a flip is detectable. */
+    private static BufferedImage markerTB(int w, int h, int topArgb, int bottomArgb) {
+        BufferedImage img = solid(w, h, 0x00000000);
+        img.setRGB(0, 0, topArgb);
+        img.setRGB(0, h - 1, bottomArgb);
         return img;
     }
 

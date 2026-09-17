@@ -851,9 +851,11 @@ public class PonyEditor {
     }
 
     /**
-     * Builds the opposite facing by flopping each cell of {@code fromDirection}'s
-     * sheet (same frame order and timings). Explicit {@code anchorx} is mirrored
-     * as {@code cellW − x}; unset X stays unset. {@code anchory} is copied.
+     * Builds the opposite facing from {@code fromDirection}'s sheet (same frame
+     * order and timings). Horizontal left/right flops each cell and mirrors
+     * explicit {@code anchorx} as {@code cellW − x} ({@code anchory} copied).
+     * Vertical back/front flips each cell and mirrors explicit {@code anchory}
+     * as {@code cellH − y} ({@code anchorx} copied). Unset anchors stay unset.
      */
     public ImageImport mirrorActionSprite(int index, String fromDirection) throws GenericException {
         if (index < 0 || index >= ponyDefinition.actions.length) throw new IndexOutOfBoundsException();
@@ -881,19 +883,29 @@ public class PonyEditor {
                     "Set " + fromDirection + " timings first so the sheet can be split into frames.");
         }
 
+        boolean vertical = WanderTarget.usesVerticalFacing(getWander(), getActionMovement(index));
         try {
             byte[] png = Base64.getDecoder().decode(b64);
-            ImageImport mirrored = ImageImport.mirrorSheet(png, frameCount, timings);
+            ImageImport mirrored = ImageImport.mirrorSheet(png, frameCount, timings, vertical);
             applyPackedSprite(index, toDirection, mirrored);
 
             float ax = getActionAnchorX(index, fromDirection);
             float ay = getActionAnchorY(index, fromDirection);
-            if (!Float.isNaN(ax) && ax >= 0f && mirrored.cellWidth > 0) {
-                setActionAnchorX(index, toDirection, mirrored.cellWidth - ax);
+            if (vertical) {
+                setActionAnchorX(index, toDirection, ax);
+                if (!Float.isNaN(ay) && ay >= 0f && mirrored.cellHeight > 0) {
+                    setActionAnchorY(index, toDirection, mirrored.cellHeight - ay);
+                } else {
+                    setActionAnchorY(index, toDirection, Float.NaN);
+                }
             } else {
-                setActionAnchorX(index, toDirection, Float.NaN);
+                if (!Float.isNaN(ax) && ax >= 0f && mirrored.cellWidth > 0) {
+                    setActionAnchorX(index, toDirection, mirrored.cellWidth - ax);
+                } else {
+                    setActionAnchorX(index, toDirection, Float.NaN);
+                }
+                setActionAnchorY(index, toDirection, ay);
             }
-            setActionAnchorY(index, toDirection, ay);
             return mirrored;
         } catch (IllegalArgumentException e) {
             throw new GenericException("Mirror Failed", "The " + fromDirection + " image could not be decoded.");

@@ -884,6 +884,26 @@ public class PonyEditorGUI extends JPanel {
             refreshFacingLabels();
         }
 
+        boolean currentUsesVerticalFacing() {
+            if (editor == null) {
+                return false;
+            }
+            String movement = currentIndex >= 0
+                    ? editor.getActionMovement(currentIndex)
+                    : WanderTarget.defaultMovementForWander(editor.getWander());
+            return WanderTarget.usesVerticalFacing(editor.getWander(), movement);
+        }
+
+        static String facingSlotName(boolean vertical, String direction) {
+            if ("left".equals(direction)) {
+                return vertical ? "back" : "left";
+            }
+            if ("right".equals(direction)) {
+                return vertical ? "front" : "right";
+            }
+            return direction;
+        }
+
         /**
          * When the selected action uses vertical facing (soft_vertical / hard
          * vertical, or vertical-pony + omitted inherit), left/right slots mean
@@ -895,12 +915,9 @@ public class PonyEditorGUI extends JPanel {
             if (editor == null) {
                 return;
             }
-            String movement = currentIndex >= 0
-                    ? editor.getActionMovement(currentIndex)
-                    : WanderTarget.defaultMovementForWander(editor.getWander());
-            boolean vertical = WanderTarget.usesVerticalFacing(editor.getWander(), movement);
-            String leftName = vertical ? "back" : "left";
-            String rightName = vertical ? "front" : "right";
+            boolean vertical = currentUsesVerticalFacing();
+            String leftName = facingSlotName(vertical, "left");
+            String rightName = facingSlotName(vertical, "right");
             String leftTitle = vertical ? "Back" : "Left";
             String rightTitle = vertical ? "Front" : "Right";
 
@@ -923,11 +940,12 @@ public class PonyEditorGUI extends JPanel {
                     "Pick feet anchors on the " + rightName + " spritesheet.");
             imageLeftMirror.setText("Mirror to " + rightName);
             imageRightMirror.setText("Mirror to " + leftName);
+            String mirrorVerb = vertical ? "flipping" : "flopping";
             imageLeftMirror.setToolTipText(
-                    "Build the " + rightName + " spritesheet by flopping each " + leftName
+                    "Build the " + rightName + " spritesheet by " + mirrorVerb + " each " + leftName
                             + " frame (same order and timings).");
             imageRightMirror.setToolTipText(
-                    "Build the " + leftName + " spritesheet by flopping each " + rightName
+                    "Build the " + leftName + " spritesheet by " + mirrorVerb + " each " + rightName
                             + " frame (same order and timings).");
             if (imageLeftCopy != null) {
                 if (collapse) {
@@ -1435,8 +1453,9 @@ public class PonyEditorGUI extends JPanel {
         }
         
         /**
-         * Builds the opposite facing from {@code fromDirection} by flopping each
-         * cell. Confirms before replacing an existing destination sheet.
+         * Builds the opposite facing from {@code fromDirection}. Horizontal
+         * left/right flops each cell; vertical back/front flips each cell.
+         * Confirms before replacing an existing destination sheet.
          */
         void mirrorFacing(String fromDirection) {
             if (currentIndex < 0) {
@@ -1448,11 +1467,15 @@ public class PonyEditorGUI extends JPanel {
                 return;
             }
 
+            boolean vertical = currentUsesVerticalFacing();
+            String fromName = facingSlotName(vertical, fromDirection);
+            String toName = facingSlotName(vertical, toDirection);
+
             String source = editor.getActionImage(currentIndex, fromDirection);
             if (source == null || source.isEmpty()) {
                 JOptionPane.showMessageDialog(
                         this,
-                        "No " + fromDirection + " spritesheet to mirror.",
+                        "No " + fromName + " spritesheet to mirror.",
                         "Mirror Facing",
                         JOptionPane.WARNING_MESSAGE);
                 return;
@@ -1460,12 +1483,15 @@ public class PonyEditorGUI extends JPanel {
 
             String dest = editor.getActionImage(currentIndex, toDirection);
             if (dest != null && !dest.isEmpty()) {
+                String how = vertical ? "flip" : "mirror";
+                String feet = vertical ? "explicit feet Y is flipped."
+                        : "explicit feet X is flipped.";
                 int confirm = JOptionPane.showConfirmDialog(
                         this,
-                        "Replace the " + toDirection + " spritesheet with a per-cell mirror of the "
-                                + fromDirection + " sheet?\n"
-                                + "Frame order and timings are copied; explicit feet X is flipped.",
-                        "Mirror to " + toDirection,
+                        "Replace the " + toName + " spritesheet with a per-cell " + how
+                                + " of the " + fromName + " sheet?\n"
+                                + "Frame order and timings are copied; " + feet,
+                        "Mirror to " + toName,
                         JOptionPane.OK_CANCEL_OPTION,
                         JOptionPane.WARNING_MESSAGE);
                 if (confirm != JOptionPane.OK_OPTION) {

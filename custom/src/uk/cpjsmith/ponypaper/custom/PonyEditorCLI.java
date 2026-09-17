@@ -571,8 +571,9 @@ public class PonyEditorCLI {
         System.out.println("    Optional -scale shrinks frames before packing (see -scale).");
         System.out.println("    Keeps existing timings when the frame count already matches.");
         System.out.println("-mirror-facing DIRECTION");
-        System.out.println("    Build the opposite facing by flopping each cell of DIRECTION's sheet");
-        System.out.println("    (same frame order). Copies timings and mirrors explicit anchorx.");
+        System.out.println("    Build the opposite facing from DIRECTION's sheet (same frame order).");
+        System.out.println("    Horizontal left/right flops each cell and mirrors explicit anchorx.");
+        System.out.println("    Vertical back/front flips each cell and mirrors explicit anchory.");
         System.out.println("-copy-facing DIRECTION");
         System.out.println("    Copy DIRECTION's sheet, timings, and anchors onto the opposite facing");
         System.out.println("    with no flop. Use when both facings share the same art.");

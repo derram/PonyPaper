@@ -1,5 +1,10 @@
 package uk.cpjsmith.ponypaper.custom;
 
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.util.Arrays;
+import java.util.Base64;
+import javax.imageio.ImageIO;
 import uk.cpjsmith.ponypaper.EffectLayer;
 
 /**
@@ -22,6 +27,10 @@ public final class PonyEditorEffectTest {
                 PonyEditorEffectTest::testCopyActionSpriteSharesFacings);
         failures += run("copyEffectSpriteSharesFacings",
                 PonyEditorEffectTest::testCopyEffectSpriteSharesFacings);
+        failures += run("mirrorActionSpriteFlopsHorizontal",
+                PonyEditorEffectTest::testMirrorActionSpriteFlopsHorizontal);
+        failures += run("mirrorActionSpriteFlipsVertical",
+                PonyEditorEffectTest::testMirrorActionSpriteFlipsVertical);
         if (failures > 0) {
             System.err.println(failures + " editor effect check(s) failed.");
             System.exit(1);
@@ -247,6 +256,87 @@ public final class PonyEditorEffectTest {
                 || !"Right".equals(editor.getEffectPlacement(0, "right"))) {
             throw new AssertionError("copy must not change per-facing placement");
         }
+    }
+
+    private static void testMirrorActionSpriteFlopsHorizontal() throws Exception {
+        PonyEditor editor = new PonyEditor();
+        editor.addAction("stand");
+        editor.setWander("horizontal");
+        editor.setActionMovement(0, "horizontal");
+        BufferedImage src = cornerMarker(8, 8);
+        editor.loadActionSpriteFromFrames(0, "left", Arrays.asList(src),
+                new ImageImport.PackOptions());
+        editor.setActionAnchorX(0, "left", 2f);
+        editor.setActionAnchorY(0, "left", 1f);
+        ImageImport mirrored = editor.mirrorActionSprite(0, "left");
+        BufferedImage sheet = decodeB64(editor.getActionImage(0, "right"));
+        // Flop: top-left red → top-right.
+        if (sheet.getRGB(7, 0) != 0xffff0000) {
+            throw new AssertionError("horizontal mirror should flop, top-right="
+                    + Integer.toHexString(sheet.getRGB(7, 0)));
+        }
+        if (sheet.getRGB(0, 0) != 0xff00ff00) {
+            throw new AssertionError("horizontal mirror should flop, top-left="
+                    + Integer.toHexString(sheet.getRGB(0, 0)));
+        }
+        if (editor.getActionAnchorX(0, "right") != mirrored.cellWidth - 2f) {
+            throw new AssertionError("flop should mirror X, got "
+                    + editor.getActionAnchorX(0, "right"));
+        }
+        if (editor.getActionAnchorY(0, "right") != 1f) {
+            throw new AssertionError("flop should copy Y, got "
+                    + editor.getActionAnchorY(0, "right"));
+        }
+    }
+
+    private static void testMirrorActionSpriteFlipsVertical() throws Exception {
+        PonyEditor editor = new PonyEditor();
+        editor.setWander("vertical");
+        editor.addAction("climb");
+        editor.setActionMovement(0, "soft_vertical");
+        BufferedImage src = cornerMarker(8, 8);
+        editor.loadActionSpriteFromFrames(0, "left", Arrays.asList(src),
+                new ImageImport.PackOptions());
+        editor.setActionAnchorX(0, "left", 2f);
+        editor.setActionAnchorY(0, "left", 1f);
+        ImageImport mirrored = editor.mirrorActionSprite(0, "left");
+        BufferedImage sheet = decodeB64(editor.getActionImage(0, "right"));
+        // Flip: top-left red → bottom-left.
+        if (sheet.getRGB(0, 7) != 0xffff0000) {
+            throw new AssertionError("vertical mirror should flip, bottom-left="
+                    + Integer.toHexString(sheet.getRGB(0, 7)));
+        }
+        if (sheet.getRGB(0, 0) != 0xff0000ff) {
+            throw new AssertionError("vertical mirror should flip, top-left="
+                    + Integer.toHexString(sheet.getRGB(0, 0)));
+        }
+        if (sheet.getRGB(7, 0) == 0xffff0000) {
+            throw new AssertionError("vertical mirror flopped instead of flipping");
+        }
+        if (editor.getActionAnchorX(0, "right") != 2f) {
+            throw new AssertionError("flip should copy X, got "
+                    + editor.getActionAnchorX(0, "right"));
+        }
+        if (editor.getActionAnchorY(0, "right") != mirrored.cellHeight - 1f) {
+            throw new AssertionError("flip should mirror Y, got "
+                    + editor.getActionAnchorY(0, "right"));
+        }
+    }
+
+    private static BufferedImage cornerMarker(int w, int h) {
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        img.setRGB(0, 0, 0xffff0000);
+        img.setRGB(w - 1, 0, 0xff00ff00);
+        img.setRGB(0, h - 1, 0xff0000ff);
+        return img;
+    }
+
+    private static BufferedImage decodeB64(String b64) throws Exception {
+        BufferedImage img = ImageIO.read(new ByteArrayInputStream(Base64.getDecoder().decode(b64)));
+        if (img == null) {
+            throw new AssertionError("decode failed");
+        }
+        return img;
     }
 
     private static String ponyXml(String body) {

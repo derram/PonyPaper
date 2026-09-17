@@ -1882,12 +1882,36 @@ public class ImageImport {
     }
 
     public static List<BufferedImage> flopEachFrame(List<BufferedImage> frames) {
+        return mapEachFrame(frames, true);
+    }
+
+    /**
+     * Vertical flip of a single frame (does not reverse animation order).
+     */
+    public static BufferedImage flipFrame(BufferedImage src) {
+        if (src == null) {
+            throw new IllegalArgumentException("src");
+        }
+        int w = src.getWidth();
+        int h = src.getHeight();
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = out.createGraphics();
+        g.drawImage(src, 0, h, w, 0, 0, 0, w, h, null);
+        g.dispose();
+        return out;
+    }
+
+    public static List<BufferedImage> flipEachFrame(List<BufferedImage> frames) {
+        return mapEachFrame(frames, false);
+    }
+
+    private static List<BufferedImage> mapEachFrame(List<BufferedImage> frames, boolean flop) {
         if (frames == null) {
             throw new IllegalArgumentException("frames");
         }
         List<BufferedImage> out = new ArrayList<BufferedImage>(frames.size());
         for (BufferedImage frame : frames) {
-            out.add(flopFrame(frame));
+            out.add(flop ? flopFrame(frame) : flipFrame(frame));
         }
         return out;
     }
@@ -2253,6 +2277,17 @@ public class ImageImport {
      */
     public static ImageImport mirrorSheet(byte[] pngBytes, int frameCount, String timings)
             throws IOException {
+        return mirrorSheet(pngBytes, frameCount, timings, false);
+    }
+
+    /**
+     * Mirrors each cell of a packed strip and restacks in the same order.
+     * {@code vertical} true flips (up/down) each cell; false flops (left/right).
+     * Timings are copied when {@code timings} is non-empty; otherwise default
+     * timings of length {@code frameCount} are used.
+     */
+    public static ImageImport mirrorSheet(byte[] pngBytes, int frameCount, String timings,
+            boolean vertical) throws IOException {
         if (pngBytes == null || pngBytes.length == 0) {
             throw new IOException("No spritesheet to mirror");
         }
@@ -2265,7 +2300,8 @@ public class ImageImport {
         }
         List<BufferedImage> frames = splitSheet(sheet, frameCount);
         PackOptions opts = new PackOptions();
-        ImageImport packed = fromFrames(flopEachFrame(frames), opts);
+        ImageImport packed = fromFrames(
+                vertical ? flipEachFrame(frames) : flopEachFrame(frames), opts);
         String outTimings = timings;
         if (countTimings(outTimings) != frameCount) {
             outTimings = packed.timings;
