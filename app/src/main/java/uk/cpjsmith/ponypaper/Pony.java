@@ -1176,8 +1176,8 @@ public class Pony {
             motion = MOTION_SPECIAL;
             return true;
         }
-        // Seed motion/target before changeAction so effect spawn sees travel.
-        // Band uses the *incoming* action's movement (not the previous clip).
+        // Seed motion/target/facing before changeAction so planted effects
+        // see travel and the incoming clip's facing (not the previous sheet).
         motion = next.type == PonyAction.NORMAL ? MOTION_MOVING : MOTION_SPECIAL;
         if (forceLeave && edge != DragExit.EDGE_NONE
                 && DragExit.travelMatchesEdge(wander, next.getMovement(), edge)) {
@@ -1191,14 +1191,15 @@ public class Pony {
         if (motion == MOTION_MOVING && targetPos != null) {
             travelX = targetPos.x - posX;
             travelY = targetPos.y - posY;
+            // Incoming clip, not the drag/wait sheet: planted effects lock
+            // facing at spawn, and a vertical-wander inherit must not treat a
+            // left/right gutter leave as back/front.
+            setDirection(targetPos, next);
         } else {
             travelX = 0;
             travelY = 0;
         }
         changeAction(next);
-        if (motion == MOTION_MOVING && targetPos != null) {
-            setDirection(targetPos);
-        }
         return true;
     }
 
@@ -1554,7 +1555,7 @@ public class Pony {
         if (motion == MOTION_MOVING && targetPos != null) {
             travelX = targetPos.x - posX;
             travelY = targetPos.y - posY;
-            setDirection(targetPos);
+            setDirection(targetPos, start);
         } else {
             travelX = 0;
             travelY = 0;
@@ -1608,7 +1609,7 @@ public class Pony {
         if (motion == MOTION_MOVING && targetPos != null) {
             travelX = targetPos.x - posX;
             travelY = targetPos.y - posY;
-            setDirection(targetPos);
+            setDirection(targetPos, action);
         } else {
             travelX = 0;
             travelY = 0;
@@ -1742,7 +1743,7 @@ public class Pony {
         targetPos = exit;
         travelX = targetPos.x - posX;
         travelY = targetPos.y - posY;
-        setDirection(targetPos);
+        setDirection(targetPos, next);
         changeAction(next);
     }
 
@@ -2177,15 +2178,30 @@ public class Pony {
     }
     
     /**
+     * Updates facing from travel toward {@code targetPos} using
+     * {@link #currentAction}'s movement band.
+     */
+    private void setDirection(Point targetPos) {
+        setDirection(targetPos, currentAction);
+    }
+
+    /**
      * Updates facing from travel toward {@code targetPos}. Normally left/right
      * follow Δx. When {@link WanderTarget#usesVerticalFacing} is true (soft or
      * hard vertical movement), the left/right sheets mean back/front and facing
      * follows Δy (up→left/back, down→right/front). Zero delta on the active
      * axis keeps the current facing.
+     *
+     * @param forAction clip whose {@code <movement>} chooses the facing axis;
+     *                  pass the incoming action when this runs before
+     *                  {@link #changeAction} so planted effects match travel
      */
-    private void setDirection(Point targetPos) {
-        String movement = currentAction != null
-                ? currentAction.getMovement()
+    private void setDirection(Point targetPos, PonyAction forAction) {
+        if (targetPos == null) {
+            return;
+        }
+        String movement = forAction != null
+                ? forAction.getMovement()
                 : WanderTarget.MOVE_INHERIT;
         if (WanderTarget.usesVerticalFacing(wander, movement)) {
             float dY = targetPos.y - posY;
