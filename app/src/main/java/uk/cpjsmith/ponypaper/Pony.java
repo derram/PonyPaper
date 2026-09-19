@@ -107,6 +107,12 @@ public class Pony {
     private int leavingMode;
     
     private PonyAction currentAction;
+    /**
+     * Next clip waiting on async decode. World Flow pins only the spawn bag,
+     * so drag / one-shot successors load on demand; keep showing
+     * {@link #currentAction} until this is ready.
+     */
+    private PonyAction pendingAction;
     private float posX;
     /**
      * Vertical world position of the pony's feet (ground contact). Sprite sheets
@@ -544,6 +550,7 @@ public class Pony {
         motion = pinned ? MOTION_INIT_PINNED : MOTION_INIT;
         leavingMode = LM_NORMAL;
         currentAction = null;
+        pendingAction = null;
         posX = 0;
         posY = 0;
         travelX = 0;
@@ -560,6 +567,7 @@ public class Pony {
      * {@link #reset()} and when a host drops the herd.
      */
     public void unloadActions() {
+        pendingAction = null;
         for (int i = 0; i < allActions.length; i++) {
             allActions[i].unload();
         }
@@ -593,6 +601,25 @@ public class Pony {
         for (int i = 0; i < bag.length; i++) {
             if (bag[i] != null) {
                 bag[i].load();
+            }
+        }
+    }
+
+    /**
+     * Pin World Flow spawn-bag sheets (crossing∪start NORMAL) and effects
+     * those clips trigger. Unused catalog actions stay unpinned until
+     * {@link #changeAction} needs them.
+     */
+    void loadWorldFlowBagActions() {
+        PonyAction[] bag = worldFlowSpawnBag();
+        for (int i = 0; i < bag.length; i++) {
+            if (bag[i] != null) {
+                bag[i].load();
+            }
+        }
+        for (int i = 0; i < effectDefs.length; i++) {
+            if (WorldFlow.effectTriggeredByBag(bag, effectDefs[i].triggerActions())) {
+                effectDefs[i].load();
             }
         }
     }
@@ -664,6 +691,65 @@ public class Pony {
     }
 
     /**
+     * @return true when every World Flow spawn-bag action (and its triggered
+     *         effects) has both facings decoded
+     */
+    boolean worldFlowBagReady() {
+        PonyAction[] bag = worldFlowSpawnBag();
+        if (bag.length == 0) {
+            return false;
+        }
+        for (int i = 0; i < bag.length; i++) {
+            if (bag[i] == null || !bag[i].isReady() || !effectsReadyFor(bag[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @return true if a World Flow spawn-bag pin failed to decode
+     */
+    boolean worldFlowBagFailed() {
+        PonyAction[] bag = worldFlowSpawnBag();
+        for (int i = 0; i < bag.length; i++) {
+            if (bag[i] != null && (bag[i].loadFailed() || effectsFailedFor(bag[i]))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void loadEffectsTriggeredBy(PonyAction action) {
+        if (action == null) {
+            return;
+        }
+        for (int i = 0; i < effectDefs.length; i++) {
+            if (effectDefs[i].triggersOn(action)) {
+                effectDefs[i].load();
+            }
+        }
+    }
+
+    private boolean effectsReadyFor(PonyAction action) {
+        for (int i = 0; i < effectDefs.length; i++) {
+            if (effectDefs[i].triggersOn(action) && !effectDefs[i].isReady()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean effectsFailedFor(PonyAction action) {
+        for (int i = 0; i < effectDefs.length; i++) {
+            if (effectDefs[i].triggersOn(action) && effectDefs[i].loadFailed()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * True while a pinned pony is still waiting on sheets before {@link #pinAt}.
      * Failed loads that marked {@link #goneOffScreen()} are not awaiting.
      */
@@ -725,27 +811,33 @@ public class Pony {
                     bag[random.nextInt(bag.length)], resolvePinnedFacing());
             loadActions();
         } else if (motion == MOTION_INIT) {
-            loadActions();
-            if (actionsFailed()) {
-                leavingMode = LM_GONE;
-                return;
-            }
-            if (!actionsReady()) {
-                return;
-            }
             if (worldFlow) {
-                // Always-leave spawn; NORMAL movers from crossing∪start (see WorldFlow).
+                // Spawn-bag only: unused stand/sit/drag/VFX stay unpinned until
+                // changeAction needs them (Tableau wait-bag does the same).
+                loadWorldFlowBagActions();
                 PonyAction[] bag = worldFlowSpawnBag();
-                if (bag.length == 0) {
+                if (bag.length == 0 || worldFlowBagFailed()) {
                     leavingMode = LM_GONE;
                     return;
                 }
+                if (!worldFlowBagReady()) {
+                    return;
+                }
+                // Always-leave spawn; NORMAL movers from crossing∪start (see WorldFlow).
                 // Position/travel/facing before changeAction so planted effects
                 // attach at the enter gutter (same ordering as tryBeginMoving).
                 PonyAction start = bag[random.nextInt(bag.length)];
                 beginCrossingEnter(start);
                 changeAction(start);
             } else {
+                loadActions();
+                if (actionsFailed()) {
+                    leavingMode = LM_GONE;
+                    return;
+                }
+                if (!actionsReady()) {
+                    return;
+                }
                 int startLen = startActions != null ? startActions.length : 0;
                 int crossLen = crossingActions != null ? crossingActions.length : 0;
                 int total = startLen + crossLen;
@@ -765,6 +857,10 @@ public class Pony {
                 }
             }
         } else if (deltaMs > 0) {
+            flushPendingAction();
+            if (currentAction == null || !currentAction.isReady()) {
+                return;
+            }
             if (drainExitDelayMs > 0) {
                 drainExitDelayMs -= (int) deltaMs;
                 if (drainExitDelayMs <= 0) {
@@ -1478,6 +1574,46 @@ public class Pony {
     }
     
     private void changeAction(PonyAction newAction) {
+        if (newAction == null) {
+            return;
+        }
+        newAction.load();
+        loadEffectsTriggeredBy(newAction);
+        if (newAction != currentAction
+                && currentAction != null
+                && currentAction.isReady()
+                && !actionReadyToCommit(newAction)
+                && !newAction.loadFailed()
+                && !effectsFailedFor(newAction)) {
+            pendingAction = newAction;
+            return;
+        }
+        pendingAction = null;
+        commitChangeAction(newAction);
+    }
+
+    private boolean actionReadyToCommit(PonyAction action) {
+        return action != null && action.isReady() && effectsReadyFor(action);
+    }
+
+    private void flushPendingAction() {
+        if (pendingAction == null) {
+            return;
+        }
+        pendingAction.load();
+        loadEffectsTriggeredBy(pendingAction);
+        if (pendingAction.loadFailed() || effectsFailedFor(pendingAction)) {
+            pendingAction = null;
+            return;
+        }
+        if (actionReadyToCommit(pendingAction)) {
+            PonyAction next = pendingAction;
+            pendingAction = null;
+            commitChangeAction(next);
+        }
+    }
+
+    private void commitChangeAction(PonyAction newAction) {
         if (newAction != currentAction) {
             PonyAction previous = currentAction;
             currentAction = newAction;

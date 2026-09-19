@@ -367,8 +367,9 @@ public class PonyAction {
      * Decoded custom sheets plus a {@link SpriteCache} factory that captures
      * only those arrays (so an LRU entry does not pin this action). Base64
      * decode is deferred to first {@link #load()} so unused mix members and
-     * Tableau wait-bag-only pins do not decode the catalog. Keys are filled
-     * on that same first load so unused sheets are not SHA-256'd.
+     * Tableau wait-bag-only pins do not decode the catalog; the encoded strings
+     * are then dropped from the cached definition. Keys are filled on that
+     * same first load so unused sheets are not SHA-256'd.
      */
     private static final class CustomSheets {
         final PonyDefinition.Action definition;
@@ -386,6 +387,10 @@ public class PonyAction {
         }
 
         boolean sharesFacingImages() {
+            if (definition.runtimeImageLeft != null) {
+                return definition.runtimeImageLeft == definition.runtimeImageRight
+                        && definition.runtimeTimesLeft == definition.runtimeTimesRight;
+            }
             String leftB64 = definition.images.get("left");
             String rightB64 = definition.images.get("right");
             String leftTimingText = definition.timings.get("left");
@@ -407,18 +412,14 @@ public class PonyAction {
                     byte[] left = Base64.decode(leftB64, 0);
                     int[] leftT = parseInts(leftTimingText);
                     validateDefinitionSide(left, leftT, "left");
-                    definition.runtimeImageLeft = left;
-                    definition.runtimeTimesLeft = leftT;
                     if (leftB64 != null && leftB64.equals(rightB64)
                             && leftTimingText != null && leftTimingText.equals(rightTimingText)) {
-                        definition.runtimeImageRight = left;
-                        definition.runtimeTimesRight = leftT;
+                        definition.installRuntimeImages(left, leftT, left, leftT);
                     } else {
                         byte[] right = Base64.decode(rightB64, 0);
                         int[] rightT = parseInts(rightTimingText);
                         validateDefinitionSide(right, rightT, "right");
-                        definition.runtimeImageRight = right;
-                        definition.runtimeTimesRight = rightT;
+                        definition.installRuntimeImages(left, leftT, right, rightT);
                     }
                 }
             }
@@ -436,13 +437,26 @@ public class PonyAction {
 
         void ensureKeys() {
             ensurePrepared();
-            if (leftKey == null) {
-                leftKey = SpriteCache.bytesKey(leftBytes, leftTimes);
-            }
-            if (rightKey == null) {
-                rightKey = (rightBytes == leftBytes && rightTimes == leftTimes)
-                        ? leftKey
-                        : SpriteCache.bytesKey(rightBytes, rightTimes);
+            synchronized (definition) {
+                if (leftKey == null) {
+                    if (definition.runtimeKeyLeft != null) {
+                        leftKey = definition.runtimeKeyLeft;
+                    } else {
+                        leftKey = SpriteCache.bytesKey(leftBytes, leftTimes);
+                        definition.runtimeKeyLeft = leftKey;
+                    }
+                }
+                if (rightKey == null) {
+                    if (definition.runtimeKeyRight != null) {
+                        rightKey = definition.runtimeKeyRight;
+                    } else if (rightBytes == leftBytes && rightTimes == leftTimes) {
+                        rightKey = leftKey;
+                        definition.runtimeKeyRight = rightKey;
+                    } else {
+                        rightKey = SpriteCache.bytesKey(rightBytes, rightTimes);
+                        definition.runtimeKeyRight = rightKey;
+                    }
+                }
             }
         }
     }

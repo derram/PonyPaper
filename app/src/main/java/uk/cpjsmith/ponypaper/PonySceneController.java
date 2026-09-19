@@ -1107,8 +1107,9 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
 
     /**
      * Bind a built herd as the live scene. Wander ponies stay in
-     * {@code MOTION_INIT} until sheets decode ({@link Pony#actionsReady});
-     * Tableau arms the spawn/reveal gate and keeps {@link #outgoingPonies}.
+     * {@code MOTION_INIT} until sheets decode ({@link Pony#actionsReady};
+     * World Flow waits on the spawn bag only). Tableau arms the spawn/reveal
+     * gate and keeps {@link #outgoingPonies}.
      */
     private void installReadyHerd(Ponies readyHerd, Bitmap readyBg, boolean buildTableau,
             String bgHash, int pixelation, int canvasW, int canvasH,

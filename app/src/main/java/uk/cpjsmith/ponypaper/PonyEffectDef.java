@@ -91,18 +91,14 @@ final class PonyEffectDef {
                 byte[] left = Base64.decode(leftB64, 0);
                 int[] leftT = parseTimes(leftTimingText);
                 validateSide(left, leftT, "left");
-                definition.runtimeImageLeft = left;
-                definition.runtimeTimesLeft = leftT;
                 if (leftB64 != null && leftB64.equals(rightB64)
                         && leftTimingText != null && leftTimingText.equals(rightTimingText)) {
-                    definition.runtimeImageRight = left;
-                    definition.runtimeTimesRight = leftT;
+                    definition.installRuntimeImages(left, leftT, left, leftT);
                 } else {
                     byte[] right = Base64.decode(rightB64, 0);
                     int[] rightT = parseTimes(rightTimingText);
                     validateSide(right, rightT, "right");
-                    definition.runtimeImageRight = right;
-                    definition.runtimeTimesRight = rightT;
+                    definition.installRuntimeImages(left, leftT, right, rightT);
                 }
             }
         }
@@ -130,19 +126,36 @@ final class PonyEffectDef {
         return false;
     }
 
+    PonyAction[] triggerActions() {
+        return triggers;
+    }
+
     void load() {
         synchronized (this) {
             if (sprites != null || leftPin != null) {
                 return;
             }
             ensurePrepared();
-            if (leftKey == null) {
-                leftKey = SpriteCache.bytesKey(leftBytes, leftTimes);
-            }
-            if (rightKey == null) {
-                rightKey = (rightBytes == leftBytes && rightTimes == leftTimes)
-                        ? leftKey
-                        : SpriteCache.bytesKey(rightBytes, rightTimes);
+            synchronized (definition) {
+                if (leftKey == null) {
+                    if (definition.runtimeKeyLeft != null) {
+                        leftKey = definition.runtimeKeyLeft;
+                    } else {
+                        leftKey = SpriteCache.bytesKey(leftBytes, leftTimes);
+                        definition.runtimeKeyLeft = leftKey;
+                    }
+                }
+                if (rightKey == null) {
+                    if (definition.runtimeKeyRight != null) {
+                        rightKey = definition.runtimeKeyRight;
+                    } else if (rightBytes == leftBytes && rightTimes == leftTimes) {
+                        rightKey = leftKey;
+                        definition.runtimeKeyRight = rightKey;
+                    } else {
+                        rightKey = SpriteCache.bytesKey(rightBytes, rightTimes);
+                        definition.runtimeKeyRight = rightKey;
+                    }
+                }
             }
             leftPin = SpriteCache.pin(leftKey, leftFactory);
             if (leftKey.equals(rightKey)) {

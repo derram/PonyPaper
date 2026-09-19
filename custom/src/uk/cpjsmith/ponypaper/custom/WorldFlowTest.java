@@ -18,6 +18,7 @@ public final class WorldFlowTest {
         failures += run("ignoreSpecials", WorldFlowTest::testIgnoreSpecials);
         failures += run("noneWhenEmpty", WorldFlowTest::testNoneWhenEmpty);
         failures += run("countNormal", WorldFlowTest::testCountNormal);
+        failures += run("effectTriggeredByBag", WorldFlowTest::testEffectTriggeredByBag);
         if (failures > 0) {
             System.err.println(failures + " world-flow check(s) failed.");
             System.exit(1);
@@ -121,6 +122,24 @@ public final class WorldFlowTest {
         }
         if (WorldFlow.isNormalTransit(4)) {
             throw new AssertionError("SCREEN_OUT should not be transit");
+        }
+    }
+
+    private static void testEffectTriggeredByBag() {
+        Object trot = new Object();
+        Object stand = new Object();
+        Object fly = new Object();
+        Object[] bag = {trot, fly};
+        if (!WorldFlow.effectTriggeredByBag(bag, new Object[] {stand, trot})) {
+            throw new AssertionError("effect that lists a bag mover should pin");
+        }
+        if (WorldFlow.effectTriggeredByBag(bag, new Object[] {stand})) {
+            throw new AssertionError("idle-only effect should not pin with the bag");
+        }
+        if (WorldFlow.effectTriggeredByBag(bag, null)
+                || WorldFlow.effectTriggeredByBag(null, new Object[] {trot})
+                || WorldFlow.effectTriggeredByBag(new Object[0], new Object[] {trot})) {
+            throw new AssertionError("empty/null bag or triggers should not pin");
         }
     }
 }

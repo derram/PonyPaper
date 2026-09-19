@@ -113,6 +113,12 @@ public final class PonyDefinitionValidateTest {
                 PonyDefinitionValidateTest::testScaleOutOfRangeInvalid);
         failures += run("scalePercentParse",
                 PonyDefinitionValidateTest::testScalePercentParse);
+        failures += run("discardEncodedImagesAfterRuntimeBytes",
+                PonyDefinitionValidateTest::testDiscardEncodedImagesAfterRuntimeBytes);
+        failures += run("discardEncodedImagesNoOpWithoutRuntimeBytes",
+                PonyDefinitionValidateTest::testDiscardEncodedImagesNoOpWithoutRuntimeBytes);
+        failures += run("effectDiscardEncodedImagesAfterRuntimeBytes",
+                PonyDefinitionValidateTest::testEffectDiscardEncodedImagesAfterRuntimeBytes);
         if (failures > 0) {
             System.err.println(failures + " definition check(s) failed.");
             System.exit(1);
@@ -1018,6 +1024,51 @@ public final class PonyDefinitionValidateTest {
         def.crossingActions = "trotcycle";
         def.defaultDrag = "stand";
         def.validate();
+    }
+
+    private static void testDiscardEncodedImagesAfterRuntimeBytes() {
+        PonyDefinition.Action a = action("stand", true, "stand", "trot");
+        a.images.put("left", "QUJDREVGR0g=");
+        a.images.put("right", "UVJTVFVWV1g=");
+        byte[] left = new byte[] {1, 2, 3};
+        byte[] right = new byte[] {4, 5, 6};
+        int[] times = new int[] {10};
+        a.installRuntimeImages(left, times, right, times);
+        if (!a.images.get("left").isEmpty() || !a.images.get("right").isEmpty()) {
+            throw new AssertionError("Base64 should be dropped after runtime bytes exist");
+        }
+        if (a.runtimeImageLeft != left || a.runtimeImageRight != right) {
+            throw new AssertionError("runtime PNG bytes should remain");
+        }
+        if (!"10".equals(a.timings.get("left")) || !"10".equals(a.timings.get("right"))) {
+            throw new AssertionError("timings should stay");
+        }
+    }
+
+    private static void testDiscardEncodedImagesNoOpWithoutRuntimeBytes() {
+        PonyDefinition.Action a = action("stand", true, "stand", "trot");
+        a.images.put("left", "keep-me");
+        a.images.put("right", "keep-me-too");
+        a.discardEncodedImages();
+        if (!"keep-me".equals(a.images.get("left"))
+                || !"keep-me-too".equals(a.images.get("right"))) {
+            throw new AssertionError("authoring Base64 must not be wiped without runtime bytes");
+        }
+    }
+
+    private static void testEffectDiscardEncodedImagesAfterRuntimeBytes() {
+        PonyDefinition.Effect e = effect("sparkle", "trot", true);
+        e.images.put("left", "QUJDREVGR0g=");
+        e.images.put("right", "UVJTVFVWV1g=");
+        byte[] png = new byte[] {9, 8, 7};
+        int[] times = new int[] {5};
+        e.installRuntimeImages(png, times, png, times);
+        if (!e.images.get("left").isEmpty() || !e.images.get("right").isEmpty()) {
+            throw new AssertionError("effect Base64 should be dropped after runtime bytes exist");
+        }
+        if (e.runtimeImageLeft != png || e.runtimeImageRight != png) {
+            throw new AssertionError("effect runtime PNG bytes should remain");
+        }
     }
 
     private static String writeXml(PonyDefinition def) {

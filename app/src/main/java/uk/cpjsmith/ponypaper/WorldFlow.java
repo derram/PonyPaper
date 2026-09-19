@@ -14,6 +14,10 @@ package uk.cpjsmith.ponypaper;
  * {@code owl_trot}) share the stage with ordinary start gaits. Customs need
  * not duplicate their start list into crossing for World Flow variety; an
  * empty crossing list still uses start NORMALs alone (most built-ins).
+ *
+ * <p>Sprite pin matches this bag: World Flow load decodes those movers and
+ * any effects they trigger. Stand/sit/drag and other catalog sheets wait
+ * until a later action change (same idea as Tableau's wait-bag preload).
  */
 public final class WorldFlow {
 
@@ -57,6 +61,27 @@ public final class WorldFlow {
             return BAG_START;
         }
         return BAG_NONE;
+    }
+
+    /**
+     * True when any trigger is the same instance as a spawn-bag member.
+     * World Flow pins those effect sheets with the bag; others wait.
+     */
+    public static boolean effectTriggeredByBag(Object[] bag, Object[] triggers) {
+        if (bag == null || triggers == null) {
+            return false;
+        }
+        for (int t = 0; t < triggers.length; t++) {
+            if (triggers[t] == null) {
+                continue;
+            }
+            for (int b = 0; b < bag.length; b++) {
+                if (bag[b] == triggers[t]) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** Number of NORMAL entries in {@code types}. */

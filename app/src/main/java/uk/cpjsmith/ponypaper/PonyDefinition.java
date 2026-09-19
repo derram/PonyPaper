@@ -111,6 +111,23 @@ public class PonyDefinition {
     public static final float MAX_EFFECT_SECONDS = 300.0f;
 
     /**
+     * Wallpaper-only: drop Base64 image strings after PNG bytes live on
+     * {@code runtimeImage*}. No-op when those bytes are missing so the editor
+     * authoring maps are never wiped. Timings stay (they are small).
+     */
+    public static void discardEncodedImagesIfRuntimeReady(Map<String, String> images,
+            byte[] runtimeLeft, byte[] runtimeRight) {
+        if (images == null) {
+            return;
+        }
+        if (runtimeLeft == null && runtimeRight == null) {
+            return;
+        }
+        images.put("left", "");
+        images.put("right", "");
+    }
+
+    /**
      * @return true when {@code specialType} is empty or a known special
      */
     public static boolean isKnownSpecialType(String specialType) {
@@ -632,6 +649,12 @@ public class PonyDefinition {
         public int[] runtimeTimesLeft;
         public int[] runtimeTimesRight;
         /**
+         * SpriteCache keys filled on first wallpaper {@code load()} so later
+         * {@link Pony} graphs skip SHA-256 of the PNG bytes.
+         */
+        public String runtimeKeyLeft;
+        public String runtimeKeyRight;
+        /**
          * Next-action lists by motion type ({@code waiting}, {@code moving},
          * {@code drag}). Waiting and moving are required. Drag is an optional
          * override: empty/omitted means use the pony-level {@link #defaultDrag}.
@@ -699,6 +722,24 @@ public class PonyDefinition {
             } else {
                 anchorY.put(direction, Float.valueOf(value));
             }
+        }
+
+        /**
+         * Install decoded PNG bytes and drop the Base64 maps. Wallpaper
+         * {@code load()} only; the editor must keep {@link #images} for save.
+         */
+        public void installRuntimeImages(byte[] left, int[] leftTimes,
+                byte[] right, int[] rightTimes) {
+            runtimeImageLeft = left;
+            runtimeTimesLeft = leftTimes;
+            runtimeImageRight = right;
+            runtimeTimesRight = rightTimes;
+            discardEncodedImages();
+        }
+
+        /** Drop Base64 strings when {@link #runtimeImageLeft}/{@code Right} exist. */
+        public void discardEncodedImages() {
+            discardEncodedImagesIfRuntimeReady(images, runtimeImageLeft, runtimeImageRight);
         }
         
         public Action(Element element) throws InvalidPonyException {
@@ -1080,6 +1121,9 @@ public class PonyDefinition {
         public byte[] runtimeImageRight;
         public int[] runtimeTimesLeft;
         public int[] runtimeTimesRight;
+        /** SpriteCache keys filled on first wallpaper {@code load()}. */
+        public String runtimeKeyLeft;
+        public String runtimeKeyRight;
 
         public Effect() {
             name = "";
@@ -1098,6 +1142,24 @@ public class PonyDefinition {
             images.put("right", "");
             timings.put("left", "");
             timings.put("right", "");
+        }
+
+        /**
+         * Install decoded PNG bytes and drop the Base64 maps. Wallpaper
+         * {@code load()} only; the editor must keep {@link #images} for save.
+         */
+        public void installRuntimeImages(byte[] left, int[] leftTimes,
+                byte[] right, int[] rightTimes) {
+            runtimeImageLeft = left;
+            runtimeTimesLeft = leftTimes;
+            runtimeImageRight = right;
+            runtimeTimesRight = rightTimes;
+            discardEncodedImages();
+        }
+
+        /** Drop Base64 strings when {@link #runtimeImageLeft}/{@code Right} exist. */
+        public void discardEncodedImages() {
+            discardEncodedImagesIfRuntimeReady(images, runtimeImageLeft, runtimeImageRight);
         }
 
         public Effect(Element element) throws InvalidPonyException {

@@ -387,14 +387,19 @@ public class Ponies implements Pony.EffectHost {
 
     /**
      * Start pinning sheets for every on-screen pony. Safe to call from the
-     * decode worker after the herd is built.
+     * decode worker after the herd is built. World Flow pins only the spawn
+     * bag (crossing∪start NORMAL plus those clips' effects).
      */
     void preloadActiveSprites() {
         if (activePonies == null) {
             return;
         }
         for (int i = 0; i < activePonies.length; i++) {
-            activePonies[i].loadActions();
+            if (worldFlow) {
+                activePonies[i].loadWorldFlowBagActions();
+            } else {
+                activePonies[i].loadActions();
+            }
         }
     }
 
@@ -967,7 +972,11 @@ public class Ponies implements Pony.EffectHost {
             }
             prefetched.add(next);
             skipKeys.add(key);
-            next.loadActions();
+            if (worldFlow) {
+                next.loadWorldFlowBagActions();
+            } else {
+                next.loadActions();
+            }
         }
     }
 
