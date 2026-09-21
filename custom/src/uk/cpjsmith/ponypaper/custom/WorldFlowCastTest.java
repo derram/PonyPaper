@@ -34,6 +34,13 @@ public final class WorldFlowCastTest {
         failures += run("skipHeldAndWaifu", WorldFlowCastTest::testSkipHeldAndWaifu);
         failures += run("admittedNotImmediateVictim",
                 WorldFlowCastTest::testAdmittedNotImmediateVictim);
+        failures += run("manualEvictBeforeInterval",
+                WorldFlowCastTest::testManualEvictBeforeInterval);
+        failures += run("manualEvictWaifu", WorldFlowCastTest::testManualEvictWaifu);
+        failures += run("manualEvictEmptyReservoir",
+                WorldFlowCastTest::testManualEvictEmptyReservoir);
+        failures += run("manualEvictDoesNotPostponeDrip",
+                WorldFlowCastTest::testManualEvictDoesNotPostponeDrip);
         if (failures > 0) {
             System.err.println(failures + " world-flow-cast check(s) failed.");
             System.exit(1);
@@ -259,6 +266,67 @@ public final class WorldFlowCastTest {
         }
         if (first.admitted.equals(second.evicted)) {
             throw new AssertionError("freshly admitted key should not be the next victim");
+        }
+    }
+
+    private static void testManualEvictBeforeInterval() {
+        WorldFlowCast cast = WorldFlowCast.open(keys(6), "", new Random(12), 3, 1000L);
+        ArrayList<String> window = cast.castKeys();
+        String victim = window.get(0);
+        HashSet<String> resBefore = reservoirOf(cast);
+        WorldFlowCast.Drip drip = cast.tryEvict(victim, new Random(12));
+        if (drip == null || !victim.equals(drip.evicted)) {
+            throw new AssertionError("manual evict should ignore the drip interval");
+        }
+        if (!resBefore.contains(drip.admitted) || cast.contains(victim)
+                || !cast.contains(drip.admitted)) {
+            throw new AssertionError("manual evict membership");
+        }
+        if (cast.size() != 3 || cast.reservoirSize() != 3) {
+            throw new AssertionError("window size after manual evict");
+        }
+        if (cast.tryEvict("missing", new Random(12)) != null) {
+            throw new AssertionError("unknown key must not evict");
+        }
+    }
+
+    private static void testManualEvictWaifu() {
+        WorldFlowCast cast = WorldFlowCast.open(keys(6), "k0", new Random(13), 3, 1000L);
+        WorldFlowCast.Drip drip = cast.tryEvict("k0", new Random(13));
+        if (drip == null || !"k0".equals(drip.evicted) || cast.contains("k0")) {
+            throw new AssertionError("drag-to-edge may cycle the waifu out");
+        }
+    }
+
+    private static void testManualEvictEmptyReservoir() {
+        WorldFlowCast cast = WorldFlowCast.open(keys(3), "", new Random(14), 3, 1000L);
+        if (cast.tryEvict("k0", new Random(14)) != null) {
+            throw new AssertionError("no reservoir: stay in the window");
+        }
+        if (!cast.contains("k0") || cast.size() != 3) {
+            throw new AssertionError("small mix must keep the thrown key");
+        }
+    }
+
+    private static void testManualEvictDoesNotPostponeDrip() {
+        WorldFlowCast cast = WorldFlowCast.open(keys(6), "", new Random(15), 3, 1000L);
+        InactiveRoster inactive = new InactiveRoster();
+        inactive.setAll(cast.castKeys());
+        String victim = cast.castKeys().get(0);
+        inactive.removeKey(victim);
+        cast.advance(500L);
+        WorldFlowCast.Drip manual = cast.tryEvict(victim, new Random(15));
+        if (manual == null) {
+            throw new AssertionError("manual evict at 500ms");
+        }
+        inactive.add(manual.admitted);
+        cast.advance(500L);
+        WorldFlowCast.Drip timed = cast.tryDrip(inactive, null, "", new Random(16));
+        if (timed == null) {
+            throw new AssertionError("timed drip should still fire at 1000ms");
+        }
+        if (manual.admitted.equals(timed.evicted)) {
+            throw new AssertionError("freshly admitted key should not be the timed victim");
         }
     }
 

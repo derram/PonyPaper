@@ -14,7 +14,8 @@ import java.util.Random;
  * unpinned sprite LRU can stay hot. When the mix is larger than
  * {@link #MAX_KEYS}, one reservoir character is admitted every
  * {@link #DRIP_INTERVAL_MS}, evicting the inactive (non-prefetched, non-waifu)
- * key that last appeared on-screen least recently.
+ * key that last appeared on-screen least recently. A drag-to-edge leave can
+ * {@linkplain #tryEvict evict} that pony immediately, including the waifu.
  */
 public final class WorldFlowCast {
 
@@ -165,14 +166,31 @@ public final class WorldFlowCast {
         if (victim == null) {
             return null;
         }
+        Drip drip = swapOut(victim, random);
+        nextDripElapsed = elapsedMs + dripIntervalMs;
+        return drip;
+    }
+
+    /**
+     * Immediately swap {@code victim} for a reservoir key. Ignores the drip
+     * interval and waifu protection. No-op when the reservoir is empty or
+     * {@code victim} is not in the window. Does not postpone the timed drip.
+     */
+    public Drip tryEvict(String victim, Random random) {
+        if (victim == null || victim.length() == 0 || reservoir.isEmpty()
+                || random == null || !cast.contains(victim)) {
+            return null;
+        }
+        return swapOut(victim, random);
+    }
+
+    private Drip swapOut(String victim, Random random) {
         int incomingIdx = random.nextInt(reservoir.size());
         String admitted = reservoir.remove(incomingIdx);
         cast.remove(victim);
         lastOnScreen.remove(victim);
         cast.add(admitted);
-        lastOnScreen.put(admitted, Long.valueOf(elapsedMs));
         reservoir.add(victim);
-        nextDripElapsed = elapsedMs + dripIntervalMs;
         return new Drip(victim, admitted);
     }
 

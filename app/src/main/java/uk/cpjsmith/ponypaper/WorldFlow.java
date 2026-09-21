@@ -21,8 +21,9 @@ package uk.cpjsmith.ponypaper;
  *
  * <p>Live replacements use a {@link WorldFlowCast} of at most
  * {@link WorldFlowCast#MAX_KEYS} unique mix keys (drip-rotated from the
- * remaining roster) so the unpinned sprite LRU can stay hot. Wander and
- * Tableau still use the full enabled mix.
+ * remaining roster) so the unpinned sprite LRU can stay hot. A drag-to-edge
+ * leave evicts that pony from the window immediately. Wander and Tableau
+ * still use the full enabled mix.
  */
 public final class WorldFlow {
 

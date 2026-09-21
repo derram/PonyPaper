@@ -923,7 +923,22 @@ public class Ponies implements Pony.EffectHost {
             pony.stopDrag();
             draggedPony = null;
             persistTableauDragNorms(pony);
+            maybeEvictThrownWorldFlowCast(pony);
         }
+    }
+
+    /**
+     * World Flow drag-to-edge: drop the thrown pony from the 20-key window
+     * so the walk-off replacement can come from the reservoir.
+     */
+    private void maybeEvictThrownWorldFlowCast(Pony pony) {
+        if (worldFlowCast == null || draining || pony == null) {
+            return;
+        }
+        if (!pony.isLeavingScene() && !pony.goneOffScreen()) {
+            return;
+        }
+        applyWorldFlowDrip(worldFlowCast.tryEvict(pony.getPrefKey(), random));
     }
 
     /**
@@ -1046,6 +1061,10 @@ public class Ponies implements Pony.EffectHost {
         String key = pony.getPrefKey();
         if (worldFlowCast != null) {
             worldFlowCast.noteOnScreen(key);
+            if (!worldFlowCast.contains(key)) {
+                inactiveReady.remove(key);
+                return;
+            }
         }
         inactiveKeys.add(key);
         if (key.length() > 0) {
@@ -1061,8 +1080,11 @@ public class Ponies implements Pony.EffectHost {
         if (worldFlowCast == null || draining) {
             return;
         }
-        WorldFlowCast.Drip drip = worldFlowCast.tryDrip(inactiveKeys,
-                prefetchedKeys(), waifuKey, random);
+        applyWorldFlowDrip(worldFlowCast.tryDrip(inactiveKeys,
+                prefetchedKeys(), waifuKey, random));
+    }
+
+    private void applyWorldFlowDrip(WorldFlowCast.Drip drip) {
         if (drip == null) {
             return;
         }
