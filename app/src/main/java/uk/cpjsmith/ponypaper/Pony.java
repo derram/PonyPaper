@@ -1487,14 +1487,13 @@ public class Pony {
      * Off-screen point just past {@code edge}, keeping the other feet axis.
      */
     private Point offScreenForEdge(int edge) {
-        int s = (int)(30 * getScale());
         int x = Math.round(posX);
         int y = Math.round(posY);
         switch (edge) {
             case DragExit.EDGE_LEFT:
-                return new Point(screenBounds.left - s, y);
+                return new Point(offScreenExitX(true), y);
             case DragExit.EDGE_RIGHT:
-                return new Point(screenBounds.right + s, y);
+                return new Point(offScreenExitX(false), y);
             case DragExit.EDGE_TOP:
                 return new Point(x, offScreenExitY(true));
             case DragExit.EDGE_BOTTOM:
@@ -1889,7 +1888,6 @@ public class Pony {
      * unless {@code nearestGutter} (herd drain) is set.
      */
     private Point worldFlowExitPoint(PonyAction next, boolean nearestGutter) {
-        int s = (int)(30 * getScale());
         boolean vertical = WanderTarget.usesVerticalGutters(wander,
                 next.getMovement(), random);
         if (vertical) {
@@ -1906,17 +1904,17 @@ public class Pony {
             return new Point(x, offScreenExitY(leaveTop));
         }
         int y = Math.round(posY);
+        int leftX = offScreenExitX(true);
+        int rightX = offScreenExitX(false);
         boolean leaveLeft;
         if (nearestGutter) {
-            leaveLeft = HerdDrain.nearerFirst(posX, screenBounds.left - s,
-                    screenBounds.right + s);
+            leaveLeft = HerdDrain.nearerFirst(posX, leftX, rightX);
         } else if (Math.abs(travelX) > 0.01f) {
             leaveLeft = travelX < 0f;
         } else {
             leaveLeft = posX < screenBounds.centerX();
         }
-        return new Point(
-                leaveLeft ? screenBounds.left - s : screenBounds.right + s, y);
+        return new Point(leaveLeft ? leftX : rightX, y);
     }
 
     /**
@@ -1924,10 +1922,12 @@ public class Pony {
      * current feet Y so a crossing reads as a straight transit.
      */
     private Point oppositeHorizontalOffScreen(Point start) {
-        int s = (int)(30 * getScale());
         int y = Math.round(posY);
-        boolean startedLeft = start.x < screenBounds.centerX();
-        return new Point(startedLeft ? screenBounds.right + s : screenBounds.left - s, y);
+        int x = SpawnYBand.oppositeHorizontalGutterX(start.x, screenBounds.centerX(),
+                screenBounds.left, screenBounds.right,
+                maxUnscaledHorizontalExtent(true),
+                maxUnscaledHorizontalExtent(false), getScale());
+        return new Point(x, y);
     }
 
     /**
@@ -2108,7 +2108,6 @@ public class Pony {
      * random far-side Y/X.
      */
     private Point closestOffScreenForBand(int band) {
-        int s = (int)(30 * getScale());
         if (WanderTarget.usesVerticalGutters(band)) {
             int x = Math.round(posX);
             boolean leaveTop = HerdDrain.nearerFirst(posY, offScreenExitY(true),
@@ -2116,10 +2115,10 @@ public class Pony {
             return new Point(x, offScreenExitY(leaveTop));
         }
         int y = Math.round(posY);
-        boolean leaveLeft = HerdDrain.nearerFirst(posX, screenBounds.left - s,
-                screenBounds.right + s);
-        return new Point(
-                leaveLeft ? screenBounds.left - s : screenBounds.right + s, y);
+        int leftX = offScreenExitX(true);
+        int rightX = offScreenExitX(false);
+        boolean leaveLeft = HerdDrain.nearerFirst(posX, leftX, rightX);
+        return new Point(leaveLeft ? leftX : rightX, y);
     }
 
     /**
@@ -2205,7 +2204,6 @@ public class Pony {
      */
     private Point randomOffScreen() {
         float scale = getScale();
-        int s = (int)(30 * scale);
         int top = SpawnYBand.crossingTopInset(
                 maxUnscaledFrameHeight(), scale, screenBounds.height());
         int bottom = SpawnYBand.bottomInset(scale);
@@ -2213,7 +2211,7 @@ public class Pony {
         int y = usableH < 1
                 ? screenBounds.centerY()
                 : screenBounds.top + top + random.nextInt(usableH);
-        return new Point(random.nextBoolean() ? screenBounds.left - s : screenBounds.right + s, y);
+        return new Point(random.nextBoolean() ? offScreenExitX(true) : offScreenExitX(false), y);
     }
 
     /** Soft horizontal leave: left/right with {@code |Δy| < |Δx|} bias. */
@@ -2246,9 +2244,8 @@ public class Pony {
 
     /** Hard horizontal leave: left/right at the current Y. */
     private Point randomOffScreenHardHorizontal() {
-        int s = (int)(30 * getScale());
         int y = Math.round(posY);
-        return new Point(random.nextBoolean() ? screenBounds.left - s : screenBounds.right + s, y);
+        return new Point(random.nextBoolean() ? offScreenExitX(true) : offScreenExitX(false), y);
     }
 
     /** Hard vertical leave: top/bottom at the current X. */
@@ -2279,6 +2276,44 @@ public class Pony {
     private int offScreenExitY(boolean exitTop) {
         return SpawnYBand.verticalGutterY(exitTop, screenBounds.top,
                 screenBounds.bottom, maxUnscaledFrameHeight(), getScale());
+    }
+
+    /**
+     * Largest unscaled on-screen sprite extent from the feet for a left or
+     * right gutter. Left exit uses pixels to the right of the feet; right exit
+     * uses pixels to the left. Explicit {@code anchorx} is honoured.
+     */
+    private int maxUnscaledHorizontalExtent(boolean exitLeft) {
+        int max = 0;
+        for (int i = 0; i < allActions.length; i++) {
+            if (!allActions[i].isReady()) {
+                continue;
+            }
+            for (int dir = PonyAction.LEFT; dir <= PonyAction.RIGHT; dir++) {
+                int w = allActions[i].getFrameWidth(dir);
+                if (w <= 0) {
+                    continue;
+                }
+                float ax = allActions[i].getAnchorX(dir);
+                int ext = exitLeft ? (int) (w - ax) : (int) ax;
+                if (ext > max) {
+                    max = ext;
+                }
+            }
+        }
+        return max;
+    }
+
+    /**
+     * Feet X just past the left or right edge for a horizontal leave/enter.
+     * Delegates to {@link SpawnYBand#horizontalGutterX}.
+     *
+     * @param exitLeft {@code true} for past the left edge, {@code false} for
+     *                 past the right edge
+     */
+    private int offScreenExitX(boolean exitLeft) {
+        return SpawnYBand.horizontalGutterX(exitLeft, screenBounds.left,
+                screenBounds.right, maxUnscaledHorizontalExtent(exitLeft), getScale());
     }
 
     private int clampOnScreenX(int x) {

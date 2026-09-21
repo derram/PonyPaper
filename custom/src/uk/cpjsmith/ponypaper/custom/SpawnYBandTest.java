@@ -3,7 +3,7 @@ package uk.cpjsmith.ponypaper.custom;
 import uk.cpjsmith.ponypaper.SpawnYBand;
 
 /**
- * Checks feet-anchored spawn Y insets (on-screen vs crossing).
+ * Checks feet-anchored spawn Y insets and horizontal gutter pads.
  * Run via {@code ./gradlew :custom:testSpawnYBand}.
  */
 public final class SpawnYBandTest {
@@ -21,6 +21,13 @@ public final class SpawnYBandTest {
         failures += run("crossingReachesLowerThanLegacy", SpawnYBandTest::testCrossingReachesLowerThanLegacy);
         failures += run("verticalGutterY", SpawnYBandTest::testVerticalGutterY);
         failures += run("oppositeVerticalGutterY", SpawnYBandTest::testOppositeVerticalGutterY);
+        failures += run("horizontalGutterFromSprite", SpawnYBandTest::testHorizontalGutterFromSprite);
+        failures += run("horizontalGutterFloor", SpawnYBandTest::testHorizontalGutterFloor);
+        failures += run("horizontalGutterScreenCap", SpawnYBandTest::testHorizontalGutterScreenCap);
+        failures += run("horizontalGutterX", SpawnYBandTest::testHorizontalGutterX);
+        failures += run("horizontalGutterClearsLegacy", SpawnYBandTest::testHorizontalGutterClearsLegacy);
+        failures += run("oppositeHorizontalGutterX", SpawnYBandTest::testOppositeHorizontalGutterX);
+        failures += run("horizontalGutterOffCentre", SpawnYBandTest::testHorizontalGutterOffCentre);
         if (failures > 0) {
             System.err.println(failures + " spawn-y-band check(s) failed.");
             System.exit(1);
@@ -184,6 +191,116 @@ public final class SpawnYBandTest {
                 screenBottom, frameH, scale);
         if (opposite != fromTop) {
             throw new AssertionError("from bottom should target top: " + opposite);
+        }
+    }
+
+    private static void testHorizontalGutterFromSprite() {
+        float scale = 2f;
+        int extent = 48;
+        int pad = SpawnYBand.horizontalGutterPad(extent, scale, 2000);
+        int expected = (int) (extent * scale) + (int) (SpawnYBand.SIDE_PAD * scale);
+        if (pad != expected) {
+            throw new AssertionError("pad " + pad + " != " + expected);
+        }
+    }
+
+    private static void testHorizontalGutterFloor() {
+        float scale = 2f;
+        int pad = SpawnYBand.horizontalGutterPad(5, scale, 2000);
+        int floor = (int) (SpawnYBand.HORIZONTAL_GUTTER_MIN * scale);
+        if (pad != floor) {
+            throw new AssertionError("expected floor " + floor + ", got " + pad);
+        }
+    }
+
+    private static void testHorizontalGutterScreenCap() {
+        float scale = 2f;
+        int pad = SpawnYBand.horizontalGutterPad(500, scale, 400);
+        int cap = (int) (400 * SpawnYBand.HORIZONTAL_GUTTER_MAX_SCREEN_FRACTION);
+        if (pad != cap) {
+            throw new AssertionError("expected cap " + cap + ", got " + pad);
+        }
+    }
+
+    private static void testHorizontalGutterX() {
+        float scale = 2f;
+        int extent = 48;
+        int left = 0;
+        int right = 1080;
+        int pad = SpawnYBand.horizontalGutterPad(extent, scale, right - left);
+        int leftX = SpawnYBand.horizontalGutterX(true, left, right, extent, scale);
+        int rightX = SpawnYBand.horizontalGutterX(false, left, right, extent, scale);
+        if (leftX != left - pad) {
+            throw new AssertionError("left X " + leftX + " != " + (left - pad));
+        }
+        if (rightX != right + pad) {
+            throw new AssertionError("right X " + rightX + " != " + (right + pad));
+        }
+    }
+
+    /**
+     * Celestia-like 96px cell at phone-portrait scale must park farther than
+     * the legacy {@code 30×scale} side pad so half the sprite is off-screen.
+     */
+    private static void testHorizontalGutterClearsLegacy() {
+        float scale = 5.4f;
+        int extent = 48;
+        int screenW = 1080;
+        int pad = SpawnYBand.horizontalGutterPad(extent, scale, screenW);
+        int legacy = (int) (30 * scale);
+        if (pad <= legacy) {
+            throw new AssertionError("pad " + pad + " should exceed legacy " + legacy);
+        }
+        int fromSprite = (int) (extent * scale) + (int) (SpawnYBand.SIDE_PAD * scale);
+        if (pad != fromSprite) {
+            throw new AssertionError("expected sprite pad " + fromSprite + ", got " + pad);
+        }
+        int cap = (int) (screenW * SpawnYBand.HORIZONTAL_GUTTER_MAX_SCREEN_FRACTION);
+        if (pad > cap) {
+            throw new AssertionError("Celestia-like pad " + pad + " should sit under cap " + cap);
+        }
+    }
+
+    private static void testOppositeHorizontalGutterX() {
+        float scale = 1f;
+        int left = 10;
+        int right = 1010;
+        int centerX = 510;
+        int leftExt = 40;
+        int rightExt = 60;
+        int fromLeft = SpawnYBand.horizontalGutterX(true, left, right, leftExt, scale);
+        int opposite = SpawnYBand.oppositeHorizontalGutterX(fromLeft, centerX, left, right,
+                leftExt, rightExt, scale);
+        int expectRight = SpawnYBand.horizontalGutterX(false, left, right, rightExt, scale);
+        if (opposite != expectRight) {
+            throw new AssertionError("from left should target right: " + opposite);
+        }
+        int fromRight = expectRight;
+        opposite = SpawnYBand.oppositeHorizontalGutterX(fromRight, centerX, left, right,
+                leftExt, rightExt, scale);
+        if (opposite != fromLeft) {
+            throw new AssertionError("from right should target left: " + opposite);
+        }
+    }
+
+    private static void testHorizontalGutterOffCentre() {
+        float scale = 2f;
+        int screenLeft = 0;
+        int screenRight = 1000;
+        int leftExt = 80;
+        int rightExt = 20;
+        int leftX = SpawnYBand.horizontalGutterX(true, screenLeft, screenRight, leftExt, scale);
+        int rightX = SpawnYBand.horizontalGutterX(false, screenLeft, screenRight, rightExt, scale);
+        int leftPad = SpawnYBand.horizontalGutterPad(leftExt, scale, screenRight - screenLeft);
+        int rightPad = SpawnYBand.horizontalGutterPad(rightExt, scale, screenRight - screenLeft);
+        if (leftPad <= rightPad) {
+            throw new AssertionError("left exit should need a deeper pad than right");
+        }
+        if (screenLeft - leftX != leftPad) {
+            throw new AssertionError("left pad mismatch");
+        }
+        if (rightX - screenRight != rightPad) {
+            throw new AssertionError("right pad mismatch");
         }
     }
 }

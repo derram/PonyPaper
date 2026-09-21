@@ -19,9 +19,9 @@ public final class DragExit {
 
     /**
      * Physical edge whose margin the feet sit in (or past). {@code pad} is the
-     * same on-screen inset used for left/right gutters ({@code 30×scale}).
-     * Corners pick the larger penetration; ties prefer left, then right, then
-     * top, then bottom.
+     * on-screen side inset ({@code 30×scale}), not the off-screen gutter used
+     * when walking out. Corners pick the larger penetration; ties prefer left,
+     * then right, then top, then bottom.
      *
      * @return {@link #EDGE_NONE} when the feet are inside all four pads
      */

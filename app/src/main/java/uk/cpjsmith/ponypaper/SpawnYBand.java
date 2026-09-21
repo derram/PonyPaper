@@ -1,7 +1,7 @@
 package uk.cpjsmith.ponypaper;
 
 /**
- * Feet-anchored vertical insets for spawn and wander targets.
+ * Feet-anchored insets for spawn and wander targets.
  *
  * <p>Logical pony position is feet (bottom-center of the sprite). On-screen
  * destinations keep the whole body below the top edge. Horizontal gutter
@@ -13,6 +13,11 @@ package uk.cpjsmith.ponypaper;
  * small pad above the top edge is enough (sprite hangs above the feet), while
  * the bottom must clear a full frame height so the body is off-screen when
  * despawn runs.
+ *
+ * <p>Horizontal gutter enter/exit X clears the on-screen half of the cell
+ * (or the real feet-to-edge extent when {@code anchorx} is off-centre) so wide
+ * walk/fly sheets do not despawn while still visible. A {@code 30×scale} floor
+ * matches the legacy side pad; a screen-width cap bounds pathological sheets.
  */
 public final class SpawnYBand {
 
@@ -22,8 +27,17 @@ public final class SpawnYBand {
     /** Clearance below feet at the bottom edge. */
     public static final float BOTTOM_PAD = 8f;
 
+    /** Extra pad past the on-screen sprite extent for left/right gutters. */
+    public static final float SIDE_PAD = 8f;
+
     /** Off-screen pad past the top edge for vertical gutter enter/exit. */
     public static final float VERTICAL_GUTTER_PAD = 30f;
+
+    /** Floor for left/right gutter pads (legacy side-gutter scale units). */
+    public static final float HORIZONTAL_GUTTER_MIN = 30f;
+
+    /** Cap left/right gutter pad as a fraction of screen width (wide sheets). */
+    public static final float HORIZONTAL_GUTTER_MAX_SCREEN_FRACTION = 0.45f;
 
     /**
      * Fraction of scaled frame height used as the top inset for horizontal
@@ -140,5 +154,61 @@ public final class SpawnYBand {
         boolean startedTop = startY < screenCenterY;
         return verticalGutterY(!startedTop, screenTop, screenBottom,
                 maxUnscaledFrameH, scale);
+    }
+
+    /**
+     * Pad past a left or right edge so the sprite is off-screen when despawn
+     * runs. {@code unscaledExtent} is the unscaled pixels from the feet toward
+     * the screen (right of feet for a left exit, left of feet for a right exit).
+     *
+     * @param unscaledExtent pixels of sprite still toward the viewport
+     * @param scale          pony draw scale
+     * @param screenWidth    current clip width in pixels
+     */
+    public static int horizontalGutterPad(int unscaledExtent, float scale, int screenWidth) {
+        int fromSprite = (int) (Math.max(0, unscaledExtent) * scale) + (int) (SIDE_PAD * scale);
+        int min = (int) (HORIZONTAL_GUTTER_MIN * scale);
+        int pad = Math.max(fromSprite, min);
+        if (screenWidth > 0) {
+            int cap = (int) (screenWidth * HORIZONTAL_GUTTER_MAX_SCREEN_FRACTION);
+            if (cap > 0 && pad > cap) {
+                pad = cap;
+            }
+        }
+        return pad;
+    }
+
+    /**
+     * Feet X just past the left or right edge for a horizontal gutter enter/exit.
+     *
+     * @param exitLeft        {@code true} for past the left edge
+     * @param screenLeft      clip left
+     * @param screenRight     clip right ({@code left + width})
+     * @param unscaledExtent  on-screen sprite extent from the feet (see
+     *                        {@link #horizontalGutterPad})
+     * @param scale           pony draw scale
+     */
+    public static int horizontalGutterX(boolean exitLeft, int screenLeft, int screenRight,
+            int unscaledExtent, float scale) {
+        int pad = horizontalGutterPad(unscaledExtent, scale, screenRight - screenLeft);
+        if (exitLeft) {
+            return screenLeft - pad;
+        }
+        return screenRight + pad;
+    }
+
+    /**
+     * Opposite horizontal-gutter X for a crossing that started at {@code startX},
+     * keeping the same feet Y at the call site.
+     *
+     * @param leftExitExtent  unscaled right-of-feet extent (left gutter)
+     * @param rightExitExtent unscaled left-of-feet extent (right gutter)
+     */
+    public static int oppositeHorizontalGutterX(int startX, int screenCenterX,
+            int screenLeft, int screenRight, int leftExitExtent, int rightExitExtent,
+            float scale) {
+        boolean startedLeft = startX < screenCenterX;
+        int extent = startedLeft ? rightExitExtent : leftExitExtent;
+        return horizontalGutterX(!startedLeft, screenLeft, screenRight, extent, scale);
     }
 }

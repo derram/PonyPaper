@@ -55,7 +55,7 @@ java -jar custom/build/libs/customponies.jar \
 
 ### Pony visual scale
 
-Optional pony-level `<scale>` is a linear draw multiplier relative to packed sheet pixels (`1` omitted). Range `0.25`–`2`. Runtime compose: `min(w,h)/200 × user Character size × scale`. Effects, drag lift, edge pads, and spawn gutters use that combined scale. The editor Size field and `-size 75` / `-size 75%` / `-size 0.75` write the same tag.
+Optional pony-level `<scale>` is a linear draw multiplier relative to packed sheet pixels (`1` omitted). Range `0.25`–`2`. Runtime compose: `min(w,h)/200 × user Character size × scale`. Effects, drag lift, edge pads, and spawn gutters use that combined scale. Horizontal leave/enter X clears the on-screen half of the cell (or the real feet-to-edge extent when `anchorx` is set), floored at `30×scale` and capped at 45% of screen width, so wide walk/fly sheets finish off-screen before despawn. The editor Size field and `-size 75` / `-size 75%` / `-size 0.75` write the same tag.
 
 ```xml
 <scale>0.75</scale>

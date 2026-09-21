@@ -292,7 +292,7 @@ tasks.register<JavaExec>("testEditorWindowFocus") {
 
 tasks.register<JavaExec>("testSpawnYBand") {
     group = "verification"
-    description = "Run feet-anchored spawn Y inset checks"
+    description = "Run spawn gutter / Y-band inset checks"
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass.set("uk.cpjsmith.ponypaper.custom.SpawnYBandTest")
 }
