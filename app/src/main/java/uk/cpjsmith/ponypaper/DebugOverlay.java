@@ -46,6 +46,8 @@ final class DebugOverlay {
         int preferredPonies;
         int effectivePonies;
         int livePonies;
+        int worldFlowCastSize;
+        int worldFlowMixSize;
         boolean preferredBg;
         boolean bgDisabled;
         boolean bgPresent;
@@ -274,8 +276,12 @@ final class DebugOverlay {
                 .append(" (").append(snap.schedulePeriodMs).append("ms)")
                 .append("  ponies ").append(snap.preferredPonies)
                 .append("→").append(snap.effectivePonies)
-                .append(" live=").append(snap.livePonies)
-                .append("  bg ").append(snap.preferredBg ? "on" : "off")
+                .append(" live=").append(snap.livePonies);
+        if (snap.worldFlowMixSize > 0) {
+            lineBuf.append("  cast ").append(snap.worldFlowCastSize)
+                    .append('/').append(snap.worldFlowMixSize);
+        }
+        lineBuf.append("  bg ").append(snap.preferredBg ? "on" : "off")
                 .append("→");
         if (snap.bgDisabled) {
             lineBuf.append("off");

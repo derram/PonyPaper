@@ -59,6 +59,8 @@ public class Ponies implements Pony.EffectHost {
     /** Already-built ponies still in {@link #inactiveKeys}. */
     private final HashMap<String, Pony> inactiveReady = new HashMap<String, Pony>();
     private boolean worldFlow;
+    /** World Flow unique-key window; null for Wander / Tableau. */
+    private WorldFlowCast worldFlowCast;
     private float sizeFactor = 1f;
     private Pony[] activePonies;
     /**
@@ -191,13 +193,19 @@ public class Ponies implements Pony.EffectHost {
         waifuKey = rawWaifu != null ? rawWaifu : "";
         tableauJsonToLive = null;
         tableauPrefs = null;
-        inactiveKeys.setAll(AllPonies.enabledHerdKeys(context, prefs));
         sizeFactor = PonySize.factor(prefs);
+
+        random = new Random();
+        ArrayList<String> mix = AllPonies.enabledHerdKeys(context, prefs);
+        if (worldFlow) {
+            worldFlowCast = WorldFlowCast.open(mix, waifuKey, random);
+            inactiveKeys.setAll(worldFlowCast.castKeys());
+        } else {
+            inactiveKeys.setAll(mix);
+        }
 
         if (desiredCount < 0) desiredCount = 0;
         int want = Math.min(inactiveKeys.size(), desiredCount);
-
-        random = new Random();
         ArrayList<Pony> spawned = new ArrayList<Pony>(want);
         while (spawned.size() < want && !inactiveKeys.isEmpty()) {
             Pony next = takeFromInactiveOrNull();
@@ -334,6 +342,16 @@ public class Ponies implements Pony.EffectHost {
         return activeCount;
     }
 
+    /** World Flow window size, or 0 when this herd has no cast. */
+    int worldFlowCastSize() {
+        return worldFlowCast != null ? worldFlowCast.size() : 0;
+    }
+
+    /** Enabled mix size captured at World Flow cast open, or 0. */
+    int worldFlowMixSize() {
+        return worldFlowCast != null ? worldFlowCast.mixSize() : 0;
+    }
+
     /**
      * Applies a character-size multiplier to every loaded pony (active and
      * waiting). Takes effect on the next draw without resetting positions.
@@ -454,6 +472,9 @@ public class Ponies implements Pony.EffectHost {
      */
     boolean update(Rect clip, long deltaMs) {
         clipBounds.set(clip);
+        if (worldFlowCast != null) {
+            worldFlowCast.advance(deltaMs);
+        }
         for (int i = 0; i < activePonies.length; i++) {
             activePonies[i].doUpdate(clipBounds, deltaMs);
             if (activePonies[i].goneOffScreen()) {
@@ -480,6 +501,7 @@ public class Ponies implements Pony.EffectHost {
         }
         updateEffects(deltaMs);
         updateReplacementPrefetch();
+        maybeDripWorldFlowCast();
         Arrays.sort(activePonies, compareY);
         return captureVisualDirty();
     }
@@ -1022,10 +1044,34 @@ public class Ponies implements Pony.EffectHost {
             return;
         }
         String key = pony.getPrefKey();
+        if (worldFlowCast != null) {
+            worldFlowCast.noteOnScreen(key);
+        }
         inactiveKeys.add(key);
         if (key.length() > 0) {
             inactiveReady.put(key, pony);
         }
+    }
+
+    /**
+     * World Flow: admit one reservoir key into the inactive pool when the
+     * drip interval elapses. Skipped during herd drain.
+     */
+    private void maybeDripWorldFlowCast() {
+        if (worldFlowCast == null || draining) {
+            return;
+        }
+        WorldFlowCast.Drip drip = worldFlowCast.tryDrip(inactiveKeys,
+                prefetchedKeys(), waifuKey, random);
+        if (drip == null) {
+            return;
+        }
+        inactiveKeys.removeKey(drip.evicted);
+        Pony dropped = inactiveReady.remove(drip.evicted);
+        if (dropped != null) {
+            dropped.unloadActions();
+        }
+        inactiveKeys.add(drip.admitted);
     }
 
     /**

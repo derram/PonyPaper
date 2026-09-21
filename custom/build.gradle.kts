@@ -40,6 +40,7 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/WaitExpiry.java",
                 "uk/cpjsmith/ponypaper/SceneExit.java",
                 "uk/cpjsmith/ponypaper/WorldFlow.java",
+                "uk/cpjsmith/ponypaper/WorldFlowCast.java",
                 "uk/cpjsmith/ponypaper/SpawnYBand.java",
                 "uk/cpjsmith/ponypaper/UnpinnedLru.java",
                 "uk/cpjsmith/ponypaper/InactivePick.java",
@@ -191,6 +192,13 @@ tasks.register<JavaExec>("testWorldFlow") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.WorldFlowTest")
 }
 
+tasks.register<JavaExec>("testWorldFlowCast") {
+    group = "verification"
+    description = "Run World Flow unique-key cast sampling and drip-rotate checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.WorldFlowCastTest")
+}
+
 tasks.register<JavaExec>("testUnpinnedLru") {
     group = "verification"
     description = "Run unpinned sprite LRU byte-budget checks"
@@ -305,6 +313,7 @@ tasks.named("check") {
     dependsOn("testEffectPlacement")
     dependsOn("testWanderTarget")
     dependsOn("testWorldFlow")
+    dependsOn("testWorldFlowCast")
     dependsOn("testSpawnYBand")
     dependsOn("testUnpinnedLru")
     dependsOn("testDefinitionCache")

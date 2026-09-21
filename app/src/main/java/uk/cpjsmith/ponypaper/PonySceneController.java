@@ -3214,6 +3214,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         if (snap.preferredPonies < 1) snap.preferredPonies = DEFAULT_NUM_PONIES;
         snap.effectivePonies = getEffectivePonyCount(prefs);
         snap.livePonies = ponies != null ? ponies.getActiveCount() : 0;
+        snap.worldFlowCastSize = ponies != null ? ponies.worldFlowCastSize() : 0;
+        snap.worldFlowMixSize = ponies != null ? ponies.worldFlowMixSize() : 0;
         snap.preferredBg = preferredBackgroundEnabled(prefs);
         snap.bgDisabled = shouldDisableBackgroundImage(prefs);
         snap.bgPresent = background != null && !background.isRecycled();

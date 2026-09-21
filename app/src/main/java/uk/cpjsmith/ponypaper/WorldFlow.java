@@ -18,6 +18,11 @@ package uk.cpjsmith.ponypaper;
  * <p>Sprite pin matches this bag: World Flow load decodes those movers and
  * any effects they trigger. Stand/sit/drag and other catalog sheets wait
  * until a later action change (same idea as Tableau's wait-bag preload).
+ *
+ * <p>Live replacements use a {@link WorldFlowCast} of at most
+ * {@link WorldFlowCast#MAX_KEYS} unique mix keys (drip-rotated from the
+ * remaining roster) so the unpinned sprite LRU can stay hot. Wander and
+ * Tableau still use the full enabled mix.
  */
 public final class WorldFlow {
 
