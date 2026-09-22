@@ -105,13 +105,17 @@ public class Settings extends AppCompatActivity
     };
 
     /**
-     * Mix apply notifies once per changed checkbox. Rebuild waifu/summaries
-     * once on the next looper pass so a Previous-herd hop does not stall the
-     * dream (this listener stays registered while Settings is paused).
+     * Mix apply notifies once per changed checkbox. Rebind checkbox widgets
+     * and rebuild waifu/summaries once on the next looper pass so a
+     * Previous-herd hop does not stall the dream (this listener stays
+     * registered while Settings is paused). Back-stack screens are not the
+     * active fragment here; their onResume refresh rebinds them on return.
      */
     private final Runnable herdUiRefreshRunnable = new Runnable() {
         @Override
         public void run() {
+            syncCheckboxWidgets(builtInPonyCategories());
+            syncCheckboxWidgets(customPonyCategories());
             refreshHerdScreenSummaries();
             refreshWaifuList(CustomStorage.listCustomXml(Settings.this));
             refreshEnableAllToggles();
@@ -640,6 +644,7 @@ public class Settings extends AppCompatActivity
     }
 
     void refreshBuiltInPoniesScreen() {
+        syncCheckboxWidgets(builtInPonyCategories());
         refreshEnableAllToggles();
     }
 
@@ -2152,24 +2157,11 @@ public class Settings extends AppCompatActivity
         waifu.setEntries(entryArr);
         waifu.setEntryValues(valueArr);
 
-        // Keep summary correct when the stored value is still valid.
-        String current = waifu.getValue();
-        if (current == null) current = "";
-        boolean known = false;
-        for (int i = 0; i < valueArr.length; i++) {
-            if (current.equals(valueArr[i].toString())) {
-                known = true;
-                break;
-            }
-        }
-        if (!known) {
-            PonyMixes.beginProgrammaticHerdChange();
-            try {
-                waifu.setValue("");
-            } finally {
-                PonyMixes.endProgrammaticHerdChange();
-            }
-        }
+        // ListPreference keeps the selection from screen creation, and
+        // setEntries does not rebind it. getValue() can still be the pre-mix
+        // key, so rebind from the stored favorite and clear only when that
+        // stored key is no longer in the list.
+        refreshWaifuValue();
     }
     
     private void selectBackground() {
@@ -2304,6 +2296,7 @@ public class Settings extends AppCompatActivity
         ensureCustomPrefDefaults(files);
         pruneCustomCheckboxes(files);
         ensureCustomCheckboxes(files);
+        syncCheckboxWidgets(customPonyCategories());
         refreshWaifuList(files);
         refreshEnableAllToggles();
         refreshHerdScreenSummaries();
