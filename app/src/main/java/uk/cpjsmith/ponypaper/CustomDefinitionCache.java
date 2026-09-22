@@ -12,13 +12,21 @@ import org.w3c.dom.Document;
  * unchanged file. Key is absolute path plus {@code lastModified} and
  * {@code length}; a swap that changes either misses and re-reads.
  *
+ * <p>After a successful parse, {@link CustomSheetStore} unpacks sheet PNGs
+ * beside the XML and drops the Base64 strings on the cached definition. A
+ * failed unpack leaves those strings in place so wallpaper {@code load()}
+ * can still decode from memory. One attempt per stamp.
+ *
  * <p>{@link Pony} graphs are not cached — only the immutable-enough definition
- * after {@link PonyDefinition#validate()}.
+ * after {@link PonyDefinition#validate()}. The editor parses its own copy and
+ * does not use this cache, so authoring maps there stay intact.
  */
 public final class CustomDefinitionCache {
 
     private static final Object LOCK = new Object();
     private static final HashMap<String, Entry> BY_PATH = new HashMap<String, Entry>();
+    /** Per-path gate so a drip warm and a frame-thread create share one unpack. */
+    private static final HashMap<String, Object> PREPARE_LOCKS = new HashMap<String, Object>();
 
     private static final class Entry {
         final long lastModified;
@@ -46,26 +54,42 @@ public final class CustomDefinitionCache {
         String path = file.getAbsolutePath();
         long mtime = file.lastModified();
         long length = file.length();
-        synchronized (LOCK) {
-            Entry hit = BY_PATH.get(path);
-            if (hit != null && hit.lastModified == mtime && hit.length == length) {
-                return hit.definition;
-            }
-        }
-
-        DocumentBuilder docBuilder = SecureXml.newDocumentBuilder();
-        Document document = docBuilder.parse(file);
-        PonyDefinition definition = new PonyDefinition(document);
-        definition.validate();
-
-        long mtimeAfter = file.lastModified();
-        long lengthAfter = file.length();
-        if (mtimeAfter == mtime && lengthAfter == length) {
+        Object gate = prepareLock(path);
+        synchronized (gate) {
             synchronized (LOCK) {
-                BY_PATH.put(path, new Entry(mtime, length, definition));
+                Entry hit = BY_PATH.get(path);
+                if (hit != null && hit.lastModified == mtime && hit.length == length) {
+                    return hit.definition;
+                }
             }
+
+            DocumentBuilder docBuilder = SecureXml.newDocumentBuilder();
+            Document document = docBuilder.parse(file);
+            PonyDefinition definition = new PonyDefinition(document);
+            definition.validate();
+            // One shot per stamp. Disk failure keeps Base64 for the byte path.
+            CustomSheetStore.prepare(file, definition);
+
+            long mtimeAfter = file.lastModified();
+            long lengthAfter = file.length();
+            if (mtimeAfter == mtime && lengthAfter == length) {
+                synchronized (LOCK) {
+                    BY_PATH.put(path, new Entry(mtime, length, definition));
+                }
+            }
+            return definition;
         }
-        return definition;
+    }
+
+    private static Object prepareLock(String path) {
+        synchronized (LOCK) {
+            Object gate = PREPARE_LOCKS.get(path);
+            if (gate == null) {
+                gate = new Object();
+                PREPARE_LOCKS.put(path, gate);
+            }
+            return gate;
+        }
     }
 
     /**
@@ -76,8 +100,13 @@ public final class CustomDefinitionCache {
         if (file == null) {
             return;
         }
-        synchronized (LOCK) {
-            BY_PATH.remove(file.getAbsolutePath());
+        String path = file.getAbsolutePath();
+        Object gate = prepareLock(path);
+        synchronized (gate) {
+            synchronized (LOCK) {
+                BY_PATH.remove(path);
+            }
+            CustomSheetStore.deleteFor(file);
         }
     }
 
@@ -86,6 +115,15 @@ public final class CustomDefinitionCache {
      * custom XML directory so deleted names cannot accumulate.
      */
     public static void retainOnly(File[] files) {
+        retainOnly(null, files);
+    }
+
+    /**
+     * Drop cached definitions whose path is not in {@code files}, and delete
+     * unpacked sheet directories under {@code libraryDir} that no longer have
+     * an XML. {@code libraryDir} may be null when only the memory map matters.
+     */
+    public static void retainOnly(File libraryDir, File[] files) {
         HashSet<String> keep = new HashSet<String>();
         if (files != null) {
             for (int i = 0; i < files.length; i++) {
@@ -97,6 +135,7 @@ public final class CustomDefinitionCache {
         synchronized (LOCK) {
             BY_PATH.keySet().retainAll(keep);
         }
+        CustomSheetStore.deleteUnlisted(libraryDir, files);
     }
 
     /** Drop every entry. Tests only. */

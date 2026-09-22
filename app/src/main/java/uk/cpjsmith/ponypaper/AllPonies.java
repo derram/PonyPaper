@@ -323,7 +323,7 @@ public class AllPonies {
             }
         }
         File[] files = CustomStorage.listCustomXml(context);
-        CustomDefinitionCache.retainOnly(files);
+        CustomDefinitionCache.retainOnly(CustomStorage.localDir(context), files);
         for (int i = 0; i < files.length; i++) {
             String prefKey = PonyMixes.CUSTOM_PREFIX + files[i].getName();
             if (prefs.getBoolean(prefKey, true)) {
@@ -1104,6 +1104,36 @@ public class AllPonies {
         return Float.toString(speed);
     }
     
+    /**
+     * Parse and unpack one custom so a later {@link #createPony} hits the
+     * definition cache. Built-ins and missing files are ignored.
+     */
+    static void warmCustom(Context context, String ponyKey) {
+        if (context == null || ponyKey == null
+                || !ponyKey.startsWith(PonyMixes.CUSTOM_PREFIX)) {
+            return;
+        }
+        String fileName = ponyKey.substring(PonyMixes.CUSTOM_PREFIX.length());
+        if (fileName.length() == 0 || fileName.indexOf('/') >= 0
+                || fileName.indexOf('\\') >= 0) {
+            return;
+        }
+        File dir = CustomStorage.localDir(context);
+        if (dir == null) {
+            return;
+        }
+        File file = new File(dir, fileName);
+        if (!file.isFile()) {
+            CustomDefinitionCache.invalidate(file);
+            return;
+        }
+        try {
+            CustomDefinitionCache.get(file);
+        } catch (Exception e) {
+            android.util.Log.w("PonyPaper", "Custom sheet cache skipped: " + fileName);
+        }
+    }
+
     /**
      * Checkbox-free custom load for {@link #createPony}. Missing or invalid
      * files return null (slot drop) after logging.

@@ -68,6 +68,22 @@ public class SpriteSheet {
         this.frameTimes = frameTimes;
         setInternals();
     }
+
+    /**
+     * Constructs a sheet from an unpacked image file. Used for custom ponies
+     * whose PNGs live in the on-disk sheet cache.
+     *
+     * @param imageFile  PNG (or other BitmapFactory format) on disk
+     * @param frameTimes frame durations; length is the frame count
+     */
+    public SpriteSheet(java.io.File imageFile, int[] frameTimes) {
+        if (imageFile == null) {
+            throw new IllegalArgumentException("imageFile");
+        }
+        this.bitmap = BitmapFactory.decodeFile(imageFile.getAbsolutePath(), decodeOptions());
+        this.frameTimes = frameTimes;
+        setInternals();
+    }
     
     /**
      * Return the boundary of the region of the complete image that should be

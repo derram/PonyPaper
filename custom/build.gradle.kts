@@ -53,6 +53,7 @@ sourceSets {
                 "uk/cpjsmith/ponypaper/BackgroundPixelation.java",
                 "uk/cpjsmith/ponypaper/DragExit.java",
                 "uk/cpjsmith/ponypaper/CustomDefinitionCache.java",
+                "uk/cpjsmith/ponypaper/CustomSheetStore.java",
                 "uk/cpjsmith/ponypaper/SecureXml.java",
             )
         }
@@ -213,6 +214,13 @@ tasks.register<JavaExec>("testDefinitionCache") {
     mainClass.set("uk.cpjsmith.ponypaper.custom.CustomDefinitionCacheTest")
 }
 
+tasks.register<JavaExec>("testSheetStore") {
+    group = "verification"
+    description = "Run unpacked custom sheet cache checks"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("uk.cpjsmith.ponypaper.custom.CustomSheetStoreTest")
+}
+
 tasks.register<JavaExec>("testInactivePick") {
     group = "verification"
     description = "Run inactive-pool prefetch pick checks"
@@ -317,6 +325,7 @@ tasks.named("check") {
     dependsOn("testSpawnYBand")
     dependsOn("testUnpinnedLru")
     dependsOn("testDefinitionCache")
+    dependsOn("testSheetStore")
     dependsOn("testInactivePick")
     dependsOn("testInactiveRoster")
     dependsOn("testHerdDrain")

@@ -112,15 +112,26 @@ public class PonyDefinition {
 
     /**
      * Wallpaper-only: drop Base64 image strings after PNG bytes live on
-     * {@code runtimeImage*}. No-op when those bytes are missing so the editor
-     * authoring maps are never wiped. Timings stay (they are small).
+     * {@code runtimeImage*} or unpacked files live on {@code runtimeFile*}.
+     * No-op when both are missing so the editor authoring maps are never
+     * wiped. Timings stay (they are small).
      */
     public static void discardEncodedImagesIfRuntimeReady(Map<String, String> images,
             byte[] runtimeLeft, byte[] runtimeRight) {
+        discardEncodedImagesIfRuntimeReady(images, runtimeLeft, runtimeRight, null, null);
+    }
+
+    /**
+     * @param pathLeft absolute PNG path, or null when that side is bytes-only
+     * @param pathRight absolute PNG path, or null when that side is bytes-only
+     */
+    public static void discardEncodedImagesIfRuntimeReady(Map<String, String> images,
+            byte[] runtimeLeft, byte[] runtimeRight, String pathLeft, String pathRight) {
         if (images == null) {
             return;
         }
-        if (runtimeLeft == null && runtimeRight == null) {
+        if (runtimeLeft == null && runtimeRight == null
+                && pathLeft == null && pathRight == null) {
             return;
         }
         images.put("left", "");
@@ -641,16 +652,23 @@ public class PonyDefinition {
         public final Map<String, String> images = new HashMap<String, String>();
         public final Map<String, String> timings = new HashMap<String, String>();
         /**
-         * Decoded PNG bytes filled on first wallpaper {@code load()}. Shared
-         * across {@link Pony} instances via {@link CustomDefinitionCache}.
+         * Decoded PNG bytes filled when the file cache could not be written.
+         * Shared across {@link Pony} instances via {@link CustomDefinitionCache}.
+         * Null once {@link #runtimeFileLeft} is installed.
          */
         public byte[] runtimeImageLeft;
         public byte[] runtimeImageRight;
+        /**
+         * Absolute paths of unpacked PNGs. Wallpaper pins these and does not
+         * keep {@link #runtimeImageLeft}.
+         */
+        public String runtimeFileLeft;
+        public String runtimeFileRight;
         public int[] runtimeTimesLeft;
         public int[] runtimeTimesRight;
         /**
          * SpriteCache keys filled on first wallpaper {@code load()} so later
-         * {@link Pony} graphs skip SHA-256 of the PNG bytes.
+         * {@link Pony} graphs skip hashing the sheet.
          */
         public String runtimeKeyLeft;
         public String runtimeKeyRight;
@@ -726,7 +744,8 @@ public class PonyDefinition {
 
         /**
          * Install decoded PNG bytes and drop the Base64 maps. Wallpaper
-         * {@code load()} only; the editor must keep {@link #images} for save.
+         * fallback when the file cache cannot be written. The editor must
+         * keep {@link #images} for save.
          */
         public void installRuntimeImages(byte[] left, int[] leftTimes,
                 byte[] right, int[] rightTimes) {
@@ -734,12 +753,39 @@ public class PonyDefinition {
             runtimeTimesLeft = leftTimes;
             runtimeImageRight = right;
             runtimeTimesRight = rightTimes;
+            runtimeFileLeft = null;
+            runtimeFileRight = null;
+            runtimeKeyLeft = null;
+            runtimeKeyRight = null;
             discardEncodedImages();
         }
 
-        /** Drop Base64 strings when {@link #runtimeImageLeft}/{@code Right} exist. */
+        /**
+         * Point both facings at unpacked PNGs and drop Base64 and byte copies.
+         * Wallpaper cache install only; the editor must keep {@link #images}.
+         */
+        public void installRuntimeFiles(String leftPath, int[] leftTimes,
+                String rightPath, int[] rightTimes) {
+            if (leftPath == null || rightPath == null
+                    || leftTimes == null || rightTimes == null
+                    || leftTimes.length == 0 || rightTimes.length == 0) {
+                throw new IllegalArgumentException("runtime files");
+            }
+            runtimeFileLeft = leftPath;
+            runtimeFileRight = rightPath;
+            runtimeTimesLeft = leftTimes;
+            runtimeTimesRight = rightTimes;
+            runtimeImageLeft = null;
+            runtimeImageRight = null;
+            runtimeKeyLeft = null;
+            runtimeKeyRight = null;
+            discardEncodedImages();
+        }
+
+        /** Drop Base64 strings when runtime bytes or unpacked files exist. */
         public void discardEncodedImages() {
-            discardEncodedImagesIfRuntimeReady(images, runtimeImageLeft, runtimeImageRight);
+            discardEncodedImagesIfRuntimeReady(images, runtimeImageLeft, runtimeImageRight,
+                    runtimeFileLeft, runtimeFileRight);
         }
         
         public Action(Element element) throws InvalidPonyException {
@@ -1114,11 +1160,14 @@ public class PonyDefinition {
         public final Map<String, String> images = new HashMap<String, String>();
         public final Map<String, String> timings = new HashMap<String, String>();
         /**
-         * Decoded PNG bytes filled on first wallpaper {@code load()}. Shared
-         * across {@link Pony} instances via {@link CustomDefinitionCache}.
+         * Decoded PNG bytes filled when the file cache could not be written.
+         * Null once {@link #runtimeFileLeft} is installed.
          */
         public byte[] runtimeImageLeft;
         public byte[] runtimeImageRight;
+        /** Absolute paths of unpacked effect PNGs. */
+        public String runtimeFileLeft;
+        public String runtimeFileRight;
         public int[] runtimeTimesLeft;
         public int[] runtimeTimesRight;
         /** SpriteCache keys filled on first wallpaper {@code load()}. */
@@ -1146,7 +1195,8 @@ public class PonyDefinition {
 
         /**
          * Install decoded PNG bytes and drop the Base64 maps. Wallpaper
-         * {@code load()} only; the editor must keep {@link #images} for save.
+         * fallback when the file cache cannot be written. The editor must
+         * keep {@link #images} for save.
          */
         public void installRuntimeImages(byte[] left, int[] leftTimes,
                 byte[] right, int[] rightTimes) {
@@ -1154,12 +1204,39 @@ public class PonyDefinition {
             runtimeTimesLeft = leftTimes;
             runtimeImageRight = right;
             runtimeTimesRight = rightTimes;
+            runtimeFileLeft = null;
+            runtimeFileRight = null;
+            runtimeKeyLeft = null;
+            runtimeKeyRight = null;
             discardEncodedImages();
         }
 
-        /** Drop Base64 strings when {@link #runtimeImageLeft}/{@code Right} exist. */
+        /**
+         * Point both facings at unpacked PNGs and drop Base64 and byte copies.
+         * Wallpaper cache install only; the editor must keep {@link #images}.
+         */
+        public void installRuntimeFiles(String leftPath, int[] leftTimes,
+                String rightPath, int[] rightTimes) {
+            if (leftPath == null || rightPath == null
+                    || leftTimes == null || rightTimes == null
+                    || leftTimes.length == 0 || rightTimes.length == 0) {
+                throw new IllegalArgumentException("runtime files");
+            }
+            runtimeFileLeft = leftPath;
+            runtimeFileRight = rightPath;
+            runtimeTimesLeft = leftTimes;
+            runtimeTimesRight = rightTimes;
+            runtimeImageLeft = null;
+            runtimeImageRight = null;
+            runtimeKeyLeft = null;
+            runtimeKeyRight = null;
+            discardEncodedImages();
+        }
+
+        /** Drop Base64 strings when runtime bytes or unpacked files exist. */
         public void discardEncodedImages() {
-            discardEncodedImagesIfRuntimeReady(images, runtimeImageLeft, runtimeImageRight);
+            discardEncodedImagesIfRuntimeReady(images, runtimeImageLeft, runtimeImageRight,
+                    runtimeFileLeft, runtimeFileRight);
         }
 
         public Effect(Element element) throws InvalidPonyException {

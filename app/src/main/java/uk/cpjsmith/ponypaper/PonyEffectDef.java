@@ -46,14 +46,7 @@ final class PonyEffectDef {
     private final int centeringRight;
 
     private final PonyDefinition.Effect definition;
-    private byte[] leftBytes;
-    private int[] leftTimes;
-    private byte[] rightBytes;
-    private int[] rightTimes;
-    private SpriteCache.SheetFactory leftFactory;
-    private SpriteCache.SheetFactory rightFactory;
-    private String leftKey;
-    private String rightKey;
+    private final CustomSheetBinding binding = new CustomSheetBinding();
 
     private SpriteSheet[] sprites;
     private SpriteCache.Pin leftPin;
@@ -79,10 +72,18 @@ final class PonyEffectDef {
     }
 
     private void ensurePrepared() {
-        if (leftBytes != null) {
+        if (binding.isPrepared()) {
             return;
         }
         synchronized (definition) {
+            if (binding.isPrepared()) {
+                return;
+            }
+            if (definition.runtimeFileLeft != null) {
+                binding.bindFiles(definition.runtimeFileLeft, definition.runtimeFileRight,
+                        definition.runtimeTimesLeft, definition.runtimeTimesRight);
+                return;
+            }
             if (definition.runtimeImageLeft == null) {
                 String leftB64 = definition.images.get("left");
                 String rightB64 = definition.images.get("right");
@@ -101,16 +102,8 @@ final class PonyEffectDef {
                     definition.installRuntimeImages(left, leftT, right, rightT);
                 }
             }
-        }
-        leftBytes = definition.runtimeImageLeft;
-        leftTimes = definition.runtimeTimesLeft;
-        rightBytes = definition.runtimeImageRight;
-        rightTimes = definition.runtimeTimesRight;
-        leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
-        if (leftBytes == rightBytes && leftTimes == rightTimes) {
-            rightFactory = leftFactory;
-        } else {
-            rightFactory = SpriteCache.bytesFactory(rightBytes, rightTimes);
+            binding.bindBytes(definition.runtimeImageLeft, definition.runtimeImageRight,
+                    definition.runtimeTimesLeft, definition.runtimeTimesRight);
         }
     }
 
@@ -137,32 +130,35 @@ final class PonyEffectDef {
             }
             ensurePrepared();
             synchronized (definition) {
-                if (leftKey == null) {
-                    if (definition.runtimeKeyLeft != null) {
-                        leftKey = definition.runtimeKeyLeft;
-                    } else {
-                        leftKey = SpriteCache.bytesKey(leftBytes, leftTimes);
-                        definition.runtimeKeyLeft = leftKey;
-                    }
-                }
-                if (rightKey == null) {
-                    if (definition.runtimeKeyRight != null) {
-                        rightKey = definition.runtimeKeyRight;
-                    } else if (rightBytes == leftBytes && rightTimes == leftTimes) {
-                        rightKey = leftKey;
-                        definition.runtimeKeyRight = rightKey;
-                    } else {
-                        rightKey = SpriteCache.bytesKey(rightBytes, rightTimes);
-                        definition.runtimeKeyRight = rightKey;
-                    }
-                }
+                final String storedLeft = definition.runtimeKeyLeft;
+                final String storedRight = definition.runtimeKeyRight;
+                binding.ensureKeys(
+                        definition.runtimeFileLeft, definition.runtimeFileRight,
+                        definition.runtimeImageLeft, definition.runtimeImageRight,
+                        definition.runtimeTimesLeft, definition.runtimeTimesRight,
+                        storedLeft, storedRight,
+                        new CustomSheetBinding.KeySink() {
+                            @Override
+                            public void storeLeft(String key) {
+                                if (definition.runtimeKeyLeft == null) {
+                                    definition.runtimeKeyLeft = key;
+                                }
+                            }
+
+                            @Override
+                            public void storeRight(String key) {
+                                if (definition.runtimeKeyRight == null) {
+                                    definition.runtimeKeyRight = key;
+                                }
+                            }
+                        });
             }
-            leftPin = SpriteCache.pin(leftKey, leftFactory);
-            if (leftKey.equals(rightKey)) {
+            leftPin = SpriteCache.pin(binding.leftKey, binding.leftFactory);
+            if (binding.leftKey.equals(binding.rightKey)) {
                 rightPin = leftPin;
             } else {
                 try {
-                    rightPin = SpriteCache.pin(rightKey, rightFactory);
+                    rightPin = SpriteCache.pin(binding.rightKey, binding.rightFactory);
                 } catch (RuntimeException e) {
                     leftPin.unpin();
                     leftPin = null;

@@ -198,6 +198,55 @@ final class SpriteCache {
         };
     }
 
+    /**
+     * Cache key for an unpacked PNG. Identity is the file stamp plus frame
+     * times, so an editor save (new mtime or length) misses without hashing
+     * the pixels.
+     */
+    static String fileKey(java.io.File imageFile, int[] frameTimes) {
+        if (imageFile == null) {
+            throw new IllegalArgumentException("imageFile");
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("f:");
+        sb.append(imageFile.getAbsolutePath());
+        sb.append(':');
+        sb.append(imageFile.lastModified());
+        sb.append(':');
+        sb.append(imageFile.length());
+        sb.append(':');
+        appendTimes(sb, frameTimes);
+        return sb.toString();
+    }
+
+    /**
+     * Factory that captures a PNG path and frame times, not the decoded bytes,
+     * so an LRU entry does not pin the compressed image in the Java heap.
+     */
+    static SheetFactory fileFactory(final java.io.File imageFile, final int[] frameTimes) {
+        if (imageFile == null) {
+            throw new IllegalArgumentException("imageFile");
+        }
+        return new SheetFactory() {
+            @Override
+            public SpriteSheet create() {
+                return new SpriteSheet(imageFile, frameTimes);
+            }
+        };
+    }
+
+    private static void appendTimes(StringBuilder sb, int[] frameTimes) {
+        if (frameTimes == null) {
+            return;
+        }
+        for (int i = 0; i < frameTimes.length; i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(frameTimes[i]);
+        }
+    }
+
     static Pin pinBytes(byte[] bitmapData, int[] frameTimes) {
         return pin(bytesKey(bitmapData, frameTimes), bytesFactory(bitmapData, frameTimes));
     }

@@ -364,46 +364,41 @@ public class PonyAction {
     }
 
     /**
-     * Decoded custom sheets plus a {@link SpriteCache} factory that captures
-     * only those arrays (so an LRU entry does not pin this action). Base64
-     * decode is deferred to first {@link #load()} so unused mix members and
-     * Tableau wait-bag-only pins do not decode the catalog; the encoded strings
-     * are then dropped from the cached definition. Keys are filled on that
-     * same first load so unused sheets are not SHA-256'd.
+     * Decoded custom sheets plus a {@link SpriteCache} factory. Unpacked PNGs
+     * are pinned by path. When the file cache is missing, Base64 decode is
+     * deferred to first {@link #load()} and the encoded strings are then
+     * dropped. Keys are filled on that same first load.
      */
     private static final class CustomSheets {
         final PonyDefinition.Action definition;
-        byte[] leftBytes;
-        byte[] rightBytes;
-        int[] leftTimes;
-        int[] rightTimes;
-        SpriteCache.SheetFactory leftFactory;
-        SpriteCache.SheetFactory rightFactory;
-        String leftKey;
-        String rightKey;
+        final CustomSheetBinding binding = new CustomSheetBinding();
 
         CustomSheets(PonyDefinition.Action definition) {
             this.definition = definition;
         }
 
         boolean sharesFacingImages() {
-            if (definition.runtimeImageLeft != null) {
-                return definition.runtimeImageLeft == definition.runtimeImageRight
-                        && definition.runtimeTimesLeft == definition.runtimeTimesRight;
-            }
-            String leftB64 = definition.images.get("left");
-            String rightB64 = definition.images.get("right");
-            String leftTimingText = definition.timings.get("left");
-            String rightTimingText = definition.timings.get("right");
-            return leftB64 != null && leftB64.equals(rightB64)
-                    && leftTimingText != null && leftTimingText.equals(rightTimingText);
+            return binding.sharesFacing(
+                    definition.runtimeFileLeft, definition.runtimeFileRight,
+                    definition.runtimeTimesLeft, definition.runtimeTimesRight,
+                    definition.runtimeImageLeft, definition.runtimeImageRight,
+                    definition.images.get("left"), definition.images.get("right"),
+                    definition.timings.get("left"), definition.timings.get("right"));
         }
 
         void ensurePrepared() {
-            if (leftBytes != null) {
+            if (binding.isPrepared()) {
                 return;
             }
             synchronized (definition) {
+                if (binding.isPrepared()) {
+                    return;
+                }
+                if (definition.runtimeFileLeft != null) {
+                    binding.bindFiles(definition.runtimeFileLeft, definition.runtimeFileRight,
+                            definition.runtimeTimesLeft, definition.runtimeTimesRight);
+                    return;
+                }
                 if (definition.runtimeImageLeft == null) {
                     String leftB64 = definition.images.get("left");
                     String rightB64 = definition.images.get("right");
@@ -422,41 +417,36 @@ public class PonyAction {
                         definition.installRuntimeImages(left, leftT, right, rightT);
                     }
                 }
-            }
-            leftBytes = definition.runtimeImageLeft;
-            leftTimes = definition.runtimeTimesLeft;
-            rightBytes = definition.runtimeImageRight;
-            rightTimes = definition.runtimeTimesRight;
-            leftFactory = SpriteCache.bytesFactory(leftBytes, leftTimes);
-            if (leftBytes == rightBytes && leftTimes == rightTimes) {
-                rightFactory = leftFactory;
-            } else {
-                rightFactory = SpriteCache.bytesFactory(rightBytes, rightTimes);
+                binding.bindBytes(definition.runtimeImageLeft, definition.runtimeImageRight,
+                        definition.runtimeTimesLeft, definition.runtimeTimesRight);
             }
         }
 
         void ensureKeys() {
             ensurePrepared();
             synchronized (definition) {
-                if (leftKey == null) {
-                    if (definition.runtimeKeyLeft != null) {
-                        leftKey = definition.runtimeKeyLeft;
-                    } else {
-                        leftKey = SpriteCache.bytesKey(leftBytes, leftTimes);
-                        definition.runtimeKeyLeft = leftKey;
-                    }
-                }
-                if (rightKey == null) {
-                    if (definition.runtimeKeyRight != null) {
-                        rightKey = definition.runtimeKeyRight;
-                    } else if (rightBytes == leftBytes && rightTimes == leftTimes) {
-                        rightKey = leftKey;
-                        definition.runtimeKeyRight = rightKey;
-                    } else {
-                        rightKey = SpriteCache.bytesKey(rightBytes, rightTimes);
-                        definition.runtimeKeyRight = rightKey;
-                    }
-                }
+                final String storedLeft = definition.runtimeKeyLeft;
+                final String storedRight = definition.runtimeKeyRight;
+                binding.ensureKeys(
+                        definition.runtimeFileLeft, definition.runtimeFileRight,
+                        definition.runtimeImageLeft, definition.runtimeImageRight,
+                        definition.runtimeTimesLeft, definition.runtimeTimesRight,
+                        storedLeft, storedRight,
+                        new CustomSheetBinding.KeySink() {
+                            @Override
+                            public void storeLeft(String key) {
+                                if (definition.runtimeKeyLeft == null) {
+                                    definition.runtimeKeyLeft = key;
+                                }
+                            }
+
+                            @Override
+                            public void storeRight(String key) {
+                                if (definition.runtimeKeyRight == null) {
+                                    definition.runtimeKeyRight = key;
+                                }
+                            }
+                        });
             }
         }
     }
@@ -648,12 +638,12 @@ public class PonyAction {
                 }
             } else if (custom != null) {
                 custom.ensureKeys();
-                leftPin = SpriteCache.pin(custom.leftKey, custom.leftFactory);
-                if (custom.leftKey.equals(custom.rightKey)) {
+                leftPin = SpriteCache.pin(custom.binding.leftKey, custom.binding.leftFactory);
+                if (custom.binding.leftKey.equals(custom.binding.rightKey)) {
                     rightPin = leftPin;
                 } else {
                     try {
-                        rightPin = SpriteCache.pin(custom.rightKey, custom.rightFactory);
+                        rightPin = SpriteCache.pin(custom.binding.rightKey, custom.binding.rightFactory);
                     } catch (RuntimeException e) {
                         leftPin.unpin();
                         leftPin = null;

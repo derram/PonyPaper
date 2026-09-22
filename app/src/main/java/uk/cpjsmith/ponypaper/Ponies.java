@@ -200,6 +200,9 @@ public class Ponies implements Pony.EffectHost {
         if (worldFlow) {
             worldFlowCast = WorldFlowCast.open(mix, waifuKey, random);
             inactiveKeys.setAll(worldFlowCast.castKeys());
+            // Unpack the cast on this thread (herd build already runs on the
+            // decode executor) so the first pins use files, not PNG bytes.
+            warmWorldFlowCast();
         } else {
             inactiveKeys.setAll(mix);
         }
@@ -1094,6 +1097,25 @@ public class Ponies implements Pony.EffectHost {
             dropped.unloadActions();
         }
         inactiveKeys.add(drip.admitted);
+        final String admitted = drip.admitted;
+        final Context ctx = ponyContext;
+        SpriteCache.execute(new Runnable() {
+            @Override
+            public void run() {
+                AllPonies.warmCustom(ctx, admitted);
+            }
+        });
+    }
+
+    /** Unpack every custom currently in the World Flow cast. */
+    private void warmWorldFlowCast() {
+        if (worldFlowCast == null) {
+            return;
+        }
+        ArrayList<String> keys = worldFlowCast.castKeys();
+        for (int i = 0; i < keys.size(); i++) {
+            AllPonies.warmCustom(ponyContext, keys.get(i));
+        }
     }
 
     /**
