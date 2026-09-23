@@ -14,6 +14,7 @@ public final class BackgroundCrossfadeTest {
         int failures = 0;
         failures += run("incomingAlpha", BackgroundCrossfadeTest::testIncomingAlpha);
         failures += run("shouldFade", BackgroundCrossfadeTest::testShouldFade);
+        failures += run("shouldFadeReplacement", BackgroundCrossfadeTest::testShouldFadeReplacement);
         if (failures > 0) {
             System.err.println(failures + " background-crossfade check(s) failed.");
             System.exit(1);
@@ -75,6 +76,21 @@ public final class BackgroundCrossfadeTest {
         }
         if (BackgroundCrossfade.shouldFade(false, false)) {
             throw new AssertionError("both false");
+        }
+    }
+
+    private static void testShouldFadeReplacement() {
+        if (!BackgroundCrossfade.shouldFadeReplacement(true, true, false)) {
+            throw new AssertionError("wallpaper fallback into a new album image");
+        }
+        if (BackgroundCrossfade.shouldFadeReplacement(true, true, true)) {
+            throw new AssertionError("same image redecode");
+        }
+        if (BackgroundCrossfade.shouldFadeReplacement(false, true, false)) {
+            throw new AssertionError("nothing on screen");
+        }
+        if (BackgroundCrossfade.shouldFadeReplacement(true, false, false)) {
+            throw new AssertionError("drunk fill");
         }
     }
 }

@@ -32,4 +32,16 @@ public final class BackgroundCrossfade {
     public static boolean shouldFade(boolean hasPrevious, boolean fillOpaque) {
         return hasPrevious && fillOpaque;
     }
+
+    /**
+     * Herd install of a new file. {@code sameImage} is a redecode of the file
+     * already on screen (fit or pixelation) and snaps. A different file still
+     * fades, including the live-wallpaper fallback under the new album's
+     * first image.
+     */
+    public static boolean shouldFadeReplacement(boolean hasPrevious, boolean fillOpaque,
+            boolean sameImage) {
+        if (sameImage) return false;
+        return shouldFade(hasPrevious, fillOpaque);
+    }
 }

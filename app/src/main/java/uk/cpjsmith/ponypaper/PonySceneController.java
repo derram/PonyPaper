@@ -250,6 +250,11 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     /** True when {@link #pendingTableauBackground} was set by a Tableau install. */
     private boolean hasPendingTableauBackground = false;
     /**
+     * Dream Tableau cutover should cross-fade {@link #pendingTableauBackground}
+     * over the image already on screen. The live-wallpaper fallback counts.
+     */
+    private boolean pendingTableauBackgroundFade = false;
+    /**
      * True after a Tableau herd is installed until its first full-opacity
      * reveal frame (spawn gate + optional fade).
      */
@@ -746,6 +751,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             pendingTableauBackground = null;
         }
         hasPendingTableauBackground = false;
+        pendingTableauBackgroundFade = false;
     }
 
     private void clearTableauReveal() {
@@ -775,9 +781,15 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
         }
         if (hasPendingTableauBackground) {
             hasPendingTableauBackground = false;
+            boolean fade = pendingTableauBackgroundFade;
+            pendingTableauBackgroundFade = false;
             Bitmap next = pendingTableauBackground;
             pendingTableauBackground = null;
-            replaceBackground(next);
+            if (fade) {
+                installCycledBackground(next);
+            } else {
+                replaceBackground(next);
+            }
         }
         if (pendingBackgroundFitReload) {
             pendingBackgroundFitReload = false;
@@ -1115,6 +1127,10 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             String bgHash, int pixelation, int canvasW, int canvasH,
             boolean containFit, boolean bumpCycleClock) {
         ponies = readyHerd;
+        // Decide before rememberDisplayedBackground updates the hash. A herd
+        // rebuild while the new album is decoding still has the previous
+        // bitmap up — often the live wallpaper — and that handoff should fade.
+        boolean fadeBg = shouldCrossfadeInstalledBackground(readyBg, bgHash);
         if (readyBg != null) {
             rememberDisplayedBackground(bgHash, pixelation, canvasW, canvasH,
                     containFit, bumpCycleClock);
@@ -1134,6 +1150,7 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             discardPendingTableauBackground();
             pendingTableauBackground = readyBg;
             hasPendingTableauBackground = true;
+            pendingTableauBackgroundFade = fadeBg;
             armTableauReveal();
         } else {
             tableauHerd = false;
@@ -1141,13 +1158,32 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
             lastAppliedSlots = Collections.emptyList();
             clearOutgoingHerd();
             clearTableauReveal();
-            replaceBackground(readyBg);
+            if (fadeBg) {
+                installCycledBackground(readyBg);
+            } else {
+                replaceBackground(readyBg);
+            }
         }
         forceSceneRedraw = true;
         if (pendingBackgroundFitReload && !hasPendingTableauBackground) {
             pendingBackgroundFitReload = false;
             reloadDisplayedBackground();
         }
+    }
+
+    /**
+     * Dream herd install fades when {@code readyBg} is a different file from
+     * the bitmap on screen. Same-hash redecodes snap. The wallpaper fallback
+     * shown while a replaced album is still building is a different file, so
+     * the first new album image fades in over it.
+     */
+    private boolean shouldCrossfadeInstalledBackground(Bitmap readyBg, String bgHash) {
+        if (!isDreamHost() || readyBg == null) return false;
+        boolean hasPrevious = background != null && !background.isRecycled()
+                && background != readyBg;
+        return BackgroundCrossfade.shouldFadeReplacement(
+                hasPrevious, paint.getAlpha() == 0xff,
+                hashesEqual(bgHash, displayedBackgroundHash));
     }
 
     private int pixelationFromPrefs(SharedPreferences prefs) {
