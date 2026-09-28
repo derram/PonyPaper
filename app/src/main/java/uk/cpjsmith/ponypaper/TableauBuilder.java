@@ -161,7 +161,7 @@ final class TableauBuilder {
             }
         }
         ResolvedHerd resolved = resolveAndCap(context, scene, cap);
-        return new Ponies(context, resolved.live, prefs, resolved.jsonToLive);
+        return new Ponies(context, resolved.live, prefs, resolved.jsonToLive, isDream);
     }
 
     /**

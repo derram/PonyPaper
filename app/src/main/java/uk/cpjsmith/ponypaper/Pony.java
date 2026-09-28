@@ -248,11 +248,30 @@ public class Pony {
      * finger. Zero when pinned: Tableau drag is placement and must match the
      * committed feet (WYSIWYG).
      */
+    /**
+     * Dream finger-down cue: show the drag lift before the finger slides.
+     * Cleared on release, or once {@link #startDrag()} takes over.
+     */
+    private boolean dragLiftPreview;
+
+    private boolean showsDragLift() {
+        return !pinned && (motion == MOTION_DRAGGED || dragLiftPreview);
+    }
+
     private float dragLiftY() {
-        if (motion != MOTION_DRAGGED || pinned) {
+        if (!showsDragLift()) {
             return 0f;
         }
         return 20f * getScale();
+    }
+
+    /** Wander screensaver: hang the sprite above the finger before a slide. */
+    void setDragLiftPreview(boolean preview) {
+        dragLiftPreview = preview && !pinned;
+    }
+
+    boolean isDragLiftPreview() {
+        return dragLiftPreview;
     }
     
     /**
@@ -947,6 +966,11 @@ public class Pony {
                 }
             }
             
+            // Finger is down for the drag cue; don't walk out from under it.
+            if (dragLiftPreview) {
+                return;
+            }
+
             switch (motion) {
                 case MOTION_WAITING:
                     if (worldFlow) {
@@ -1005,7 +1029,7 @@ public class Pony {
         int time = clampedAnimTime();
         // Wander: hang above the finger. Pinned Tableau: WYSIWYG placement.
         currentAction.drawOn(c, direction, time, posX, posY, getScale(),
-                motion == MOTION_DRAGGED && !pinned, srcScratch, dstScratch);
+                showsDragLift(), srcScratch, dstScratch);
     }
 
     /**
@@ -1097,6 +1121,7 @@ public class Pony {
      * {@link #moveTo(Point)} until {@link #stopDrag()} is called.
      */
     public void startDrag() {
+        dragLiftPreview = false;
         // Only enter drag motion when a real next drag action exists.
         if (setDragged()) {
             motion = MOTION_DRAGGED;

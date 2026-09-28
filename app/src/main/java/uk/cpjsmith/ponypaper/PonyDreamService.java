@@ -43,9 +43,11 @@ import java.util.Random;
  * timeout while charging or docked — see Display → Screen saver → When to start).
  * This service only controls content and interactive exit.
  *
- * <p>Interactive so hold-to-drag works. Starts dimmed for dock/idle power use.
+ * <p>Interactive so a press-and-slide can drag a pony. A still hold is left
+ * to the system screensaver switcher (Android 17’s long-press “Edit”
+ * popup). Starts dimmed for dock/idle power use.
  * First contact on a dim scene brightens immediately (no gear yet). A confirmed
- * single tap that is not a completed long-press drag shows or hides session
+ * single tap that is not a completed drag shows or hides session
  * chrome (a gear). A horizontal fling on empty scene steps the saved-background
  * album (left = next, right = previous) when at least two images are present;
  * extra flings keep only the latest target so disk is not slammed. Double-tap

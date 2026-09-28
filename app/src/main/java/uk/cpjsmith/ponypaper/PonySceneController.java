@@ -2022,11 +2022,14 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     public void onTouchEvent(MotionEvent event) {
+        // Include the pose from before the event so a finger-up drops the
+        // lift on this frame, not on the next idle tick.
+        boolean dragFrame = ponies != null && ponies.needsDragFrame();
         if (ponies != null) ponies.onTouchEvent(event);
-        // Hold-to-drag should follow the finger even while the idle schedule is
-        // in effect; home-screen swipes never set this (long-press required).
-        if (ponies != null && ponies.didDragThisGesture()
-                && active && !frozen && !thermalEmergency
+        dragFrame = dragFrame || (ponies != null && ponies.needsDragFrame());
+        // A drag (and the dream finger-down pop) should paint even while the
+        // idle schedule is in effect. Home-screen swipes never set this.
+        if (dragFrame && active && !frozen && !thermalEmergency
                 && surface.isDrawingEnabled()) {
             handler.removeCallbacks(drawFrameCallback);
             drawFrame();
@@ -2034,8 +2037,8 @@ public class PonySceneController implements SharedPreferences.OnSharedPreference
     }
 
     /**
-     * Whether the current gesture long-press-dragged a pony. Dream hosts use this
-     * to leave an active drag alone (tap chrome, album-skip fling).
+     * Whether the current gesture dragged a pony. Dream hosts use this to leave
+     * an active drag alone (tap chrome, album-skip fling).
      */
     public boolean didDragThisGesture() {
         return ponies != null && ponies.didDragThisGesture();

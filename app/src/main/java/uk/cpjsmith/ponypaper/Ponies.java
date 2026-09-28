@@ -25,8 +25,10 @@ import java.util.Random;
 public class Ponies implements Pony.EffectHost {
     
     /**
-     * Hold duration before a touch on a pony becomes a drag. Prevents
-     * accidental grabs from home-screen swipes and casual taps.
+     * Hold duration before a touch on a pony becomes a drag on the home
+     * screen. Prevents accidental grabs from launcher swipes and casual taps.
+     * The screensaver does not use this: a still hold is the system
+     * screensaver switcher, so a dream grab starts when the finger slides.
      */
     private static final int LONG_PRESS_MS = 300;
     
@@ -123,25 +125,29 @@ public class Ponies implements Pony.EffectHost {
     
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final int touchSlop;
+    /**
+     * Dream host: grab when the finger moves past {@link #touchSlop} instead
+     * of waiting out {@link #LONG_PRESS_MS}. A stationary hold is left to the
+     * system screensaver switcher.
+     */
+    private final boolean dreamSlideDrag;
     private final Runnable longPressRunnable = new Runnable() {
         @Override
         public void run() {
-            if (pendingPony == null) return;
-            draggedPony = pendingPony;
-            pendingPony = null;
-            draggedThisGesture = true;
-            draggedPony.startDrag();
-            draggedPony.moveTo(new Point(Math.round(lastX), Math.round(lastY)));
+            beginPendingDrag();
         }
     };
     
     private int initialPointerId = -1;
     private Pony draggedPony = null;
-    /** Pony under the finger waiting for the long-press timeout. */
+    /**
+     * Pony under the finger. On the home screen this waits for the long-press
+     * timeout; on the screensaver it waits until the finger slides.
+     */
     private Pony pendingPony = null;
     /**
-     * True after a long-press drag starts within the current gesture. Used by
-     * hosts (e.g. dream/screensaver) that dismiss on tap but keep a drag open.
+     * True after a drag starts within the current gesture. Used by hosts
+     * (e.g. dream/screensaver) that dismiss on tap but keep a drag open.
      */
     private boolean draggedThisGesture = false;
     /**
@@ -181,6 +187,7 @@ public class Ponies implements Pony.EffectHost {
 
     /**
      * @param isDream when true, My ??? Pony sizing follows the dream scene mode
+     *                and a slide grabs a pony instead of a still hold
      */
     public Ponies(Context context, SharedPreferences prefs, int desiredCount,
             boolean isDream) {
@@ -188,6 +195,7 @@ public class Ponies implements Pony.EffectHost {
                 ? context.getApplicationContext() : context;
         randomSizeMode = SceneMode.isRandomSize(prefs, isDream);
         worldFlow = SceneMode.isWorldFlow(prefs, isDream);
+        dreamSlideDrag = isDream;
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         String rawWaifu = prefs.getString("pref_waifu", "");
         waifuKey = rawWaifu != null ? rawWaifu : "";
@@ -229,9 +237,11 @@ public class Ponies implements Pony.EffectHost {
      * @param pinnedPonies already-pinned ponies (resolved document order)
      * @param prefs        size and related prefs
      * @param jsonToLive   full JSON slot index → live index, or {@code -1}
+     * @param isDream      when true, a slide grabs a pony; a still hold does not
      */
     public Ponies(Context context, List<Pony> pinnedPonies, SharedPreferences prefs,
-            int[] jsonToLive) {
+            int[] jsonToLive, boolean isDream) {
+        dreamSlideDrag = isDream;
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         ponyContext = context.getApplicationContext() != null
                 ? context.getApplicationContext() : context;
@@ -838,9 +848,12 @@ public class Ponies implements Pony.EffectHost {
     
     /**
      * Handles a touch event on the screen. This allows the user a means of
-     * dragging ponies around the screen. A short hold is required before a
-     * drag starts so home-screen swipes and taps do not grab a pony by
-     * accident.
+     * dragging ponies around the screen. On the home screen a short hold is
+     * required before a drag starts, so launcher swipes and taps do not grab
+     * a pony by accident. On the screensaver the lift (the picked-up pop)
+     * shows as soon as the finger lands on a pony, and the pony follows once
+     * the finger slides past touch slop. A still hold is left for the system
+     * screensaver switcher; a tap that never slides is not a drag.
      * 
      * @param event the touch event that was performed by the user
      */
@@ -861,7 +874,13 @@ public class Ponies implements Pony.EffectHost {
                 }
                 if (pendingPony != null) {
                     downHitPony = true;
-                    handler.postDelayed(longPressRunnable, LONG_PRESS_MS);
+                    if (dreamSlideDrag) {
+                        // Pop above the finger now. The drag pose waits for a slide,
+                        // and a tap that never slides does not count as a drag.
+                        pendingPony.setDragLiftPreview(true);
+                    } else {
+                        handler.postDelayed(longPressRunnable, LONG_PRESS_MS);
+                    }
                 }
                 break;
                 
@@ -879,9 +898,15 @@ public class Ponies implements Pony.EffectHost {
                     float dx = lastX - downX;
                     float dy = lastY - downY;
                     if (dx * dx + dy * dy > touchSlop * touchSlop) {
-                        // Finger moved before the hold completed — treat as a
-                        // home-screen gesture, not a grab.
-                        cancelPendingDrag();
+                        if (dreamSlideDrag) {
+                            // Slide past slop before the system long-press
+                            // timeout, so the screensaver switcher does not open.
+                            beginPendingDrag();
+                        } else {
+                            // Finger moved before the hold completed — treat as a
+                            // home-screen gesture, not a grab.
+                            cancelPendingDrag();
+                        }
                     }
                 }
                 if (draggedPony != null) {
@@ -900,11 +925,20 @@ public class Ponies implements Pony.EffectHost {
     }
 
     /**
-     * Whether the current (or just-finished) gesture long-press-dragged a pony.
+     * Whether the current (or just-finished) gesture dragged a pony.
      * Cleared on the next {@link MotionEvent#ACTION_DOWN}.
      */
     public boolean didDragThisGesture() {
         return draggedThisGesture;
+    }
+
+    /**
+     * True while a pony is showing the picked-up pose for this gesture,
+     * including the dream finger-down cue before the finger has slid.
+     */
+    public boolean needsDragFrame() {
+        if (draggedThisGesture) return true;
+        return pendingPony != null && pendingPony.isDragLiftPreview();
     }
 
     /**
@@ -915,8 +949,21 @@ public class Ponies implements Pony.EffectHost {
         return downHitPony;
     }
     
+    private void beginPendingDrag() {
+        if (pendingPony == null) return;
+        handler.removeCallbacks(longPressRunnable);
+        draggedPony = pendingPony;
+        pendingPony = null;
+        draggedThisGesture = true;
+        draggedPony.startDrag();
+        draggedPony.moveTo(new Point(Math.round(lastX), Math.round(lastY)));
+    }
+
     private void cancelPendingDrag() {
         handler.removeCallbacks(longPressRunnable);
+        if (pendingPony != null) {
+            pendingPony.setDragLiftPreview(false);
+        }
         pendingPony = null;
     }
     
