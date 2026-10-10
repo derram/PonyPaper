@@ -63,6 +63,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # v3 defaults to "tools platform-tools". Google stopped serving the
+          # obsolete tools package in 2026-09, so sdkmanager exits 1.
+          packages: platform-tools
 
       - name: Require signing secrets
         env:
